@@ -13,7 +13,6 @@ Proyecto de formación — SENA, Centro Minero Ambiental, El Bagre (Antioquia).
 ## Cómo funciona
 
 Los sensores del ESP32 envían las lecturas por WiFi + MQTT a ThingSpeak, y en paralelo a una base de datos MariaDB. Un backend en PHP sirve esos datos a un dashboard web donde se visualizan colmenas, sensores y alertas.
-![ESP32](https://img.shields.io/badge/ESP32-000000?style=for-the-badge&logo=espressif&logoColor=F5A623)![PHP](https://img.shields.io/badge/PHP-1a1a1a?style=for-the-badge&logo=php&logoColor=F5A623)![MariaDB](https://img.shields.io/badge/MariaDB-1a1a1a?style=for-the-badge&logo=mariadb&logoColor=F5A623)![HTML5](https://img.shields.io/badge/HTML5-1a1a1a?style=for-the-badge&logo=html5&logoColor=F5A623)![CSS3](https://img.shields.io/badge/CSS3-1a1a1a?style=for-the-badge&logo=css3&logoColor=F5A623)![Arduino](https://img.shields.io/badge/Arduino_IDE-1a1a1a?style=for-the-badge&logo=arduino&logoColor=F5A623)
 
 
 ```mermaid
@@ -35,7 +34,7 @@ flowchart LR
 
 ## Stack
 
-ESP32 · MQTT · ThingSpeak · PHP · MariaDB · HTML/CSS · Arduino IDE
+![ESP32](https://img.shields.io/badge/ESP32-000000?style=for-the-badge&logo=espressif&logoColor=F5A623)![PHP](https://img.shields.io/badge/PHP-1a1a1a?style=for-the-badge&logo=php&logoColor=F5A623)![MariaDB](https://img.shields.io/badge/MariaDB-1a1a1a?style=for-the-badge&logo=mariadb&logoColor=F5A623)![HTML5](https://img.shields.io/badge/HTML5-1a1a1a?style=for-the-badge&logo=html5&logoColor=F5A623)![CSS3](https://img.shields.io/badge/CSS3-1a1a1a?style=for-the-badge&logo=css3&logoColor=F5A623)![Arduino](https://img.shields.io/badge/Arduino_IDE-1a1a1a?style=for-the-badge&logo=arduino&logoColor=F5A623)
 
 ## Instalación
 
