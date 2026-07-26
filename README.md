@@ -1,4 +1,8 @@
-# BeeStation
+<div align="center">
+
+![BeeStation](https://capsule-render.vercel.app/api?type=transparent&height=190&section=header&text=BeeStation&fontSize=78&fontColor=F5A623&stroke=1a1a1a&strokeWidth=3&fontAlignY=60&animation=fadeIn)
+
+</div>ation
 
 Sistema de monitoreo apícola no invasivo con IoT. Un ESP32 recolecta temperatura, humedad, peso, sonido y calidad del aire de una colmena en tiempo real, sin necesidad de abrir el panal.
 
