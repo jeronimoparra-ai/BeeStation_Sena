@@ -6,7 +6,7 @@
  */
 
 define('DB_HOST', 'localhost');
-define('DB_NAME', 'beestation');
+define('DB_NAME', 'beestation_sena');
 define('DB_USER', 'root');
 define('DB_PASS', '');   // pon aquí la clave real de tu MySQL/MariaDB
 

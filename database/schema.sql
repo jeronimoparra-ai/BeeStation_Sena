@@ -4,8 +4,8 @@
 -- Motor: MySQL / MariaDB
 -- ============================================================
 
-CREATE DATABASE IF NOT EXISTS beestation CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-USE beestation;
+CREATE DATABASE IF NOT EXISTS beestation_sena CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+USE beestation_sena;
 
 -- ── ROLES Y USUARIOS ──────────────────────────────────────────
 CREATE TABLE rol (

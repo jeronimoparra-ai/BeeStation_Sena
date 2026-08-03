@@ -99,3 +99,4 @@ El modelo completo se diseñó en notación Chen con 12 entidades. La implementa
 ## Licencia
 
 MIT — ver [LICENSE](./LICENSE)
+w

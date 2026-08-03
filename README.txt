@@ -22,7 +22,7 @@ de "sin datos todavía" en lugar de inventar números.
 ------------------------------
 - Abre phpMyAdmin (o el cliente MySQL que uses).
 - Ejecuta el archivo: database/schema.sql
-  Esto crea la base de datos "beestation", todas las tablas,
+  Esto crea la base de datos "beestation_sena", todas las tablas,
   y una colmena de ejemplo (Alpha-01) con sus 6 sensores
   registrados, pero SIN lecturas falsas.
 
@@ -31,7 +31,7 @@ de "sin datos todavía" en lugar de inventar números.
 Abre config/db.php y ajusta:
 
   define('DB_HOST', 'localhost');
-  define('DB_NAME', 'beestation');
+  define('DB_NAME', 'beestation_sena');
   define('DB_USER', 'root');
   define('DB_PASS', '');   <-- pon tu clave real aquí
 
