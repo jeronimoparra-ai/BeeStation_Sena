@@ -55,6 +55,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     <div class="auth-signal"><i data-lucide="scale"></i><span>Peso y flujo</span></div>
                     <div class="auth-signal"><i data-lucide="wifi"></i><span>ESP32 online</span></div>
                 </div>
+                <div class="hero-chip-row">
+                    <span class="hero-chip"><i data-lucide="shield-check"></i> Acceso seguro</span>
+                    <span class="hero-chip"><i data-lucide="sparkles"></i> UI premium</span>
+                </div>
             </div>
         </section>
         

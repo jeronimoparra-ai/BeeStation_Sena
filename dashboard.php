@@ -19,11 +19,10 @@
 
     $flujoDiario = calcularFlujoDiarioPeso($idColmena);
     $ibb = calcularIBB($idColmena);
+    $alertas = alertasActivas($idColmena, 5);
 
     $serieTemp = serieHistorica($idColmena, 'temperatura_interna', 24);
     $seriePeso = serieHistorica($idColmena, 'peso', 24);
-
-    $alertas = alertasActivas($idColmena, 5);
 ?>
 
 <div class="page-header">
@@ -35,6 +34,36 @@
         <i data-lucide="refresh-cw"></i>
         Actualizar
     </button>
+</div>
+
+<div class="card dashboard-hero animate-fadeUp stagger-1">
+    <div class="hero-copy">
+        <span class="hero-eyebrow">Centro de monitoreo en tiempo real</span>
+        <h2>BeeStation observa la colmena con precisión operativa.</h2>
+        <p class="page-subtitle">Lecturas reales, jerarquía visual clara y estado consolidado de temperatura, humedad, peso, actividad acústica y alertas.</p>
+        <div class="hero-chip-row">
+            <span class="hero-chip">
+                <i data-lucide="hexagon"></i>
+                <?= htmlspecialchars($colmenaActiva['nombre']) ?>
+            </span>
+            <span class="hero-chip">
+                <i data-lucide="wifi"></i>
+                <?= $espOnline ? 'ESP32 sincronizado' : 'Sin datos recientes' ?>
+            </span>
+            <span class="hero-chip">
+                <i data-lucide="alert-triangle"></i>
+                <?= count($alertas) ?> alertas activas
+            </span>
+        </div>
+    </div>
+    <div class="hero-panel">
+        <div class="hero-ring">
+            <div class="hero-kpi">
+                <div class="hero-kpi-value"><?= $ibb ? number_format($ibb['valor'], 1) : '—' ?></div>
+                <div class="hero-kpi-label"><?= $ibb ? htmlspecialchars($ibb['estado']) : 'IBB pendiente' ?></div>
+            </div>
+        </div>
+    </div>
 </div>
 
 <!-- Metric Cards -->

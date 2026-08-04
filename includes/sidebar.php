@@ -17,6 +17,20 @@
         <span>Live</span>
     </div>
 
+    <div class="sidebar-summary">
+        <div class="sidebar-summary-label">Colmena activa</div>
+        <div class="sidebar-summary-name">
+            <?= $colmenaActiva ? htmlspecialchars($colmenaActiva['nombre']) : 'Sin colmena asignada' ?>
+        </div>
+        <div class="sidebar-summary-status">
+            <span class="sidebar-status-chip <?= $espOnline ? 'online' : 'offline' ?>">
+                <span class="status-dot <?= $espOnline ? '' : 'offline' ?>"></span>
+                <?= $espOnline ? 'ESP32 sincronizado' : 'Sincronización detenida' ?>
+            </span>
+            <span class="sidebar-summary-time"><?= $colmenaActiva ? htmlspecialchars($colmenaActiva['estado']) : 'N/A' ?></span>
+        </div>
+    </div>
+
     <nav class="sidebar-nav">
         <div class="nav-group">
             <div class="nav-group-title">Panel</div>
@@ -67,5 +81,6 @@
                 <i data-lucide="log-out"></i>
             </a>
         </div>
+        <div class="sidebar-footer-note text-xs u-muted-strong u-mt-2">Sesión segura · interfaz premium</div>
     </div>
 </aside>
