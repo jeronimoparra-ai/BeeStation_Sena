@@ -22,6 +22,45 @@
     </div>
 </div>
 
+<div class="card page-hero animate-fadeUp stagger-1">
+    <div class="page-hero-copy">
+        <span class="hero-eyebrow">Arquitectura sensorial</span>
+        <h2>Inventario vivo de módulos, estados y lecturas calibradas.</h2>
+        <p class="page-subtitle">La capa de sensores se presenta como un panel de control técnico: conteos claros, estados legibles y una tabla más limpia para operar sin ruido visual.</p>
+        <div class="page-hero-grid">
+            <div class="page-kpi-card">
+                <span>En línea</span>
+                <strong><?= $activos ?></strong>
+            </div>
+            <div class="page-kpi-card">
+                <span>Advertencia</span>
+                <strong><?= $advertencia ?></strong>
+            </div>
+        </div>
+    </div>
+    <div class="page-hero-aside">
+        <div class="premium-banner">
+            <div>
+                <div class="subtle-note u-mb-1">Total de módulos</div>
+                <div class="card-title"><?= count($sensores) ?> sensores registrados</div>
+            </div>
+            <span class="badge badge-neutral">Live inventory</span>
+        </div>
+        <div class="hero-chip">
+            <i data-lucide="cpu"></i>
+            <span>Estado real desde la base de datos</span>
+        </div>
+        <div class="hero-chip">
+            <i data-lucide="shield-check"></i>
+            <span>Lecturas calibradas y trazables</span>
+        </div>
+        <div class="hero-chip">
+            <i data-lucide="table-2"></i>
+            <span>Vista apta para operación diaria</span>
+        </div>
+    </div>
+</div>
+
 <!-- Stat Pills -->
 <div class="grid-3-cols">
     <div class="stat-pill animate-fadeUp stagger-1">
@@ -39,7 +78,7 @@
 </div>
 
 <!-- Sensors Table -->
-<div class="card animate-fadeUp stagger-4 u-mb-4">
+<div class="card table-shell animate-fadeUp stagger-4 u-mb-4">
     <div class="card-header">
         <div class="card-title">Módulos de Sensado</div>
         <span class="badge badge-neutral"><?= count($sensores) ?> sensores</span>
@@ -103,7 +142,7 @@
 </div>
 
 <!-- Hive Info -->
-<div class="card animate-fadeUp stagger-5">
+<div class="card premium-empty animate-fadeUp stagger-5">
     <div class="card-header"><div class="card-title">Información de la Colmena</div></div>
     <div class="info-grid">
         <div class="info-grid-item">

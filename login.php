@@ -46,27 +46,58 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     <div class="auth-shell">
         <section class="auth-brand-panel">
             <div class="brand-content">
-                <img src="assets/logo-beestation.png" alt="BeeStation Logo" class="brand-logo">
-                <h1 class="brand-title">BeeStation</h1>
-                <p class="brand-slogan">Monitoreo IoT para colmenas con datos reales, lectura clara y control operativo en tiempo real.</p>
+                <div class="auth-banner">
+                    <div class="auth-banner-label"><i data-lucide="sparkles"></i> Hive Intelligence Platform</div>
+                    <div class="auth-banner-title">Monitoreo premium para colmenas con lectura en tiempo real.</div>
+                    <div class="auth-banner-copy">Una interfaz diseñada para operar como un producto comercial de alto nivel: rápida, limpia, elegante y centrada en datos reales.</div>
+                </div>
+
+                <div class="login-hero-row">
+                    <img src="assets/logo-beestation.png" alt="BeeStation Logo" class="brand-logo">
+                    <div>
+                        <h1 class="brand-title">BeeStation</h1>
+                        <p class="brand-slogan">Monitoreo IoT para colmenas con datos reales, lectura clara y control operativo en tiempo real.</p>
+                    </div>
+                </div>
+
+                <div class="auth-hero-stats">
+                    <div class="auth-hero-stat"><strong>24/7</strong><span>Vigilancia continua</span></div>
+                    <div class="auth-hero-stat"><strong>ESP32</strong><span>Telemetría directa</span></div>
+                    <div class="auth-hero-stat"><strong>IBB</strong><span>Bienestar bioclimático</span></div>
+                    <div class="auth-hero-stat"><strong>Live</strong><span>Alertas y tendencias</span></div>
+                </div>
+
                 <div class="auth-signal-grid">
                     <div class="auth-signal"><i data-lucide="activity"></i><span>Señales acústicas</span></div>
                     <div class="auth-signal"><i data-lucide="thermometer"></i><span>Clima interno</span></div>
                     <div class="auth-signal"><i data-lucide="scale"></i><span>Peso y flujo</span></div>
                     <div class="auth-signal"><i data-lucide="wifi"></i><span>ESP32 online</span></div>
                 </div>
+
                 <div class="hero-chip-row">
                     <span class="hero-chip"><i data-lucide="shield-check"></i> Acceso seguro</span>
                     <span class="hero-chip"><i data-lucide="sparkles"></i> UI premium</span>
                 </div>
             </div>
         </section>
-        
+
         <section class="auth-form-panel">
             <div class="auth-card login-card <?= $error ? 'shake-animation' : '' ?>">
-                <span class="auth-eyebrow"><i data-lucide="shield-check"></i> Acceso seguro</span>
-                <h2>Iniciar sesión</h2>
-                <p class="auth-copy">Ingresa con tus credenciales para revisar el estado operativo de tus colmenas.</p>
+                <div class="login-head">
+                    <span class="login-head-badge"><i data-lucide="shield-check"></i> Acceso seguro</span>
+                    <div class="login-lock-visual"><i data-lucide="lock-keyhole"></i></div>
+                </div>
+
+                <div class="login-hero-copy">
+                    <h2>Iniciar sesión</h2>
+                    <p class="auth-copy">Ingresa con tus credenciales para revisar el estado operativo de tus colmenas.</p>
+                </div>
+
+                <div class="login-meta-grid">
+                    <div class="login-meta-card"><strong>Tiempo real</strong><span>Lecturas vivas y alertas</span></div>
+                    <div class="login-meta-card"><strong>Visual</strong><span>Panel profesional premium</span></div>
+                    <div class="login-meta-card"><strong>Seguro</strong><span>Acceso protegido</span></div>
+                </div>
 
                 <?php if ($error): ?>
                     <div class="login-error">
@@ -89,7 +120,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             </button>
                         </div>
                     </div>
-                    
+
                     <div class="form-options">
                         <label class="remember-me">
                             <input type="checkbox" name="remember">
@@ -97,7 +128,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         </label>
                         <a href="#" class="forgot-password">Recuperar contraseña</a>
                     </div>
-                    
+
                     <button type="submit" class="btn btn-brand login-btn" id="submitBtn">
                         <span class="btn-text">Ingresar</span>
                         <i data-lucide="arrow-right" class="btn-symbol"></i>
@@ -114,11 +145,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     <script>
         if (window.lucide) lucide.createIcons();
-        
-        // Password toggle
+
         const togglePassword = document.getElementById('togglePassword');
         const passwordInput = document.getElementById('passwordInput');
-        
+
         togglePassword.addEventListener('click', function () {
             const type = passwordInput.getAttribute('type') === 'password' ? 'text' : 'password';
             passwordInput.setAttribute('type', type);
@@ -126,7 +156,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if (window.lucide) lucide.createIcons();
         });
 
-        // Loading state on form submit
         const loginForm = document.getElementById('loginForm');
         const submitBtn = document.getElementById('submitBtn');
         const btnText = submitBtn.querySelector('.btn-text');
@@ -138,6 +167,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             btnText.textContent = 'Procesando...';
             btnIcon.classList.add('is-hidden');
             btnSpinner.classList.remove('is-hidden');
+        });
+
+        const heroPanel = document.querySelector('.auth-brand-panel');
+        heroPanel?.addEventListener('mousemove', (event) => {
+            const rect = heroPanel.getBoundingClientRect();
+            const x = ((event.clientX - rect.left) / rect.width - 0.5) * 12;
+            const y = ((event.clientY - rect.top) / rect.height - 0.5) * 12;
+            heroPanel.style.setProperty('--parallax-x', `${x}px`);
+            heroPanel.style.setProperty('--parallax-y', `${y}px`);
         });
     </script>
 </body>

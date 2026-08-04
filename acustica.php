@@ -27,6 +27,36 @@
     <?php endif; ?>
 </div>
 
+<div class="card page-hero animate-fadeUp stagger-1">
+    <div class="page-hero-copy">
+        <span class="hero-eyebrow">Señal acústica</span>
+        <h2>Patrón sonoro de la colonia con foco en comportamiento y alerta.</h2>
+        <p class="page-subtitle">La lectura acústica se interpreta como una señal operacional: actividad normal, zona crítica y contexto histórico presentados con una jerarquía más clara.</p>
+        <div class="page-hero-grid">
+            <div class="page-kpi-card">
+                <span>Frecuencia actual</span>
+                <strong><?= $sonido ? number_format($sonido['valor_calibrado'], 0) . ' Hz' : 'Sin datos' ?></strong>
+            </div>
+            <div class="page-kpi-card">
+                <span>Lecturas</span>
+                <strong><?= count($serieSonido) ?> eventos</strong>
+            </div>
+        </div>
+    </div>
+    <div class="page-hero-aside">
+        <div class="premium-banner">
+            <div>
+                <div class="subtle-note u-mb-1">Estado de riesgo</div>
+                <div class="card-title"><?= $enAlerta ? 'Alerta activa' : 'Monitoreo estable' ?></div>
+            </div>
+            <span class="badge <?= $enAlerta ? 'badge-critical' : 'badge-success' ?>"><?= $enAlerta ? 'Crítico' : 'Normal' ?></span>
+        </div>
+        <div class="hero-chip"><i data-lucide="waves"></i><span>MAX9814 · señal continua</span></div>
+        <div class="hero-chip"><i data-lucide="shield-alert"></i><span>Umbral 400–600 Hz para enjambrazón</span></div>
+        <div class="hero-chip"><i data-lucide="mic"></i><span>Histórico real de 6 horas</span></div>
+    </div>
+</div>
+
 <!-- Metric Cards -->
 <div class="grid-2x2 two-column-metrics">
     <div class="card metric-card animate-fadeUp stagger-1 <?= $enAlerta ? 'critical' : ($sonido ? 'success' : '') ?>">
@@ -64,14 +94,14 @@
 </div>
 
 <!-- Acoustic Chart -->
-<div class="card animate-fadeUp stagger-3 u-mb-4">
+<div class="card chart-frame animate-fadeUp stagger-3 u-mb-4">
     <div class="card-header">
         <div class="card-title">Frecuencia en el Tiempo — Últimas 6 horas</div>
     </div>
     <?php if (count($serieSonido) > 0): ?>
         <div class="chart-shell-sm"><canvas id="acousticChart"></canvas></div>
     <?php else: ?>
-        <div class="empty-state compact">
+        <div class="premium-empty compact">
             <div class="empty-icon-circle"><i data-lucide="mic-off" class="u-icon-lg"></i></div>
             <p class="empty-desc">Todavía no hay lecturas del sensor de sonido. Cuando el MAX9814 empiece a transmitir, este gráfico se llenará con datos reales.</p>
         </div>

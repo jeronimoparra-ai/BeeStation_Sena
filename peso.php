@@ -19,15 +19,45 @@
     </div>
 </div>
 
-<div class="grid-4-cols">
-    <div class="card metric-card brand">
+<div class="card page-hero animate-fadeUp stagger-1">
+    <div class="page-hero-copy">
+        <span class="hero-eyebrow">Tendencia de masa</span>
+        <h2>El peso de la colmena como señal de flujo y acumulación.</h2>
+        <p class="page-subtitle">Una lectura limpia, con foco en la evolución real del HX711 y una visualización más amplia para interpretar variaciones de manera inmediata.</p>
+        <div class="page-hero-grid">
+            <div class="page-kpi-card">
+                <span>Peso actual</span>
+                <strong><?= $pesoActual ? number_format($pesoActual['valor_calibrado'], 2) . ' kg' : 'Sin datos' ?></strong>
+            </div>
+            <div class="page-kpi-card">
+                <span>Registros</span>
+                <strong><?= count($serie30d) ?> lecturas</strong>
+            </div>
+        </div>
+    </div>
+    <div class="page-hero-aside">
+        <div class="premium-banner">
+            <div>
+                <div class="subtle-note u-mb-1">Último ciclo</div>
+                <div class="card-title">30 días de histórico</div>
+            </div>
+            <span class="badge badge-brand">Peso vivo</span>
+        </div>
+        <div class="hero-chip"><i data-lucide="scale"></i><span>Señal gravimétrica continua</span></div>
+        <div class="hero-chip"><i data-lucide="trending-up"></i><span>Variación útil para flujo de néctar</span></div>
+        <div class="hero-chip"><i data-lucide="database"></i><span>Datos reales desde la base</span></div>
+    </div>
+</div>
+
+<div class="metric-compact-grid u-mb-4">
+    <div class="card metric-mini metric-card brand">
         <div class="metric-icon brand">
             <i data-lucide="scale"></i>
         </div>
         <div class="metric-header"><i data-lucide="scale"></i> Peso Actual</div>
         <div class="metric-value"><?= $pesoActual ? number_format($pesoActual['valor_calibrado'], 2) . ' <span class="metric-unit">kg</span>' : '<span class="text-tertiary">Sin datos</span>' ?></div>
     </div>
-    <div class="card metric-card neutral">
+    <div class="card metric-mini metric-card neutral">
         <div class="metric-icon neutral">
             <i data-lucide="database"></i>
         </div>
@@ -38,7 +68,7 @@
 </div>
 
 <div class="grid-2x2 single-column-grid">
-    <div class="card">
+    <div class="card chart-frame">
         <div class="card-header">
             <div>
                 <div class="card-title">Evolución de Peso — Últimos 30 días</div>
@@ -48,7 +78,7 @@
         <?php if (count($serie30d) > 0): ?>
             <div class="chart-shell"><canvas id="weightAreaChart"></canvas></div>
         <?php else: ?>
-            <div class="empty-state compact">
+            <div class="premium-empty compact">
                 <div class="empty-icon-circle"><i data-lucide="line-chart" class="u-icon-lg"></i></div>
                 <p class="empty-desc">Todavía no hay lecturas de peso registradas para esta colmena. En cuanto el sensor HX711 empiece a enviar datos, aparecerán aquí automáticamente.</p>
             </div>
