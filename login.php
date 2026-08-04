@@ -39,7 +39,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     </script>
     <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Inter:wght@400;500;600;700&family=Sora:wght@600;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="css/style.css">
+    <link rel="stylesheet" href="css/style-premium.css">
     <script src="https://unpkg.com/lucide@latest"></script>
 </head>
 <body class="auth-body">
@@ -108,13 +108,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
                 <form action="login.php" method="POST" id="loginForm">
                     <div class="form-group floating-field">
-                        <label class="form-label" for="emailInput">Correo electrónico</label>
-                        <input type="email" name="email" id="emailInput" class="form-control" placeholder="usuario@beestation.io" required value="<?= htmlspecialchars($_POST['email'] ?? '') ?>">
+                        <div class="field-shell">
+                            <input type="email" name="email" id="emailInput" class="form-control" placeholder=" " required value="<?= htmlspecialchars($_POST['email'] ?? '') ?>">
+                            <label class="form-label" for="emailInput">Correo electrónico</label>
+                        </div>
                     </div>
                     <div class="form-group floating-field">
-                        <label class="form-label" for="passwordInput">Contraseña</label>
-                        <div class="password-input-wrapper">
-                            <input type="password" name="password" id="passwordInput" class="form-control" required>
+                        <div class="field-shell password-input-wrapper">
+                            <input type="password" name="password" id="passwordInput" class="form-control" placeholder=" " required>
+                            <label class="form-label" for="passwordInput">Contraseña</label>
                             <button type="button" class="password-toggle" id="togglePassword">
                                 <i data-lucide="eye"></i>
                             </button>
