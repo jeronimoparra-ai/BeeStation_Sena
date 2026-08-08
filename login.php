@@ -37,6 +37,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="css/login-redesign.css">
+  <script>
+    if (localStorage.getItem('beestation-dark') === 'true') {
+        document.documentElement.classList.add('dark');
+    }
+  </script>
 </head>
 <body class="login-page">
 
@@ -179,18 +184,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     <section class="ls-right" aria-label="Formulario de inicio de sesión">
 
       <!-- Theme toggle -->
-      <button class="ls-theme-btn" id="themeBtn" aria-label="Cambiar tema" title="Cambiar tema">
-        <svg viewBox="0 0 24 24" aria-hidden="true">
-          <circle cx="12" cy="12" r="5"/>
-          <line x1="12" y1="1"  x2="12" y2="3"/>
-          <line x1="12" y1="21" x2="12" y2="23"/>
-          <line x1="4.22"  y1="4.22"  x2="5.64"  y2="5.64"/>
-          <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/>
-          <line x1="1"  y1="12" x2="3"  y2="12"/>
-          <line x1="21" y1="12" x2="23" y2="12"/>
-          <line x1="4.22"  y1="19.78" x2="5.64"  y2="18.36"/>
-          <line x1="18.36" y1="5.64"  x2="19.78" y2="4.22"/>
-        </svg>
+      <button class="ls-theme-btn auth-dark-toggle" id="authDarkToggle" aria-label="Cambiar tema" title="Modo oscuro">
+        <i data-lucide="moon"></i>
       </button>
 
       <!-- Form wrapper -->
@@ -285,7 +280,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
           <!-- Remember + Forgot -->
           <div class="ls-form-options">
             <label class="ls-remember">
-              <input type="checkbox" name="remember" id="rememberMe">
+              <input type="checkbox" name="remember" id="rememberMe" checked>
               <span>Recordarme</span>
             </label>
             <a href="#" class="ls-forgot">¿Olvidaste tu contraseña?</a>
@@ -303,12 +298,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         </form>
 
-        <!-- Security note — NO Google / Microsoft buttons -->
+        <!-- Footer institucional -->
+        <!-- NOTA: la frase de "cifrado de extremo a extremo" se omite porque el
+             proyecto no documenta HTTPS/cifrado implementado. Se usa el footer
+             institucional verificable en su lugar. -->
         <div class="ls-security-note">
           <svg viewBox="0 0 24 24" aria-hidden="true">
-            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+            <circle cx="12" cy="12" r="10"/>
+            <line x1="12" y1="8" x2="12" y2="12"/>
+            <line x1="12" y1="16" x2="12.01" y2="16"/>
           </svg>
-          <span>Tus datos están protegidos con cifrado de extremo a extremo.</span>
+          <span>BeeStation &copy; 2026 &middot; SENA Centro de Formación Ambiental</span>
         </div>
 
       </div><!-- /.ls-form-wrap -->
@@ -348,5 +348,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     });
   </script>
 
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <script src="js/app.js"></script>
 </body>
 </html>

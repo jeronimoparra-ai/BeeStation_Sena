@@ -68,7 +68,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // ── Dark Mode Toggle ─────────────────────────────────────────
-    const darkBtn = document.getElementById('darkModeToggle');
+    const darkBtn = document.getElementById('darkModeToggle') || document.getElementById('authDarkToggle');
     const html    = document.documentElement;
 
     const applyDark = (isDark) => {
