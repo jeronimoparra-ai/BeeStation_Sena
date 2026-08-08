@@ -265,6 +265,14 @@ code {
 @keyframes ripple {
   to { transform: scale(3.2); opacity: 0; }
 }
+@keyframes radar-ping {
+  0% { transform: scale(1); opacity: 0.8; }
+  100% { transform: scale(2.4); opacity: 0; }
+}
+@keyframes radar-ping-subtle {
+  0% { transform: scale(1); opacity: 0.5; }
+  100% { transform: scale(1.6); opacity: 0; }
+}
 @keyframes shake {
   10%, 90% { transform: translate3d(-1px, 0, 0); }
   20%, 80% { transform: translate3d(2px, 0, 0); }
@@ -1878,6 +1886,23 @@ tbody tr:last-child td { border-bottom: 0; }
   position: relative;
   overflow: hidden;
 }
+.connect-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  position: relative;
+  overflow: hidden;
+  border-radius: var(--radius-card, 24px);
+  border: 1px solid var(--color-border);
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--color-surface-raised) 92%, transparent) 0%, var(--color-surface) 100%);
+  box-shadow: var(--shadow-md);
+  padding: 40px;
+  margin: auto;
+  width: 100%;
+  max-width: 480px;
+}
 .connect-card::before {
   content: '';
   position: absolute;
@@ -1895,6 +1920,37 @@ tbody tr:last-child td { border-bottom: 0; }
   border-radius: 28px;
   color: var(--color-text-inverse);
   box-shadow: var(--shadow-md);
+  position: relative;
+  isolation: isolate;
+}
+.connect-icon::before,
+.connect-icon::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  z-index: -1;
+  pointer-events: none;
+}
+.connect-icon.offline::before {
+  border: 2px solid var(--color-critical);
+  animation: radar-ping 2s cubic-bezier(0, 0, 0.2, 1) infinite;
+}
+.connect-icon.offline::after {
+  border: 2px solid var(--color-critical);
+  animation: radar-ping 2s cubic-bezier(0, 0, 0.2, 1) infinite 1s;
+}
+.connect-icon.online::before {
+  border: 2px solid var(--color-success);
+  animation: radar-ping-subtle 3s ease-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .connect-icon.offline::before,
+  .connect-icon.offline::after,
+  .connect-icon.online::before {
+    animation: none;
+    display: none;
+  }
 }
 .connect-icon.online { background: linear-gradient(135deg, var(--color-success), color-mix(in srgb, var(--color-success) 50%, var(--color-text-inverse))); }
 .connect-icon.offline { background: linear-gradient(135deg, var(--color-critical), color-mix(in srgb, var(--color-critical) 50%, var(--color-text-inverse))); }
@@ -1913,6 +1969,7 @@ tbody tr:last-child td { border-bottom: 0; }
   display: grid;
   gap: 12px;
   margin-top: 12px;
+  width: 100%;
 }
 .form-reset { margin: 0; }
 .btn-full { width: 100%; }
