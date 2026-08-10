@@ -341,15 +341,14 @@ code {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: linear-gradient(135deg, var(--color-brand), var(--color-brand-dark));
-  box-shadow: 0 4px 12px rgba(245, 166, 35, 0.3);
+  background: rgba(255, 255, 255, 0.04);
   flex-shrink: 0;
 }
 
 .sidebar-logo {
-  width: 20px;
-  height: 20px;
-  filter: brightness(0) invert(1);
+  width: 30px;
+  height: 30px;
+  object-fit: contain;
 }
 
 .sidebar-brand-copy {
@@ -1107,6 +1106,28 @@ tbody tr:hover td { background: var(--color-bg-soft); }
   color: #FFF;
 }
 
+.floating-hexagons {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    overflow: hidden;
+    z-index: 0;
+}
+.float-hex {
+    position: absolute;
+    color: var(--color-brand, #F6B31B);
+    opacity: 0.12;
+    animation: floatHex 8s ease-in-out infinite;
+}
+.float-hex-1 { width: 48px; height: 48px; top: 15%; left: 10%; animation-delay: 0s; }
+.float-hex-2 { width: 72px; height: 72px; top: 60%; left: 75%; animation-delay: 2.5s; }
+.float-hex-3 { width: 36px; height: 36px; top: 80%; left: 20%; animation-delay: 5s; }
+
+@keyframes floatHex {
+    0%, 100% { transform: translateY(0) rotate(0deg); }
+    50%      { transform: translateY(-16px) rotate(8deg); }
+}
+
 .auth-brand-panel::before {
   content: '';
   position: absolute;
@@ -1200,9 +1221,11 @@ tbody tr:hover td { background: var(--color-bg-soft); }
 }
 
 .brand-logo {
-  width: 72px;
-  height: 72px;
-  border-radius: 20px;
+  width: 64px;
+  height: 64px;
+  border-radius: 12px;
+  margin-bottom: var(--space-4, 16px);
+  object-fit: contain;
   box-shadow: 0 22px 40px rgba(0, 0, 0, 0.24);
   animation: floaty 7.5s ease-in-out infinite;
   flex-shrink: 0;
@@ -1676,16 +1699,20 @@ body::before {
 }
 
 .sidebar-logo-frame {
-  width: 44px;
-  height: 44px;
-  border-radius: 14px;
-  background: linear-gradient(135deg, var(--color-brand) 0%, #ffd166 50%, var(--color-brand-dark) 100%);
-  box-shadow: 0 12px 24px rgba(245, 166, 35, 0.28);
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 255, 255, 0.04);
+  flex-shrink: 0;
 }
 
 .sidebar-logo {
-  width: 22px;
-  height: 22px;
+  width: 30px;
+  height: 30px;
+  object-fit: contain;
 }
 
 .sidebar-kicker {
@@ -2587,9 +2614,11 @@ tbody tr:hover td {
 }
 
 .brand-logo {
-  width: 72px;
-  height: 72px;
-  border-radius: 20px;
+  width: 64px;
+  height: 64px;
+  border-radius: 12px;
+  margin-bottom: var(--space-4, 16px);
+  object-fit: contain;
   box-shadow: 0 20px 40px rgba(0, 0, 0, 0.25);
 }
 

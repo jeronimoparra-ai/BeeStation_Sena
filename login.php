@@ -8,6 +8,11 @@ if (isset($_SESSION['id_usuario'])) {
 }
 
 $error = '';
+$hora = (int) date('H');
+if ($hora >= 5 && $hora < 12) $saludo = 'Buenos días';
+elseif ($hora >= 12 && $hora < 19) $saludo = 'Buenas tardes';
+else $saludo = 'Buenas noches';
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $correo = trim($_POST['email'] ?? '');
     $clave  = $_POST['password'] ?? '';
@@ -17,8 +22,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $_SESSION['id_usuario']   = $usuario['id_usuario'];
         $_SESSION['nombre']       = $usuario['nombre'];
         $_SESSION['correo']       = $usuario['correo'];
-        $_SESSION['rol']          = $usuario['nombre_rol'];
-        $_SESSION['nivel_acceso'] = $usuario['nivel_acceso'];
         header("Location: conectar_dispositivo.php");
         exit;
     } else {
@@ -50,6 +53,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     <!-- ════════  LEFT PANEL — dark brand  ════════ -->
     <section class="ls-left" aria-label="Presentación BeeStation">
+
+      <!-- Hexágonos flotantes decorativos -->
+      <div class="floating-hexagons" aria-hidden="true">
+        <i data-lucide="hexagon" class="float-hex float-hex-1"></i>
+        <i data-lucide="hexagon" class="float-hex float-hex-2"></i>
+        <i data-lucide="hexagon" class="float-hex float-hex-3"></i>
+      </div>
+
       <div class="ls-left-inner">
 
         <!-- Logo -->
@@ -121,64 +132,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       </div>
     </section>
 
-    <!-- ════════  CURVED DIVIDER  ════════ -->
-    <!--
-      The SVG is 104 px wide, positioned so its midpoint sits on the 43% boundary.
-      Left half = black (#0B0B0B), right half = white (#FFFFFF).
-      A single cubic-bezier path creates the organic curve with a thin yellow stroke.
-    -->
-    <div class="ls-curve-wrapper" aria-hidden="true">
-      <svg viewBox="0 0 104 690" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg">
-        <!-- Black fill: covers the area left of the curve -->
-        <path
-          d="M0,0
-             C 54,172  54,518  0,690
-             L 0,0 Z"
-          fill="#0B0B0B"
-        />
-        <!-- White fill: covers the area right of the curve -->
-        <path
-          d="M104,0
-             C  50,172   50,518  104,690
-             L 104,0 Z"
-          fill="#FFFFFF"
-        />
-        <!-- Thin yellow accent stroke along the curve centre -->
-        <path
-          d="M52,0 C 52,172  52,518  52,690"
-          stroke="#F6B31B"
-          stroke-width="1.1"
-          fill="none"
-          opacity="0.55"
-        />
-      </svg>
-    </div>
 
-    <!-- ════════  HEX BADGE (centred on curve)  ════════ -->
-    <div class="ls-hex-badge" aria-hidden="true">
-      <!-- Hexagon outer shape -->
-      <svg class="hex-svg-bg" viewBox="0 0 74 74" xmlns="http://www.w3.org/2000/svg">
-        <polygon
-          points="37,3 70,20 70,54 37,71 4,54 4,20"
-          fill="#0B0B0B"
-          stroke="#F6B31B"
-          stroke-width="2.2"
-        />
-      </svg>
-      <!-- BeeStation icon inside hex -->
-      <div class="hex-inner-icon">
-        <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-          <polygon points="12,2 21,7 21,17 12,22 3,17 3,7"/>
-          <circle cx="12" cy="12" r="2.8"/>
-          <line x1="12" y1="2"  x2="12" y2="9.2"/>
-          <line x1="12" y1="14.8" x2="12" y2="22"/>
-          <line x1="21" y1="7"  x2="14.4" y2="10.5"/>
-          <line x1="9.6" y1="13.5" x2="3"  y2="17"/>
-          <line x1="3"  y1="7"   x2="9.6" y2="10.5"/>
-          <line x1="14.4" y1="13.5" x2="21" y2="17"/>
-        </svg>
-      </div>
-    </div>
 
     <!-- ════════  RIGHT PANEL — white form  ════════ -->
     <section class="ls-right" aria-label="Formulario de inicio de sesión">
@@ -198,6 +152,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
           </svg>
           ACCESO SEGURO
         </div>
+
+        <p class="auth-greeting"><?= htmlspecialchars($saludo) ?>, bienvenido de vuelta</p>
 
         <!-- Title -->
         <h2 class="ls-title">Iniciar sesión</h2>

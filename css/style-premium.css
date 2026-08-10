@@ -353,10 +353,10 @@ code {
   border-radius: 14px;
   display: grid;
   place-items: center;
-  background: linear-gradient(135deg, var(--color-brand) 0%, color-mix(in srgb, var(--color-brand) 55%, var(--color-text-inverse)) 50%, var(--color-brand-dark) 100%);
-  box-shadow: 0 16px 28px color-mix(in srgb, var(--color-brand) 28%, transparent);
+  background: rgba(255, 255, 255, 0.04);
+  flex-shrink: 0;
 }
-.sidebar-logo { width: 22px; height: 22px; filter: brightness(0) invert(1); }
+.sidebar-logo { width: 30px; height: 30px; object-fit: contain; }
 .sidebar-brand-copy { display: flex; flex-direction: column; min-width: 0; }
 .sidebar-kicker {
   font-size: 0.62rem;
@@ -1520,6 +1520,7 @@ tbody tr:last-child td { border-bottom: 0; }
   width: 34px;
   height: 34px;
   border-radius: 10px;
+  object-fit: contain;
   box-shadow: 0 14px 24px color-mix(in srgb, #000000 18%, transparent);
   animation: floaty 8s ease-in-out infinite;
   flex-shrink: 0;
@@ -1695,6 +1696,7 @@ tbody tr:last-child td { border-bottom: 0; }
   width: 72px;
   height: 72px;
   border-radius: 20px;
+  object-fit: contain;
   box-shadow: 0 22px 40px color-mix(in srgb, #000000 24%, transparent);
   animation: floaty 8s ease-in-out infinite;
   flex-shrink: 0;
