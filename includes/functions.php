@@ -213,3 +213,80 @@ function ultimaConexion(int $id_colmena): ?string {
     $row = $stmt->fetch();
     return $row ? $row['fecha_hora'] : null;
 }
+
+/**
+ * Calcula el Delta T (diferencia de temperatura interior vs exterior)
+ */
+function calcularDeltaT(int $id_colmena): ?array {
+    $t_int = ultimaLectura($id_colmena, 'temperatura_interna');
+    $t_ext = ultimaLectura($id_colmena, 'temperatura_externa');
+
+    if (!$t_int || !$t_ext) return null;
+
+    $delta = (float)$t_int['valor_calibrado'] - (float)$t_ext['valor_calibrado'];
+
+    if ($delta < 2) {
+        $estado = 'Posible colonia muerta o muy débil';
+    } else {
+        $estado = 'Normal';
+    }
+
+    return ['valor' => round($delta, 1), 'estado' => $estado];
+}
+
+/**
+ * Calcula la Eficiencia de Ventilación (EV)
+ */
+function calcularEV(int $id_colmena, float $co2_referencia = 3000): ?array {
+    $co2 = ultimaLectura($id_colmena, 'co2');
+
+    if (!$co2) return null;
+
+    $ev = ($co2_referencia / (float)$co2['valor_calibrado']) * 100;
+    $ev = min(100, $ev);
+
+    if ($ev < 50) {
+        $estado = 'Ventilación deficiente';
+    } else {
+        $estado = 'Normal';
+    }
+
+    return ['valor' => round($ev, 1), 'estado' => $estado];
+}
+
+/**
+ * Calcula el indicador de Humedad de Miel (H_miel)
+ */
+function calcularHMiel(int $id_colmena): ?array {
+    $hum = ultimaLectura($id_colmena, 'humedad_relativa');
+
+    if (!$hum) return null;
+
+    $h_miel = 0.18 * (float)$hum['valor_calibrado'] + 8.5;
+
+    if ($h_miel < 19) {
+        $estado = 'Lista para cosecha';
+    } else {
+        $estado = 'En desarrollo';
+    }
+
+    return ['valor' => round($h_miel, 1), 'estado' => $estado];
+}
+
+/**
+ * Verifica si el estado "Lista para cosecha" se ha sostenido por 3 días
+ */
+function verificarCosechaSostenida(int $id_colmena): bool {
+    $lecturas = serieHistoricaDias($id_colmena, 'humedad_relativa', 3);
+    
+    if (empty($lecturas)) return false;
+
+    foreach ($lecturas as $l) {
+        $h_miel = 0.18 * (float)$l['valor_calibrado'] + 8.5;
+        if ($h_miel >= 19) {
+            return false;
+        }
+    }
+    
+    return true;
+}

@@ -131,9 +131,36 @@ if ($ibb !== null) {
     }
 }
 
+$deltaT = calcularDeltaT($id_colmena);
+if ($deltaT !== null) {
+    $pdo->prepare("
+        INSERT INTO indicador (tipo, valor, fecha_hora, descripcion, estado_colonia, id_colmena)
+        VALUES ('DELTA_T', ?, NOW(), 'Diferencial de temperatura', ?, ?)
+    ")->execute([$deltaT['valor'], $deltaT['estado'], $id_colmena]);
+}
+
+$ev = calcularEV($id_colmena);
+if ($ev !== null) {
+    $pdo->prepare("
+        INSERT INTO indicador (tipo, valor, fecha_hora, descripcion, estado_colonia, id_colmena)
+        VALUES ('EV', ?, NOW(), 'Eficiencia de Ventilación', ?, ?)
+    ")->execute([$ev['valor'], $ev['estado'], $id_colmena]);
+}
+
+$hMiel = calcularHMiel($id_colmena);
+if ($hMiel !== null) {
+    $pdo->prepare("
+        INSERT INTO indicador (tipo, valor, fecha_hora, descripcion, estado_colonia, id_colmena)
+        VALUES ('H_MIEL', ?, NOW(), 'Humedad estimada de la miel', ?, ?)
+    ")->execute([$hMiel['valor'], $hMiel['estado'], $id_colmena]);
+}
+
 echo json_encode([
     'ok' => true,
     'insertados' => $insertados,
     'errores' => $errores,
     'ibb_calculado' => $ibb,
+    'delta_t' => $deltaT,
+    'ev' => $ev,
+    'h_miel' => $hMiel
 ]);

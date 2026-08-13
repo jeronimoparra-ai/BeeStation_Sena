@@ -19,6 +19,9 @@
 
     $flujoDiario = calcularFlujoDiarioPeso($idColmena);
     $ibb = calcularIBB($idColmena);
+    $deltaT = calcularDeltaT($idColmena);
+    $ev = calcularEV($idColmena);
+    $hMiel = calcularHMiel($idColmena);
     $alertas = alertasActivas($idColmena, 5);
 
     $serieTemp = serieHistorica($idColmena, 'temperatura_interna', 24);
@@ -158,6 +161,81 @@
         <?php else: ?>
             <div class="metric-value metric-empty">—<span class="metric-unit">Hz</span></div>
             <div class="metric-footer"><span class="badge badge-neutral">Sin datos</span></div>
+        <?php endif; ?>
+    </div>
+
+</div>
+
+<!-- Indicadores Analíticos -->
+<h2 class="page-subtitle u-mb-3 u-mt-4">Indicadores Analíticos</h2>
+<div class="grid-3-cols dashboard-metrics">
+
+    <!-- Delta T -->
+    <div class="card metric-card animate-fadeUp stagger-5 <?= ($deltaT && $deltaT['estado'] === 'Normal') ? 'success' : ($deltaT ? 'critical' : '') ?>">
+        <div class="metric-icon <?= ($deltaT && $deltaT['estado'] === 'Normal') ? 'success' : 'critical' ?>">
+            <i data-lucide="thermometer"></i>
+        </div>
+        <div class="metric-header"><i data-lucide="thermometer"></i> Delta T (Interior - Exterior)</div>
+        <?php if ($deltaT): ?>
+            <div class="metric-value">
+                <span data-countup="<?= number_format($deltaT['valor'], 1, '.', '') ?>" data-decimals="1"><?= number_format($deltaT['valor'], 1) ?></span>
+                <span class="metric-unit">°C</span>
+            </div>
+            <div class="metric-footer">
+                <span class="badge <?= ($deltaT['estado'] === 'Normal') ? 'badge-success' : 'badge-critical' ?>">
+                    <?= htmlspecialchars($deltaT['estado']) ?>
+                </span>
+                <span class="text-tertiary text-xs">Actual</span>
+            </div>
+        <?php else: ?>
+            <div class="metric-value metric-empty">—<span class="metric-unit">°C</span></div>
+            <div class="metric-footer"><span class="badge badge-neutral">Sin datos</span></div>
+        <?php endif; ?>
+    </div>
+
+    <!-- Humedad Miel -->
+    <div class="card metric-card animate-fadeUp stagger-6 <?= ($hMiel && $hMiel['estado'] === 'Lista para cosecha') ? 'success' : ($hMiel ? 'warning' : '') ?>">
+        <div class="metric-icon <?= ($hMiel && $hMiel['estado'] === 'Lista para cosecha') ? 'success' : 'warning' ?>">
+            <i data-lucide="droplet"></i>
+        </div>
+        <div class="metric-header"><i data-lucide="droplet"></i> Humedad de Miel</div>
+        <?php if ($hMiel): ?>
+            <div class="metric-value">
+                <span data-countup="<?= number_format($hMiel['valor'], 1, '.', '') ?>" data-decimals="1"><?= number_format($hMiel['valor'], 1) ?></span>
+                <span class="metric-unit">%</span>
+            </div>
+            <div class="metric-footer">
+                <span class="badge <?= ($hMiel['estado'] === 'Lista para cosecha') ? 'badge-success' : 'badge-warning' ?>">
+                    <?= htmlspecialchars($hMiel['estado']) ?>
+                </span>
+                <span class="text-tertiary text-xs">Actual</span>
+            </div>
+        <?php else: ?>
+            <div class="metric-value metric-empty">—<span class="metric-unit">%</span></div>
+            <div class="metric-footer"><span class="badge badge-neutral">Sin datos</span></div>
+        <?php endif; ?>
+    </div>
+
+    <!-- Eficiencia de Ventilación (EV) -->
+    <div class="card animate-fadeUp stagger-6">
+        <div class="card-header card-header-compact">
+            <div class="card-title">Eficiencia Ventilación</div>
+            <?php if ($ev): ?>
+                <span class="badge <?= $ev['valor'] >= 50 ? 'badge-success' : 'badge-warning' ?>">
+                    <?= htmlspecialchars($ev['estado']) ?>
+                </span>
+            <?php endif; ?>
+        </div>
+        <?php if ($ev): ?>
+            <div class="ibb-gauge">
+                <div class="ibb-bar">
+                    <div class="ibb-fill" data-progress="<?= $ev['valor'] ?>"></div>
+                </div>
+                <div class="ibb-value"><?= $ev['valor'] ?></div>
+            </div>
+            <p class="text-xs text-secondary ibb-note">Porcentaje EV (basado en CO₂)</p>
+        <?php else: ?>
+            <p class="text-secondary text-sm">Sin datos de CO₂.</p>
         <?php endif; ?>
     </div>
 
