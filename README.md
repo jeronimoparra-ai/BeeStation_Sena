@@ -16,24 +16,26 @@ Proyecto de formación — SENA, Centro Minero Ambiental, El Bagre (Antioquia).
 
 ## Cómo funciona
 
-Los sensores del ESP32 envían las lecturas por WiFi + MQTT a ThingSpeak, y en paralelo a una base de datos MariaDB. Un backend en PHP sirve esos datos a un dashboard web donde se visualizan colmenas, sensores y alertas.
-
+El ESP32 con los sensores envía cada lectura por WiFi directamente al backend en PHP mediante una petición **HTTP POST en JSON** — sin intermediarios como MQTT o ThingSpeak. El backend valida el sensor, aplica el factor de calibración, guarda en MySQL/MariaDB y recalcula el Índice de Bienestar Bioclimático (IBB) en cada ingesta.
 
 ```mermaid
 flowchart LR
-    A[Sensores ESP32] -->|WiFi + MQTT| B[ThingSpeak]
-    A -->|WiFi| C[(MariaDB)]
-    C --> D[Backend PHP]
-    D --> E[Dashboard Web]
-    B --> E
+    A[ESP32 + Sensores] -->|POST JSON vía WiFi| B[api/ingest.php]
+    B --> C[(MySQL / MariaDB)]
+    B --> D[Cálculo IBB]
+    D -->|IBB < 50| E[Alerta automática]
+    C --> F[Backend PHP]
+    F --> G[Dashboard Web]
 ```
 
 ## Características
 
-- Monitoreo en tiempo real: temperatura y humedad (DHT22), peso (HX711), acústica (MAX9814), calidad del aire (MQ-135)
-- Panel de energía del sistema de sensores en campo
-- Dashboard con vistas de resumen, dispositivos, sensores, acústica, peso y energía
-- Integración con ThingSpeak para histórico y tendencias
+- Monitoreo en tiempo real: temperatura interna/externa y humedad (DHT22), peso (HX711), acústica (MAX9814, banda 400–600 Hz para pre-enjambrazón), calidad del aire/CO₂ (MQ-135)
+- Envío de datos exclusivamente por HTTP POST directo del ESP32 a `api/ingest.php` — sin MQTT ni servicios externos
+- Cálculo automático del IBB en cada ingesta, ponderado: temperatura 45% + humedad 35% + CO₂ 20%
+- Generación automática de alertas cuando el IBB cae por debajo de 50
+- Dashboard con vistas de Resumen, Dispositivos, Sensores, Acústica, Peso y Energía, todas conectadas a datos reales
+- Cero datos ficticios: sin lecturas, cada vista muestra un estado vacío explícito en vez de inventar números
 - Prototipo físico: carcasa hexagonal impresa en 3D
 
 ## Stack
@@ -46,23 +48,46 @@ flowchart LR
 git clone https://github.com/jeronimoparra-ai/BeeStation_Sena.git
 ```
 
-1. Mover el proyecto a `htdocs` de XAMPP
-2. Importar `database/beestation_schema.sql` en phpMyAdmin
-3. Configurar credenciales de MariaDB en el backend PHP
-4. Cargar el firmware en el ESP32 (SSID, contraseña WiFi, canal MQTT de ThingSpeak)
-5. Iniciar Apache + MariaDB y entrar a `http://localhost/BeeStation`
+1. Copia el proyecto a `htdocs` de XAMPP (o el directorio público de tu servidor)
+2. Importa `database/schema.sql` en phpMyAdmin — crea la base `beestation_sena`, todas las tablas y una colmena de ejemplo (Alpha-01) con sus 6 sensores, sin lecturas falsas
+3. Configura las credenciales de MySQL en `config/db.php` (`DB_HOST`, `DB_NAME`, `DB_USER`, `DB_PASS`)
+4. Genera el hash real de la contraseña del usuario admin con `password_hash()` y reemplázalo en la tabla `usuario` — el valor que trae `schema.sql` es un placeholder que no funciona (pasos detallados en `README.txt`)
+5. Carga el firmware en el ESP32 (SSID, contraseña WiFi, IP del servidor y `ID_COLMENA`) apuntando a `api/ingest.php` — código Arduino de ejemplo en `README.txt`
+6. Inicia Apache + MySQL y entra a `http://localhost/BeeStation`
 
-**Requisitos:** [XAMPP](https://www.apachefriends.org/), [Arduino IDE](https://www.arduino.cc/en/software) con soporte ESP32, cuenta en [ThingSpeak](https://thingspeak.com/)
+**Requisitos:** PHP 8+ con extensión PDO MySQL, MySQL/MariaDB, [XAMPP](https://www.apachefriends.org/) (u equivalente), [Arduino IDE](https://www.arduino.cc/en/software) con soporte para ESP32.
+
+No se necesita cuenta en ningún servicio externo — todo el flujo de datos corre en tu propio servidor.
 
 ## Roadmap
 
-- [x] Modelo entidad-relación (12 entidades) y esquema SQL simplificado (8 tablas)
-- [x] Prototipo de interfaz en Figma y prototipo físico impreso en 3D
-- [x] Conexión ESP32 vía MQTT + dashboard web funcional
-- [x] Estrategia de actualización OTA definida
-- [ ] Implementación de OTA en campo
+**Completado (con evidencia real):**
+- [x] Modelo entidad-relación (notación Chen, 12 entidades) y esquema SQL implementado en `database/schema.sql`
+- [x] Prototipo físico impreso en 3D (carcasa hexagonal)
+- [x] Backend PHP + MySQL funcional, dashboard sirviendo datos reales (sin valores de relleno)
+- [x] Endpoint `api/ingest.php` operativo: valida sensor, calibra, guarda lectura y recalcula el IBB automáticamente
+- [x] Bloqueador de MySQL local en XAMPP — resuelto
+
+**🔴 Bloqueador activo:**
+- [ ] Carga de firmware al ESP32 por USB — posible cable sin líneas de datos, sin puerto COM detectado en Windows. Bloquea cualquier prueba con hardware real
+- [ ] Ruta OTA sin confirmar — requiere firmware previo cargado por USB con `ArduinoOTA` activo, no verificado en el código actual
+
+**Indicadores bioclimáticos pendientes** (fórmulas definidas, sin implementar):
+- [ ] IRE — Índice de Riesgo de Enjambrazón
+- [ ] EV — Eficiencia de Ventilación
+- [ ] ΔT — Diferencial de temperatura interior/exterior
+- [ ] H_miel — Humedad estimada de la miel
+- [ ] FN — Flujo de Néctar (existe `calcularFlujoDiarioPeso()`, falta formalizarlo como indicador insertado en la tabla `indicador`)
+
+**Hardening y bugs conocidos:**
+- [ ] Autenticación por API key en `api/ingest.php` (hoy cualquiera con la URL puede enviar datos)
+- [ ] Registrar el sensor de energía (`energia`, INA219) en `schema.sql`
+- [ ] Depurar por completo el sistema de roles del esquema (tabla `rol` y FK `usuario.id_rol` siguen presentes pese a la decisión de eliminarlos)
+- [ ] Persistir las alertas de enjambrazón (`acustica.php` las calcula pero nunca las inserta en `alerta`)
+
+**Sin iniciar:**
 - [ ] Detección de enjambrazón con IA
-- [ ] Conectividad LoRa
+- [ ] Conectividad LoRa para apiarios sin cobertura WiFi
 - [ ] Reporte académico completo
 
 <details>
@@ -72,8 +97,9 @@ git clone https://github.com/jeronimoparra-ai/BeeStation_Sena.git
 **Centro de formación:** Centro Minero Ambiental (CFMA) - SENA, El Bagre, Antioquia
 **Instructor:** Farley González
 **Programa:** Técnico en Programación de Software
+**Ficha:** 3412544
 
-**Equipo:** Andrés Jerónimo Parra, Diego Noriega Vega, Samuel Montoya Suárez, Edwin Segundo Camacho
+**Equipo:** Andrés Jerónimo Parra Bastidas, Diego Noriega Vega, Samuel Montoya Suárez, Edwin Segundo Camacho
 
 </details>
 
@@ -83,20 +109,22 @@ git clone https://github.com/jeronimoparra-ai/BeeStation_Sena.git
 
 ```mermaid
 flowchart TD
-    Rol --> Usuario
     Usuario --> Apiario
     Apiario --> Colmena
+    VariableBioclimatica --> Sensor
     Colmena --> Sensor
+    Sensor --> Calibracion
     Sensor --> Lectura
-    Colmena --> Alerta
+    Colmena --> Indicador
     Indicador --> Alerta
 ```
 
-El modelo completo se diseñó en notación Chen con 12 entidades. La implementación usa un esquema simplificado de 8 tablas (`database/beestation_schema.sql`), con relaciones FK y un ajuste de nombre para evitar la palabra reservada `precision` (renombrada `sensor_precision`).
+El sistema de roles (`rol`, `usuario.id_rol`) fue eliminado del diseño: todos los usuarios autenticados tienen el mismo nivel de acceso. **Nota:** la tabla `rol` y la FK `usuario.id_rol` todavía existen físicamente en `database/schema.sql` — limpieza pendiente (ver Roadmap). Por eso el esquema real hoy tiene 10 tablas en vez de las 9 que corresponden al diseño ya decidido.
+
+El modelo completo se diseñó en notación Chen con 12 entidades; la implementación actual usa este esquema simplificado en `database/schema.sql`. El campo de precisión del sensor se llama `precision_valor` (se evitó la palabra reservada `precision`).
 
 </details>
 
 ## Licencia
 
 MIT — ver [LICENSE](./LICENSE)
-w
