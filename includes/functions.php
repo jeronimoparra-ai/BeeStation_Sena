@@ -265,7 +265,7 @@ function calcularHMiel(int $id_colmena): ?array {
     $h_miel = 0.18 * (float)$hum['valor_calibrado'] + 8.5;
 
     if ($h_miel < 19) {
-        $estado = 'Lista para cosecha';
+        $estado = verificarCosechaSostenida($id_colmena) ? 'Lista para cosecha' : 'En desarrollo';
     } else {
         $estado = 'En desarrollo';
     }
@@ -290,3 +290,39 @@ function verificarCosechaSostenida(int $id_colmena): bool {
     
     return true;
 }
+
+/**
+ * Evalúa si una lectura acústica indica riesgo de enjambrazón (400 - 600 Hz).
+ * Si está en rango y no existe ya una alerta activa de este tipo en los últimos 30 min,
+ * la inserta en la tabla `alerta` con nivel 2 y id_indicador = NULL.
+ */
+function evaluarAlertaEnjambrazon(int $id_colmena, float $valor_calibrado): void {
+    if ($valor_calibrado < 400 || $valor_calibrado > 600) {
+        return;
+    }
+
+    $pdo = getPDO();
+
+    // Evitar duplicar alertas: verificar si ya existe una alerta activa en los últimos 30 minutos
+    $stmt = $pdo->prepare("
+        SELECT COUNT(*) AS total
+        FROM alerta
+        WHERE tipo = 'enjambrazon_acustica'
+          AND estado = 'activa'
+          AND fecha_hora >= (NOW() - INTERVAL 30 MINUTE)
+    ");
+    $stmt->execute();
+    $existe = (int) $stmt->fetch()['total'] > 0;
+
+    if (!$existe) {
+        $frecuencia = number_format($valor_calibrado, 1);
+        $mensaje = "Riesgo de enjambrazón detectado: actividad acústica en {$frecuencia} Hz (rango de alerta: 400–600 Hz).";
+        
+        $stmtInsert = $pdo->prepare("
+            INSERT INTO alerta (tipo, nivel, mensaje, fecha_hora, estado, id_indicador)
+            VALUES ('enjambrazon_acustica', 2, ?, NOW(), 'activa', NULL)
+        ");
+        $stmtInsert->execute([$mensaje]);
+    }
+}
+

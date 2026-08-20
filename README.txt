@@ -26,14 +26,15 @@ de "sin datos todavía" en lugar de inventar números.
   y una colmena de ejemplo (Alpha-01) con sus 6 sensores
   registrados, pero SIN lecturas falsas.
 
-1.3 Configurar la conexión
-------------------------------
+1.3 Configurar la conexión y API Key
+------------------------------------------
 Abre config/db.php y ajusta:
 
   define('DB_HOST', 'localhost');
   define('DB_NAME', 'beestation_sena');
   define('DB_USER', 'root');
   define('DB_PASS', '');   <-- pon tu clave real aquí
+  define('BEESTATION_API_KEY', 'CAMBIAR_ESTA_CLAVE_ANTES_DE_PRODUCCION'); <-- clave secreta para el ESP32
 
 1.4 Generar la contraseña real del usuario admin
 ----------------------------------------------------
@@ -66,21 +67,21 @@ tu servidor (por ejemplo htdocs/ en XAMPP) y accede desde:
 2. CÓMO FUNCIONA EL FLUJO DE DATOS (de principio a fin)
 ============================================================
 
-  ESP32 con sensores  --(POST JSON)-->  api/ingest.php
-                                              |
-                                              v
-                                    Se guarda en tabla `lectura`
-                                              |
-                                              v
-                            Se recalcula el indicador IBB real
-                                              |
-                                              v
-                        Si el IBB es bajo, se crea una `alerta` real
-                                              |
-                                              v
-                   dashboard.php / peso.php / acustica.php / sensores.php
-                   consultan la base de datos y muestran los datos TAL
-                   CUAL están guardados — nunca se inventan valores.
+  ESP32 con sensores  --(POST JSON + X-API-Key)-->  api/ingest.php
+                                                         |
+                                                         v
+                                               Se guarda en tabla `lectura`
+                                                         |
+                                                         v
+                                       Se recalcula el indicador IBB real
+                                                         |
+                                                         v
+                                   Si el IBB es bajo, se crea una `alerta` real
+                                                         |
+                                                         v
+                              dashboard.php / peso.php / acustica.php / sensores.php
+                              consultan la base de datos y muestran los datos TAL
+                              CUAL están guardados — nunca se inventan valores.
 
 Si el ESP32 nunca ha enviado nada, todas las páginas muestran un
 estado vacío ("Sin datos todavía") en lugar de números falsos.
@@ -105,6 +106,9 @@ const char* password = "TU_CLAVE_WIFI";
 const char* serverUrl = "http://192.168.1.100/BeeStation/api/ingest.php";
 // Cambia 192.168.1.100 por la IP real de tu servidor en la red
 
+// ⚠️ API Key: debe coincidir exactamente con BEESTATION_API_KEY en config/db.php
+const char* apiKey    = "CAMBIAR_ESTA_CLAVE_ANTES_DE_PRODUCCION";
+
 const int ID_COLMENA = 1; // debe existir en la tabla `colmena`
 
 void setup() {
@@ -122,9 +126,11 @@ void loop() {
     HTTPClient http;
     http.begin(serverUrl);
     http.addHeader("Content-Type", "application/json");
+    // Header de autenticación requerido por api/ingest.php
+    http.addHeader("X-API-Key", apiKey);
 
     // ⚠️ Reemplaza estos valores por las lecturas REALES de tus
-    // sensores (DHT22, HX711, MAX9814, MQ-135), no dejes números fijos.
+    // sensores (DHT22, HX711, MAX9814, MQ-135, INA219), no dejes números fijos.
     float temperatura = leerTemperaturaDHT22();
     float humedad      = leerHumedadDHT22();
     float peso          = leerPesoHX711();
@@ -174,6 +180,7 @@ verificar que todo el flujo funciona antes de conectar el hardware:
 
   curl -X POST http://localhost/BeeStation/api/ingest.php \
     -H "Content-Type: application/json" \
+    -H "X-API-Key: CAMBIAR_ESTA_CLAVE_ANTES_DE_PRODUCCION" \
     -d "{\"id_colmena\":1,\"lecturas\":[{\"tipo\":\"temperatura_interna\",\"valor\":35.2},{\"tipo\":\"humedad_relativa\",\"valor\":65},{\"tipo\":\"peso\",\"valor\":28.5},{\"tipo\":\"sonido\",\"valor\":280},{\"tipo\":\"co2\",\"valor\":2100}]}"
 
 Después de ejecutar esto, entra al dashboard y verás los datos

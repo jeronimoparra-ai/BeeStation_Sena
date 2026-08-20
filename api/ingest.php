@@ -9,6 +9,10 @@
  * Cómo lo usa el ESP32 (ejemplo de código Arduino más abajo en
  * README.txt): hace un POST con JSON a esta URL.
  *
+ * Headers requeridos:
+ *   Content-Type: application/json
+ *   X-API-Key:    <BEESTATION_API_KEY definida en config/db.php>
+ *
  * Formato esperado del body (JSON):
  * {
  *   "id_colmena": 1,
@@ -27,9 +31,18 @@ header('Content-Type: application/json; charset=utf-8');
 require_once __DIR__ . '/../config/db.php';
 require_once __DIR__ . '/../includes/functions.php';
 
+// 1. Validar método HTTP (filtro de protocolo: descarta GET, PUT, DELETE, etc.)
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     http_response_code(405);
     echo json_encode(['ok' => false, 'error' => 'Método no permitido, usa POST']);
+    exit;
+}
+
+// 2. Validar autenticación por API Key (filtro de seguridad)
+$apiKey = $_SERVER['HTTP_X_API_KEY'] ?? '';
+if (!hash_equals(BEESTATION_API_KEY, $apiKey)) {
+    http_response_code(401);
+    echo json_encode(['ok' => false, 'error' => 'No autorizado']);
     exit;
 }
 
@@ -106,6 +119,11 @@ foreach ($body['lecturas'] as $l) {
         ->execute([$sensor['id_sensor']]);
 
     $insertados[] = ['tipo' => $tipo, 'valor_calibrado' => $valor_calibrado, 'valido' => (bool) $es_valida];
+
+    // Evaluar alerta de enjambrazón acústica si la lectura es de tipo 'sonido' y está en rango crítico
+    if ($tipo === 'sonido' && $es_valida && $valor_calibrado >= 400 && $valor_calibrado <= 600) {
+        evaluarAlertaEnjambrazon($id_colmena, $valor_calibrado);
+    }
 }
 
 // Después de insertar, recalcular el IBB real con los datos que ya existan

@@ -10,6 +10,11 @@ define('DB_NAME', 'beestation_sena');
 define('DB_USER', 'root');
 define('DB_PASS', '');   // pon aquí la clave real de tu MySQL/MariaDB
 
+// ── SEGURIDAD API (ESP32 -> api/ingest.php) ──────────────────
+// Clave precompartida requerida en el header 'X-API-Key' de cada POST.
+// Cámbiala por una cadena segura y configúrala idéntica en el firmware del ESP32.
+define('BEESTATION_API_KEY', 'CAMBIAR_ESTA_CLAVE_ANTES_DE_PRODUCCION');
+
 function getPDO(): PDO {
     static $pdo = null;
     if ($pdo === null) {
