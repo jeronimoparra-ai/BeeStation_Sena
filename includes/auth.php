@@ -22,10 +22,9 @@ function is_active(string $page_name): string {
 function intentarLogin(string $correo, string $clave): ?array {
     $pdo = getPDO();
     $stmt = $pdo->prepare("
-        SELECT usuario.*, rol.nombre_rol, rol.nivel_acceso
+        SELECT *
         FROM usuario
-        JOIN rol ON usuario.id_rol = rol.id_rol
-        WHERE usuario.correo = ?
+        WHERE correo = ?
         LIMIT 1
     ");
     $stmt->execute([$correo]);

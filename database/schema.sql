@@ -1,10 +1,12 @@
 -- ============================================================
--- BeeStation / ApiTechnology — Esquema de Base de Datos
+-- BeeStation / ApiTechnology — Esquema consolidado
 -- SENA - Centro Minero Ambiental - El Bagre, Antioquia
 -- Motor: MySQL / MariaDB
+-- Sistema sin roles: se elimina por completo la tabla rol y la columna id_rol.
 -- ============================================================
 
-CREATE DATABASE IF NOT EXISTS beestation_sena CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+DROP DATABASE IF EXISTS beestation_sena;
+CREATE DATABASE beestation_sena CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 USE beestation_sena;
 
 -- ── USUARIOS ──────────────────────────────────────────────────
@@ -12,7 +14,7 @@ CREATE TABLE usuario (
     id_usuario INT AUTO_INCREMENT PRIMARY KEY,
     nombre VARCHAR(100) NOT NULL,
     correo VARCHAR(150) NOT NULL UNIQUE,
-    contrasena VARCHAR(255) NOT NULL,   -- se guarda con password_hash()
+    contrasena VARCHAR(255) NOT NULL,
     fecha_registro DATETIME DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB;
 
@@ -29,7 +31,7 @@ CREATE TABLE apiario (
 
 CREATE TABLE colmena (
     id_colmena INT AUTO_INCREMENT PRIMARY KEY,
-    nombre VARCHAR(100) NOT NULL,        -- ej: "Alpha-01"
+    nombre VARCHAR(100) NOT NULL,
     especie VARCHAR(100) DEFAULT 'Apis mellifera',
     fecha_instalacion DATE,
     estado ENUM('activa','inactiva','en_revision') DEFAULT 'activa',
@@ -37,33 +39,37 @@ CREATE TABLE colmena (
     FOREIGN KEY (id_apiario) REFERENCES apiario(id_apiario)
 ) ENGINE=InnoDB;
 
--- ── VARIABLES BIOCLIMÁTICAS (umbrales de referencia) ─────────
+-- ── VARIABLES BIOCLIMÁTICAS ───────────────────────────────────
 CREATE TABLE variable_bioclimatica (
     id_variable INT AUTO_INCREMENT PRIMARY KEY,
-    nombre VARCHAR(50) NOT NULL,          -- temperatura_interna, humedad, peso, sonido, co2, energia
+    nombre VARCHAR(50) NOT NULL,
     unidad_medida VARCHAR(20) NOT NULL,
-    optimo_min FLOAT, optimo_max FLOAT,
-    alerta_min FLOAT, alerta_max FLOAT,
-    critico_min FLOAT, critico_max FLOAT
+    optimo_min FLOAT,
+    optimo_max FLOAT,
+    alerta_min FLOAT,
+    alerta_max FLOAT,
+    critico_min FLOAT,
+    critico_max FLOAT
 ) ENGINE=InnoDB;
 
-INSERT INTO variable_bioclimatica (nombre, unidad_medida, optimo_min, optimo_max, alerta_min, alerta_max, critico_min, critico_max) VALUES
-('temperatura_interna', '°C',  34,   36,   32,   38,   30,   40),
-('temperatura_externa', '°C',  NULL, NULL, NULL, NULL, NULL, NULL),
-('humedad_relativa',    '%HR', 50,   70,   45,   80,   35,   85),
-('peso',                'kg',  NULL, NULL, NULL, NULL, NULL, NULL),
-('sonido',              'Hz',  200,  380,  400,  600,  600,  900),
-('co2',                 'ppm', 2000, 4000, 1000, 6000, 500,  10000),
--- Energía: voltaje de batería LiPo 1S medida por INA219.
--- Rangos según documento de requisitos del proyecto (no modificar).
-('energia',             'V',   3.7,  4.2,  3.0,  4.2,  2.8,  4.2);
+INSERT INTO variable_bioclimatica (
+    nombre, unidad_medida, optimo_min, optimo_max, alerta_min, alerta_max, critico_min, critico_max
+) VALUES
+('temperatura_interna', '°C', 34, 36, 32, 38, 30, 40),
+('temperatura_externa', '°C', NULL, NULL, NULL, NULL, NULL, NULL),
+('humedad_relativa', '%HR', 50, 70, 45, 80, 35, 85),
+('peso', 'kg', NULL, NULL, NULL, NULL, NULL, NULL),
+('sonido', 'Hz', 200, 380, 400, 600, 600, 900),
+('co2', 'ppm', 2000, 4000, 1000, 6000, 500, 10000),
+('energia', 'V', 3.7, 4.2, 3.0, 4.2, 2.8, 4.2);
 
 -- ── SENSORES ──────────────────────────────────────────────────
 CREATE TABLE sensor (
     id_sensor INT AUTO_INCREMENT PRIMARY KEY,
-    tipo VARCHAR(50) NOT NULL,            -- ej: 'temperatura_interna'
-    modelo VARCHAR(50) NOT NULL,          -- DHT22, HX711, MAX9814, MQ-135
-    rango_min FLOAT, rango_max FLOAT,
+    tipo VARCHAR(50) NOT NULL,
+    modelo VARCHAR(50) NOT NULL,
+    rango_min FLOAT,
+    rango_max FLOAT,
     precision_valor FLOAT,
     estado ENUM('en_linea','advertencia','sin_senal') DEFAULT 'sin_senal',
     fecha_instalacion DATE,
@@ -88,7 +94,7 @@ CREATE TABLE calibracion (
     FOREIGN KEY (id_sensor) REFERENCES sensor(id_sensor)
 ) ENGINE=InnoDB;
 
--- ── LECTURAS (datos crudos que envía el ESP32) ───────────────
+-- ── LECTURAS ───────────────────────────────────────────────────
 CREATE TABLE lectura (
     id_lectura BIGINT AUTO_INCREMENT PRIMARY KEY,
     valor_bruto FLOAT NOT NULL,
@@ -101,14 +107,14 @@ CREATE TABLE lectura (
     INDEX idx_sensor_fecha (id_sensor, fecha_hora)
 ) ENGINE=InnoDB;
 
--- ── INDICADORES CALCULADOS (IBB, IRE, EV, etc.) ──────────────
+-- ── INDICADORES CALCULADOS ─────────────────────────────────────
 CREATE TABLE indicador (
     id_indicador BIGINT AUTO_INCREMENT PRIMARY KEY,
-    tipo VARCHAR(30) NOT NULL,            -- IBB, IRE, EV, flujo_nectar, delta_t
+    tipo VARCHAR(30) NOT NULL,
     valor FLOAT NOT NULL,
     fecha_hora DATETIME DEFAULT CURRENT_TIMESTAMP,
     descripcion VARCHAR(255),
-    estado_colonia VARCHAR(30),           -- Optimo, Bueno, Regular, Deficiente, Critico
+    estado_colonia VARCHAR(30),
     id_colmena INT NOT NULL,
     FOREIGN KEY (id_colmena) REFERENCES colmena(id_colmena),
     INDEX idx_colmena_tipo_fecha (id_colmena, tipo, fecha_hora)
@@ -118,7 +124,7 @@ CREATE TABLE indicador (
 CREATE TABLE alerta (
     id_alerta INT AUTO_INCREMENT PRIMARY KEY,
     tipo VARCHAR(50) NOT NULL,
-    nivel TINYINT NOT NULL,               -- 1 notificación, 2 urgente, 3 crítica
+    nivel TINYINT NOT NULL,
     mensaje VARCHAR(255) NOT NULL,
     fecha_hora DATETIME DEFAULT CURRENT_TIMESTAMP,
     estado ENUM('activa','atendida','descartada') DEFAULT 'activa',
@@ -128,14 +134,17 @@ CREATE TABLE alerta (
     FOREIGN KEY (id_usuario) REFERENCES usuario(id_usuario)
 ) ENGINE=InnoDB;
 
--- ── DATOS INICIALES MÍNIMOS PARA QUE EL SISTEMA ARRANQUE ────
--- (usuario admin, un apiario y una colmena — sin lecturas falsas)
-
+-- ── DATOS INICIALES MÍNIMOS ───────────────────────────────────
+-- ┌─────────────────────────────────────────────────────────┐
+-- │  CREDENCIALES DEL ADMINISTRADOR (uso temporal)          │
+-- │  Correo   : admin@beestation.io                         │
+-- │  Contraseña: beestation_temporal_2026                   │
+-- │                                                         │
+-- │  IMPORTANTE: cambiar la contraseña en producción.       │
+-- │  NOTA: esta contraseña es solo para uso temporal.        │
+-- └─────────────────────────────────────────────────────────┘
 INSERT INTO usuario (nombre, correo, contrasena) VALUES
-('Administrador', 'admin@beestation.io', '$2y$10$3sZ1V5vE2Q0oQe9G1kQe9uQ8m5r5r5r5r5r5r5r5r5r5r5r5r5r5r');
--- IMPORTANTE: la contraseña de arriba es un placeholder.
--- Genera el hash real con: password_hash("tu_clave", PASSWORD_DEFAULT)
--- y reemplázalo antes de usar en producción (ver README.txt).
+('Administrador', 'admin@beestation.io', '$2y$12$RuZe9KwyxXpLVJ0ox.Q6OeYg.RC9LkK.hXuQfL3wGG0PJvc/o2W2S');
 
 INSERT INTO apiario (nombre, ubicacion, municipio, id_usuario) VALUES
 ('Apiario Norte', 'Centro Minero Ambiental SENA', 'El Bagre, Antioquia', 1);
@@ -143,18 +152,13 @@ INSERT INTO apiario (nombre, ubicacion, municipio, id_usuario) VALUES
 INSERT INTO colmena (nombre, fecha_instalacion, estado, id_apiario) VALUES
 ('Alpha-01', CURDATE(), 'activa', 1);
 
--- Sensores asociados a la colmena Alpha-01 (aún sin lecturas)
 INSERT INTO sensor (tipo, modelo, rango_min, rango_max, precision_valor, estado, fecha_instalacion, id_colmena, id_variable) VALUES
-('temperatura_interna', 'DHT22',   -40, 80,    0.5,  'sin_senal', CURDATE(), 1, 1),
-('temperatura_externa', 'DHT22',   -40, 80,    0.5,  'sin_senal', CURDATE(), 1, 2),
-('humedad_relativa',    'DHT22',   0,   100,   3,    'sin_senal', CURDATE(), 1, 3),
-('peso',                'HX711',   0,   50,    0.01, 'sin_senal', CURDATE(), 1, 4),
-('sonido',              'MAX9814', 20,  20000, NULL, 'sin_senal', CURDATE(), 1, 5),
-('co2',                 'MQ-135',  10,  300,   NULL, 'sin_senal', CURDATE(), 1, 6),
--- Sensor de energía INA219 — voltaje de batería LiPo (id_variable = 7 = 'energia').
--- Estado 'sin_senal' hasta que el ESP32 con el INA219 real reporte por api/ingest.php.
-('energia',             'INA219',  0,   5,     0.01, 'sin_senal', CURDATE(), 1, 7);
+('temperatura_interna', 'DHT22', -40, 80, 0.5, 'sin_senal', CURDATE(), 1, 1),
+('temperatura_externa', 'DHT22', -40, 80, 0.5, 'sin_senal', CURDATE(), 1, 2),
+('humedad_relativa', 'DHT22', 0, 100, 3, 'sin_senal', CURDATE(), 1, 3),
+('peso', 'HX711', 0, 50, 0.01, 'sin_senal', CURDATE(), 1, 4),
+('sonido', 'MAX9814', 20, 20000, NULL, 'sin_senal', CURDATE(), 1, 5),
+('co2', 'MQ-135', 10, 300, NULL, 'sin_senal', CURDATE(), 1, 6),
+('energia', 'INA219', 0, 5, 0.01, 'sin_senal', CURDATE(), 1, 7);
 
--- NOTA: A propósito NO se insertan lecturas, indicadores ni alertas de ejemplo.
--- El sistema se llenará únicamente con datos reales enviados por el ESP32
--- a través de api/ingest.php, o los que ingreses manualmente para pruebas.
+-- NOTA: sin datos falsos, sin lecturas ni indicadores de ejemplo.
