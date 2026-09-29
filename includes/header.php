@@ -8,8 +8,17 @@ $colmenaActiva = obtenerColmenaActiva($_SESSION['id_usuario']);
 // Estado de conexión real: revisa si algún sensor de la colmena activa
 // ha reportado datos en los últimos 5 minutos
 $espOnline = false;
+$espTieneHistorial = false;
+$ultimaConexionTexto = '';
 if ($colmenaActiva) {
     $espOnline = dispositivoConectado($colmenaActiva['id_colmena']);
+    if (!$espOnline) {
+        $espTieneHistorial = dispositivoTieneHistorial($colmenaActiva['id_colmena']);
+        if ($espTieneHistorial) {
+            $fechaUltima = ultimaConexion($colmenaActiva['id_colmena']);
+            $ultimaConexionTexto = $fechaUltima ? tiempoRelativo($fechaUltima) : '';
+        }
+    }
 }
 
 // Saludo contextual según hora del día
@@ -68,10 +77,22 @@ else $saludo = 'Buenas noches';
                 </label>
 
                 <div class="topbar-right">
-                    <div class="esp-status-pill <?= $espOnline ? 'online' : 'offline' ?>">
-                        <div class="status-dot <?= $espOnline ? '' : 'offline' ?>"></div>
-                        <span class="esp-label"><?= $espOnline ? 'ESP32 online' : 'Sin datos recientes' ?></span>
-                    </div>
+                    <?php if ($espOnline): ?>
+                        <a href="dashboard.php" class="esp-status-pill online" style="text-decoration: none; cursor: pointer;" title="Dispositivo transmitiendo en tiempo real">
+                            <div class="status-dot"></div>
+                            <span class="esp-label">ESP32 online</span>
+                        </a>
+                    <?php elseif ($espTieneHistorial): ?>
+                        <a href="conectar_dispositivo.php" class="esp-status-pill warning" style="text-decoration: none; cursor: pointer;" title="Última conexión: <?= htmlspecialchars($ultimaConexionTexto) ?>. El ESP32 tiene la configuración guardada y debería reconectarse automáticamente.">
+                            <div class="status-dot warning"></div>
+                            <span class="esp-label">Reconectando… (<?= htmlspecialchars($ultimaConexionTexto) ?>)</span>
+                        </a>
+                    <?php else: ?>
+                        <a href="conectar_dispositivo.php" class="esp-status-pill offline" style="text-decoration: none; cursor: pointer;" title="El ESP32 nunca se ha conectado. Configúralo con el Portal Cautivo.">
+                            <div class="status-dot offline"></div>
+                            <span class="esp-label">Sin configurar</span>
+                        </a>
+                    <?php endif; ?>
 
                     <div class="topbar-divider"></div>
 

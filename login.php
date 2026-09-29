@@ -22,7 +22,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $_SESSION['id_usuario']   = $usuario['id_usuario'];
         $_SESSION['nombre']       = $usuario['nombre'];
         $_SESSION['correo']       = $usuario['correo'];
-        header("Location: conectar_dispositivo.php");
+        
+        $colmena = obtenerColmenaActiva($usuario['id_usuario']);
+        if ($colmena) {
+            // Si el dispositivo ya envió datos alguna vez, ir directo al dashboard.
+            // Solo mostrar la pantalla de espera para colmenas nuevas sin historial.
+            if (dispositivoTieneHistorial($colmena['id_colmena'])) {
+                header("Location: dashboard.php");
+            } else {
+                header("Location: conectar_dispositivo.php");
+            }
+        } else {
+            header("Location: dispositivos.php");
+        }
         exit;
     } else {
         $error = 'Correo o contraseña incorrectos.';

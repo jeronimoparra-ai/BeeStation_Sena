@@ -622,7 +622,17 @@ code {
 .esp-status-pill.offline .status-dot {
   background-color: var(--color-critical);
 }
+.esp-status-pill.warning .status-dot {
+  background-color: var(--color-warning);
+  animation: pulse-dot-warning 2s infinite;
+}
+.status-dot.warning { background-color: var(--color-warning); }
 .esp-label { color: var(--color-text-secondary); }
+
+@keyframes pulse-dot-warning {
+  0%, 100% { opacity: 1; box-shadow: 0 0 0 0 var(--color-warning); }
+  50% { opacity: 0.6; box-shadow: 0 0 0 6px transparent; }
+}
 
 .topbar-divider { width: 1px; height: 24px; background: var(--color-border); margin: 0 8px; }
 

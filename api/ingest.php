@@ -6,16 +6,13 @@
  * REALES de los sensores. No hay datos de ejemplo aquí: cada
  * lectura que llega se guarda tal cual en la tabla `lectura`.
  *
- * Cómo lo usa el ESP32 (ejemplo de código Arduino más abajo en
- * README.txt): hace un POST con JSON a esta URL.
- *
  * Headers requeridos:
  *   Content-Type: application/json
  *   X-API-Key:    <BEESTATION_API_KEY definida en config/db.php>
  *
  * Formato esperado del body (JSON):
  * {
- *   "id_colmena": 1,
+ *   "token": "BS-ALPHA01-1A2B3C",
  *   "lecturas": [
  *     { "tipo": "temperatura_interna", "valor": 35.2 },
  *     { "tipo": "humedad_relativa",    "valor": 65.3 },
@@ -25,130 +22,165 @@
  *   ]
  * }
  * ----------------------------------------------------------------
+ *
+ * BeeStation — API de Ingesta de Telemetría IoT
+ * Centro Minero Ambiental - SENA, El Bagre (Antioquia)
+ *
+ * Este archivo recibe de forma asíncrona las lecturas del ESP32 en JSON,
+ * valida el Token de Vinculación contra la tabla `colmena`, registra
+ * cada intento (exitoso o fallido) en `intento_vinculacion` para
+ * diagnóstico en conectar_dispositivo.php, aplica calibraciones de
+ * sensores, almacena las lecturas en MySQL y recalcula los índices
+ * bioclimáticos.
  */
 
 header('Content-Type: application/json; charset=utf-8');
+
 require_once __DIR__ . '/../config/db.php';
+
+// Definir contexto API antes de cargar functions.php para evitar
+// la redirección a login.php (que solo aplica a páginas web)
+define('BEESTATION_API_CONTEXT', true);
 require_once __DIR__ . '/../includes/functions.php';
 
-// 1. Validar método HTTP (filtro de protocolo: descarta GET, PUT, DELETE, etc.)
+// ── 1. FILTRO DE PROTOCOLO: Validar método HTTP ──────────────────────────────
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     http_response_code(405);
     echo json_encode(['ok' => false, 'error' => 'Método no permitido, usa POST']);
     exit;
 }
 
-// 2. Validar autenticación por API Key (filtro de seguridad)
+// ── 2. FILTRO DE SEGURIDAD: Validar API Key global de BeeStation ─────────────
 $apiKey = $_SERVER['HTTP_X_API_KEY'] ?? '';
 if (!hash_equals(BEESTATION_API_KEY, $apiKey)) {
     http_response_code(401);
-    echo json_encode(['ok' => false, 'error' => 'No autorizado']);
+    echo json_encode(['ok' => false, 'error' => 'No autorizado. API Key inválida o ausente']);
     exit;
 }
 
+// ── 3. LECTURA Y DECODIFICACIÓN DEL PAYLOAD JSON ─────────────────────────────
 $body = json_decode(file_get_contents('php://input'), true);
 
-if (!$body || !isset($body['id_colmena']) || !isset($body['lecturas']) || !is_array($body['lecturas'])) {
+if (!$body || !isset($body['token']) || !isset($body['lecturas']) || !is_array($body['lecturas'])) {
     http_response_code(400);
-    echo json_encode(['ok' => false, 'error' => 'JSON inválido. Se requiere id_colmena y lecturas[]']);
+    echo json_encode(['ok' => false, 'error' => 'JSON inválido. Se requiere token alfanumérico y lecturas[]']);
     exit;
 }
 
-$id_colmena = (int) $body['id_colmena'];
+$token = trim($body['token']);
+$ip_origen = $_SERVER['REMOTE_ADDR'] ?? null;
 $pdo = getPDO();
 
-// Verificar que la colmena exista
-$stmt = $pdo->prepare("SELECT id_colmena FROM colmena WHERE id_colmena = ?");
-$stmt->execute([$id_colmena]);
-if (!$stmt->fetch()) {
+// ── 4. RESOLUCIÓN SEGURA DEL ID DE COLMENA EN BACKEND ────────────────────────
+$colmena = resolverColmenaPorToken($token);
+
+// Si el token no existe o fue revocado, se registra el intento y se rechaza
+if (!$colmena) {
+    registrarIntentoVinculacion($token, $ip_origen, 'token_invalido');
     http_response_code(404);
-    echo json_encode(['ok' => false, 'error' => 'La colmena indicada no existe']);
+    echo json_encode(['ok' => false, 'error' => 'El token de vinculación proporcionado no está registrado o fue revocado']);
     exit;
 }
 
+$id_colmena = (int)$colmena['id_colmena'];
+
+// Registramos el intento exitoso y reiniciamos el contador de fallos del token
+registrarIntentoVinculacion($token, $ip_origen, 'ok');
+reiniciarIntentosFallidosToken($id_colmena);
+
+// Arrays para reportar el resultado de la transacción al ESP32
 $insertados = [];
 $errores = [];
 
+// ── 5. PROCESAMIENTO E INSERCIÓN INDIVIDUAL DE SENSORES ──────────────────────
 foreach ($body['lecturas'] as $l) {
     if (!isset($l['tipo'], $l['valor'])) {
-        $errores[] = "Lectura incompleta: " . json_encode($l);
+        $errores[] = "Lectura incompleta o mal formateada: " . json_encode($l);
         continue;
     }
 
-    $tipo  = trim($l['tipo']);
-    $valor = (float) $l['valor'];
+    $tipo = trim($l['tipo']);
+    $valor = (float)$l['valor'];
 
-    // Buscar el sensor real de ese tipo, en esa colmena
-    $stmtSensor = $pdo->prepare("
-        SELECT s.id_sensor, s.rango_min, s.rango_max, v.unidad_medida,
-            (SELECT c.factor_correccion FROM calibracion c
-             WHERE c.id_sensor = s.id_sensor
-             ORDER BY c.fecha_calibracion DESC LIMIT 1) AS factor_correccion
-        FROM sensor s
-        INNER JOIN variable_bioclimatica v ON s.id_variable = v.id_variable
-        WHERE s.id_colmena = ? AND s.tipo = ?
-        LIMIT 1
-    ");
+    // Buscamos si existe un sensor de este tipo registrado para nuestra colmena
+    $stmtSensor = $pdo->prepare("SELECT id_sensor, precision_valor FROM sensor WHERE id_colmena = ? AND tipo = ? LIMIT 1");
     $stmtSensor->execute([$id_colmena, $tipo]);
     $sensor = $stmtSensor->fetch();
 
     if (!$sensor) {
-        $errores[] = "No existe un sensor tipo '$tipo' registrado para la colmena $id_colmena";
+        $errores[] = "El sensor de tipo '{$tipo}' no se encuentra registrado para esta colmena en la plataforma";
         continue;
     }
 
-    $factor = $sensor['factor_correccion'] ?? 0;
-    $valor_calibrado = $valor + (float) $factor;
+    $id_sensor = (int)$sensor['id_sensor'];
+    $precision = $sensor['precision_valor'];
 
-    // Validar rango físico del sensor (si está definido)
-    $es_valida = 1;
-    if ($sensor['rango_min'] !== null && $sensor['rango_max'] !== null) {
-        if ($valor_calibrado < $sensor['rango_min'] || $valor_calibrado > $sensor['rango_max']) {
-            $es_valida = 0; // fuera de rango físico del sensor -> se guarda pero marcada inválida
-        }
+    // Buscamos la última calibración realizada a este sensor para corregir el valor
+    $stmtCal = $pdo->prepare("SELECT factor_correccion FROM calibracion WHERE id_sensor = ? ORDER BY id_calibracion DESC LIMIT 1");
+    $stmtCal->execute([$id_sensor]);
+    $cal = $stmtCal->fetch();
+    $factor = $cal ? (float)$cal['factor_correccion'] : 0.0;
+
+    // Aplicamos el factor de corrección bioclimático al valor bruto del ESP32
+    $valor_calibrado = $valor + $factor;
+
+    // Si el sensor tiene una precisión definida en la base de datos, redondeamos el valor
+    if ($precision !== null) {
+        $valor_calibrado = round($valor_calibrado, 2);
     }
 
-    $stmtInsert = $pdo->prepare("
-        INSERT INTO lectura (valor_bruto, valor_calibrado, unidad, fecha_hora, es_valida, id_sensor)
-        VALUES (?, ?, ?, NOW(), ?, ?)
-    ");
-    $stmtInsert->execute([$valor, $valor_calibrado, $sensor['unidad_medida'], $es_valida, $sensor['id_sensor']]);
+    // Insertamos la lectura validada y calibrada en el histórico
+    $stmtIns = $pdo->prepare("INSERT INTO lectura (valor_bruto, valor_calibrado, es_valida, id_sensor) VALUES (?, ?, 1, ?)");
+    $stmtIns->execute([$valor, $valor_calibrado, $id_sensor]);
 
-    // Marcar el sensor como en línea
-    $pdo->prepare("UPDATE sensor SET estado = 'en_linea' WHERE id_sensor = ?")
-        ->execute([$sensor['id_sensor']]);
+    // Actualizamos el estado del sensor físico en tiempo real a 'en_linea'
+    $stmtUpd = $pdo->prepare("UPDATE sensor SET estado = 'en_linea' WHERE id_sensor = ?");
+    $stmtUpd->execute([$id_sensor]);
 
-    $insertados[] = ['tipo' => $tipo, 'valor_calibrado' => $valor_calibrado, 'valido' => (bool) $es_valida];
-
-    // Evaluar alerta de enjambrazón acústica si la lectura es de tipo 'sonido' y está en rango crítico
-    if ($tipo === 'sonido' && $es_valida && $valor_calibrado >= 400 && $valor_calibrado <= 600) {
+    // ALERTA TEMPRANA DE ENJAMBRAZÓN: Evaluamos acústica (MAX9814) en la banda de 400 a 600 Hz
+    if ($tipo === 'sonido') {
         evaluarAlertaEnjambrazon($id_colmena, $valor_calibrado);
     }
+
+    $insertados[] = $tipo;
 }
 
-// Después de insertar, recalcular el IBB real con los datos que ya existan
+// ── 6. RECALCULO Y PERSISTENCIA DE INDICADORES EN TIEMPO REAL ────────────────
 $ibb = calcularIBB($id_colmena);
 if ($ibb !== null) {
-    $pdo->prepare("
+    $stmtIbb = $pdo->prepare("
         INSERT INTO indicador (tipo, valor, fecha_hora, descripcion, estado_colonia, id_colmena)
         VALUES ('IBB', ?, NOW(), 'Índice de Bienestar Bioclimático calculado automáticamente', ?, ?)
-    ")->execute([$ibb['valor'], $ibb['estado'], $id_colmena]);
+    ");
+    $stmtIbb->execute([$ibb['valor'], $ibb['estado'], $id_colmena]);
 
-    // Si el IBB es crítico, generar una alerta real
+    // DISPARADOR DE ALERTAS CRÍTICAS: Si el IBB general cae por debajo de 50%, creamos una alerta
     if ($ibb['valor'] < 50) {
-        $idIndicador = $pdo->lastInsertId();
-        $nivel = $ibb['valor'] < 30 ? 3 : 2;
-        $pdo->prepare("
-            INSERT INTO alerta (tipo, nivel, mensaje, fecha_hora, estado, id_indicador)
-            VALUES ('bienestar_bajo', ?, ?, NOW(), 'activa', ?)
-        ")->execute([
-            $nivel,
-            "IBB en {$ibb['valor']} — estado {$ibb['estado']}. Revisar la colmena.",
-            $idIndicador
-        ]);
+        $id_indicador = $pdo->lastInsertId();
+
+        // Evitamos saturar al apicultor de alertas duplicadas en las últimas 4 horas
+        $stmtCheck = $pdo->prepare("
+            SELECT COUNT(*) AS total 
+            FROM alerta al
+            INNER JOIN indicador i ON al.id_indicador = i.id_indicador
+            WHERE i.id_colmena = ? 
+              AND al.tipo = 'IBB_BAJO' 
+              AND al.estado = 'activa' 
+              AND al.fecha_hora >= (NOW() - INTERVAL 4 HOUR)
+        ");
+        $stmtCheck->execute([$id_colmena]);
+        if ($stmtCheck->fetch()['total'] == 0) {
+            $stmtAlerta = $pdo->prepare("
+                INSERT INTO alerta (tipo, nivel, mensaje, id_indicador) 
+                VALUES ('IBB_BAJO', 2, ?, ?)
+            ");
+            $mensajeAlerta = "¡Atención! El Índice de Bienestar Bioclimático general ha bajado a un nivel crítico ({$ibb['valor']}% - Estado: {$ibb['estado']}). Revisa las condiciones internas de la colmena.";
+            $stmtAlerta->execute([$mensajeAlerta, $id_indicador]);
+        }
     }
 }
 
+// Diferencial de temperatura interior/exterior (Delta T)
 $deltaT = calcularDeltaT($id_colmena);
 if ($deltaT !== null) {
     $pdo->prepare("
@@ -157,6 +189,7 @@ if ($deltaT !== null) {
     ")->execute([$deltaT['valor'], $deltaT['estado'], $id_colmena]);
 }
 
+// Eficiencia de Ventilación (EV)
 $ev = calcularEV($id_colmena);
 if ($ev !== null) {
     $pdo->prepare("
@@ -165,6 +198,7 @@ if ($ev !== null) {
     ")->execute([$ev['valor'], $ev['estado'], $id_colmena]);
 }
 
+// Humedad estimada de la miel (H_miel)
 $hMiel = calcularHMiel($id_colmena);
 if ($hMiel !== null) {
     $pdo->prepare("
@@ -173,8 +207,10 @@ if ($hMiel !== null) {
     ")->execute([$hMiel['valor'], $hMiel['estado'], $id_colmena]);
 }
 
+// ── 7. RESPUESTA EXITOSA AL CLIENTE (ESP32) ──────────────────────────────────
 echo json_encode([
     'ok' => true,
+    'colmena' => $colmena['nombre'],
     'insertados' => $insertados,
     'errores' => $errores,
     'ibb_calculado' => $ibb,

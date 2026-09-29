@@ -23,10 +23,12 @@
             <?= $colmenaActiva ? htmlspecialchars($colmenaActiva['nombre']) : 'Sin colmena asignada' ?>
         </div>
         <div class="sidebar-summary-status">
-            <span class="sidebar-status-chip <?= $espOnline ? 'online' : 'offline' ?>">
-                <span class="status-dot <?= $espOnline ? '' : 'offline' ?>"></span>
-                <?= $espOnline ? 'ESP32 sincronizado' : 'Sincronización detenida' ?>
-            </span>
+            <a href="conectar_dispositivo.php" style="text-decoration: none;" title="Abrir radar de conexión">
+                <span class="sidebar-status-chip <?= $espOnline ? 'online' : 'offline' ?> hover-effect">
+                    <span class="status-dot <?= $espOnline ? '' : 'offline' ?>"></span>
+                    <?= $espOnline ? 'ESP32 sincronizado' : 'Sincronización detenida' ?>
+                </span>
+            </a>
             <span class="sidebar-summary-time"><?= $colmenaActiva ? htmlspecialchars($colmenaActiva['estado']) : 'N/A' ?></span>
         </div>
     </div>
@@ -34,13 +36,13 @@
     <nav class="sidebar-nav">
         <div class="nav-group">
             <div class="nav-group-title">Panel</div>
-            <a href="dashboard.php" class="nav-item <?= is_active('dashboard.php') ?>" data-name="Resumen">
-                <i data-lucide="layout-dashboard"></i>
-                Resumen
-            </a>
             <a href="dispositivos.php" class="nav-item <?= is_active('dispositivos.php') ?>" data-name="Dispositivos">
                 <i data-lucide="link-2"></i>
                 Dispositivos
+            </a>
+            <a href="dashboard.php" class="nav-item <?= is_active('dashboard.php') ?>" data-name="Resumen">
+                <i data-lucide="layout-dashboard"></i>
+                Resumen
             </a>
         </div>
 

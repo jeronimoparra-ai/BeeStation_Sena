@@ -51,7 +51,7 @@
             </span>
             <span class="hero-chip">
                 <i data-lucide="wifi"></i>
-                <?= $espOnline ? 'ESP32 sincronizado' : 'Sin datos recientes' ?>
+                <?= $espOnline ? 'ESP32 sincronizado' : ($espTieneHistorial ? 'Reconectando…' : 'Sin datos recientes') ?>
             </span>
             <span class="hero-chip">
                 <i data-lucide="alert-triangle"></i>
