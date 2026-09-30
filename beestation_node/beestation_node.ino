@@ -4,6 +4,7 @@
 #include <Preferences.h>
 #include <HTTPClient.h>
 #include <ESPmDNS.h>
+#include <time.h>            // NTP + hora real para los registros de la microSD
 
 // ── LIBRERÍAS DE HARDWARE REAL (Diseño de tu Placa) ──────────
 #include <Wire.h>
@@ -14,10 +15,11 @@
 #include <BH1750.h>          // Requiere "BH1750" de Christopher Laws
 #include <HX711.h>           // Requiere "HX711 Arduino Library" de Bogdan Necula
 #include "index_html.h"      // Importa tu interfaz de la pestaña contigua
+#include "monitoreo_html.h"  // Página de monitoreo en vivo (STA)
 
 // ── VERSIÓN DEL FIRMWARE ──────────────────────────────────────
-#define FIRMWARE_VERSION "3.0.0"
-#define FIRMWARE_DATE    "2026-09-02"
+#define FIRMWARE_VERSION "3.1.0"
+#define FIRMWARE_DATE    "2026-09-29"
 
 // ── DEFINICIÓN DE PINES FÍSICOS (Según tu Plano Eléctrico) ────
 // Bus I2C (compartido por BME280 y BH1750)
@@ -70,9 +72,19 @@ IPAddress apIP(192, 168, 4, 1);
 // definida en config/db.php del servidor PHP.
 const char* apiKey = "ba20858ed12a853bbcaafec2d9c753db0ad9f7e60022d6e1a3f94f978743808a";
 
-// ── Intervalo de envío de datos (en milisegundos) ─────────────
-const unsigned long INTERVALO_ENVIO = 60000; // 60 segundos
-unsigned long ultimoEnvio = 0;
+// ── Intervalo de RECOPILACIÓN de datos ────────────────────────
+// Una lectura cada 5 minutos. La lectura se registra SIEMPRE en
+// la microSD (con o sin WiFi) y, sólo si hay red, se sube al
+// servidor. Así el nodo funciona igual de bien offline.
+const unsigned long INTERVALO_LECTURA = 300000; // 5 minutos
+unsigned long ultimaLecturaPanel = 0;
+
+// ── Estado del registro continuo en la microSD ────────────────
+String archivoSDActivo = "";   // fichero del día en curso
+unsigned long registrosSD = 0; // filas escritas en ese fichero
+
+// ── Servidor web compartido entre modo AP (portal) y STA ──────
+bool rutasWebConfiguradas = false;
 
 // ── Control de reconexión WiFi con backoff exponencial ────────
 unsigned long ultimoIntentoReconexion = 0;
@@ -239,6 +251,13 @@ void setup() {
   if (sdActivo) Serial.print(" + microSD");
   Serial.println("\n");
 
+  // ── Servidor web ────────────────────────────────────────────
+  // NO se arranca aquí: WiFi aún no está inicializado y
+  // WebServer::begin() aborta con "xQueueSemaphoreTake".
+  // Se arranca en iniciarPortalCautivo() (modo AP) o en el
+  // camino de éxito de WiFi (modo STA).
+  //
+
   // ── 4. RECUPERACIÓN DE CONFIGURACIÓN DE MEMORIA NVS ─────────
   preferences.begin("beestation", true);
   ssidGuardado  = preferences.getString("ssid", "");
@@ -284,6 +303,28 @@ void setup() {
       Serial.printf("[WiFi] Gateway       : %s\n", WiFi.gatewayIP().toString().c_str());
       Serial.printf("[WiFi] RSSI (señal)  : %d dBm\n", WiFi.RSSI());
 
+      // ── Hora real por NTP para los registros de la microSD ───
+      // configTzTime fija TZ antes de arrancar SNTP. Hay que usar
+      // esta y NO configTime(): esa última pisa TZ con "UTC0DST0".
+      // Colombia no aplica horario de verano: UTC-5 fijo ("COT5").
+      configTzTime("COT5", "pool.ntp.org", "time.google.com", "time.nist.gov");
+      Serial.println("[NTP] Sincronizando hora… (los CSV usarán la hora de Colombia)");
+
+      // Esperar a que el reloj local esté listo ANTES de la primera
+      // escritura en la microSD: así la primera fila del día cae en
+      // su fichero correcto (/log_AAAA-MM-DD.csv) y no en el de
+      // respaldo. Máximo 6 s; si no hay NTP, se sigue con ese respaldo.
+      {
+        struct tm relojLocal;
+        if (getLocalTime(&relojLocal, 6000)) {
+          char ahora[24];
+          strftime(ahora, sizeof(ahora), "%Y-%m-%d %H:%M:%S", &relojLocal);
+          Serial.printf("[NTP] ✓ Hora local : %s  (COT5)\n", ahora);
+        } else {
+          Serial.println("[NTP] ✗ Aún sin hora → los registros van a /log_sin_hora.csv");
+        }
+      }
+
       // Iniciar mDNS para que el dispositivo sea accesible como beestation.local
       if (MDNS.begin("beestation")) {
         Serial.println("[mDNS] Accesible como → http://beestation.local");
@@ -299,6 +340,9 @@ void setup() {
         modoPortalCautivo = false;
         intentosReconexionConsecutivos = 0;
 
+        // Servidor web en modo estación: panel de monitoreo en vivo
+        configurarRutasWeb();
+        Serial.println("[WEB] Monitoreo en vivo → http://" + WiFi.localIP().toString() + "/monitoreo");
         imprimirMenuAyuda();
         return; // Sale de setup() y entra a loop() en modo envío de datos
       } else {
@@ -334,52 +378,57 @@ void loop() {
   // ── Procesar comandos del Serial Monitor siempre ────────────
   procesarComandoSerial();
 
+  // ── 1. RECOPILACIÓN (con o sin WiFi) ────────────────────────
+  // Cada INTERVALO_LECTURA se leen los sensores, se registra una
+  // fila en la microSD y se actualiza el panel. Este bloque es el
+  // que hace que el nodo recoja datos TODO EL TIEMPO, incluso
+  // sin conexión a la red.
+  bool cicloNuevo = false;
+  if (ultimaLecturaPanel == 0 ||
+      millis() - ultimaLecturaPanel >= INTERVALO_LECTURA) {
+    ultimaLecturaPanel = millis();
+    cicloNuevo = true;
+    leerSensores();
+    guardarRespaldoSD(ultimaTemp, ultimaHum, ultimaPresion,
+                      ultimoPeso, ultimoSonido, ultimaLuz);
+    imprimirPanelSensores();
+  }
+
+  // ── 2. SERVIDOR WEB: siempre atiende peticiones ─────────────
+  //   · modo AP  → portal de configuración en 192.168.4.1
+  //   · modo STA → panel de monitoreo en vivo en http://<ip>/
+  if (modoPortalCautivo) {
+    dnsServer.processNextRequest();
+  }
+  server.handleClient();
+
+  // ── 3. SIN CONEXIÓN: portal o reconexión, y salir ────────────
+  // Ojo: la fila ya quedó guardada en la microSD en el paso 1,
+  // así que perder la red no significa perder datos.
   if (modoPortalCautivo || WiFi.status() != WL_CONNECTED) {
-    // Modo Portal Cautivo: servir la página de configuración
-    if (modoPortalCautivo) {
-      dnsServer.processNextRequest();
-      server.handleClient();
-    } else {
-      // Perdimos la conexión WiFi estando en modo datos:
-      // intentar reconexión con backoff exponencial
+    if (!modoPortalCautivo) {
       reconectarWiFi();
     }
+    delay(100);
     return;
   }
 
-  // ── LÓGICA DE PRODUCCIÓN: ADQUISICIÓN Y ENVÍO DE DATOS ──────
-
-  // Verificar si ha pasado el intervalo de envío
-  unsigned long ahora = millis();
-  if (ahora - ultimoEnvio < INTERVALO_ENVIO) {
+  // ── 4. ENVÍO AL SERVIDOR (sólo con lectura nueva + WiFi) ────
+  if (!cicloNuevo) {
     delay(100); // Pequeña pausa para no saturar el CPU
     return;
   }
-  ultimoEnvio = ahora;
 
   // Parpadeo del LED al iniciar el ciclo de envío
   digitalWrite(LED_STATUS, HIGH);
 
-  // ── Lectura de las variables físicas reales ─────────────────
-  float tempInterna  = bmeActivo ? bme.readTemperature() : 0.0;
-  float humRelativa  = bmeActivo ? bme.readHumidity() : 0.0;
-  float presionAtm   = bmeActivo ? (bme.readPressure() / 100.0F) : 0.0; // hPa
-  float luzAmbiente  = bh1750Activo ? lightMeter.readLightLevel() : 0.0;
-  float nivelSonido  = leerNivelAcustico(50); // Muestreo de 50ms del micrófono
-
-  float pesoColmena  = 0.0;
-  if (hx711Activo && scale.wait_ready_timeout(500)) {
-    pesoColmena = scale.get_units(3); // Promedio de 3 lecturas rápidas
-  }
-
-  // Almacenar para diagnóstico por /status y comando 'status'
-  ultimaTemp    = tempInterna;
-  ultimaHum     = humRelativa;
-  ultimaPresion = presionAtm;
-  ultimoPeso    = pesoColmena;
-  ultimaLuz     = luzAmbiente;
-  ultimoSonido  = nivelSonido;
-  ultimaLecturaMs = millis();
+  // Usamos la última lectura: el registro en microSD ya ocurrió.
+  float tempInterna  = ultimaTemp;
+  float humRelativa  = ultimaHum;
+  float presionAtm   = ultimaPresion;  // hPa
+  float luzAmbiente  = ultimaLuz;
+  float nivelSonido  = ultimoSonido;
+  float pesoColmena  = ultimoPeso;
 
   // ── Construcción del JSON de telemetría ─────────────────────
   // CORRECCIÓN: El BH1750 mide luminosidad (luxes), NO CO2.
@@ -393,15 +442,8 @@ void loop() {
   jsonPayload += "{\"tipo\":\"luminosidad\",\"valor\":" + String(luzAmbiente, 2) + "}";
   jsonPayload += "]}";
 
-  Serial.println("\n┌─── Ciclo de Telemetría ───────────────────────┐");
-  Serial.printf("│ Temp: %.1f°C  Hum: %.1f%%  Presión: %.1f hPa\n", tempInterna, humRelativa, presionAtm);
-  Serial.printf("│ Peso: %.2f   Sonido: %.3fV  Luz: %.1f lux\n", pesoColmena, nivelSonido, luzAmbiente);
-  Serial.println("└───────────────────────────────────────────────┘");
-
-  // Guardar respaldo local en microSD antes de transmitir
-  if (sdActivo) {
-    guardarRespaldoSD(tempInterna, humRelativa, presionAtm, pesoColmena, nivelSonido, luzAmbiente);
-  }
+  Serial.printf("[ENVÍO] → %s | Temp %.1f°C · Hum %.1f%% · Peso %.2f kg · Luz %.1f lux\n",
+                hostGuardado.c_str(), tempInterna, humRelativa, pesoColmena, luzAmbiente);
 
   // ── RESOLUCIÓN DINÁMICA DE LA IP DEL SERVIDOR ───────────────
   if (hostGuardado == "") {
@@ -539,6 +581,145 @@ bool descubrirServidor() {
 //            BANNER DE INICIO Y MENÚ SERIAL
 // ══════════════════════════════════════════════════════════════
 
+// ══════════════════════════════════════════════════════════════
+//        LECTURA AUTOMÁTICA Y VISUALIZACIÓN DE SENSORES
+// ══════════════════════════════════════════════════════════════
+
+// Lee todos los sensores y actualiza el estado de diagnóstico.
+// Se ejecuta con independencia de que haya WiFi o no.
+void leerSensores() {
+  ultimaTemp    = bmeActivo  ? bme.readTemperature() : 0.0;
+  ultimaHum     = bmeActivo  ? bme.readHumidity()    : 0.0;
+  ultimaPresion = bmeActivo  ? (bme.readPressure() / 100.0F) : 0.0;
+  ultimaLuz     = bh1750Activo ? lightMeter.readLightLevel() : 0.0;
+  ultimoSonido  = leerNivelAcustico(50); // muestreo de 50 ms del MAX4466
+
+  ultimoPeso = 0.0;
+  if (hx711Activo && scale.wait_ready_timeout(500)) {
+    ultimoPeso = scale.get_units(3); // promedio de 3 lecturas
+  }
+
+  ultimaLecturaMs = millis();
+}
+
+// ── Helpers de formato para las cajas del Monitor Serie ───────
+// Arduino String::length() cuenta BYTES y ✗/✓/° son UTF-8 de
+// varios bytes, así que el ancho se calcula contando caracteres.
+static int anchoTexto(const String &s) {
+  int n = 0;
+  for (unsigned i = 0; i < s.length(); ) {
+    uint8_t c = (uint8_t)s[i];
+    i += (c < 0x80) ? 1 : ((c & 0xE0) == 0xC0) ? 2 : ((c & 0xF0) == 0xE0) ? 3 : 4;
+    n++;
+  }
+  return n;
+}
+
+static const int ANCHO_CAJA = 52;
+
+// Rellena con espacios hasta que el texto mida ANCHO_CAJA caracteres.
+static String padCaja(const String &s) {
+  String r = s;
+  int n = anchoTexto(r);
+  while (n < ANCHO_CAJA) { r += ' '; n++; }
+  return r;
+}
+
+// Línea completa: borde izquierdo + contenido + borde derecho.
+// Los bordes van como const char* porque '╔' como char perdería
+// sus 3 bytes UTF-8 y se imprimiría como '?'.
+static String lineaCaja(const String &contenido, const char *izq, const char *der) {
+  String r = izq;
+  r += padCaja(contenido);
+  r += der;
+  return r;
+}
+
+// Panel de visualización de TODOS los datos leídos por los sensores.
+// Se imprime automáticamente en el Monitor Serie cada INTERVALO_LECTURA.
+void imprimirPanelSensores() {
+  unsigned long seg = millis() / 1000;
+  unsigned long hh  = seg / 3600;
+  unsigned long mm  = (seg % 3600) / 60;
+  unsigned long ss  = seg % 60;
+  unsigned long antiguedad = (ultimaLecturaMs > 0) ? (millis() - ultimaLecturaMs) / 1000 : 0;
+
+  String sep;
+  for (int i = 0; i < ANCHO_CAJA; i++) sep += "═";
+
+  char hdr[96], tmp[80], relojStr[24];
+  struct tm reloj;
+  if (getLocalTime(&reloj, 0)) {
+    strftime(relojStr, sizeof(relojStr), "%H:%M:%S", &reloj);
+  } else {
+    snprintf(relojStr, sizeof(relojStr), "uptime %02lu:%02lu:%02lu", hh, mm, ss);
+  }
+  snprintf(hdr, sizeof(hdr), "  LECTURA EN VIVO  ·  %s  ·  hace %lus",
+           relojStr, antiguedad);
+
+  Serial.println();
+  Serial.println(lineaCaja(sep, "╔", "╗"));
+  Serial.println(lineaCaja(String(hdr), "║", "║"));
+  Serial.println(lineaCaja(sep, "╠", "╣"));
+  Serial.println(lineaCaja("  SENSOR        ESTADO         VALOR     UNIDAD", "║", "║"));
+  Serial.println(lineaCaja(sep, "╠", "╣"));
+
+  if (bmeActivo) {
+    snprintf(tmp, sizeof(tmp), "  BME280 Temp   ✓ ACTIVO   %8.2f °C", ultimaTemp);
+    Serial.println(lineaCaja(String(tmp), "║", "║"));
+    snprintf(tmp, sizeof(tmp), "  BME280 Hum    ✓ ACTIVO   %8.2f %%", ultimaHum);
+    Serial.println(lineaCaja(String(tmp), "║", "║"));
+    snprintf(tmp, sizeof(tmp), "  BME280 Pres   ✓ ACTIVO   %8.2f hPa", ultimaPresion);
+    Serial.println(lineaCaja(String(tmp), "║", "║"));
+  } else {
+    Serial.println(lineaCaja("  BME280        ✗ NO DETECTADO  Temp/Hum/Presión", "║", "║"));
+  }
+
+  if (bh1750Activo) {
+    snprintf(tmp, sizeof(tmp), "  BH1750 Luz    ✓ ACTIVO   %8.1f lux", ultimaLuz);
+    Serial.println(lineaCaja(String(tmp), "║", "║"));
+  } else {
+    Serial.println(lineaCaja("  BH1750        ✗ NO DETECTADO  (Luminosidad)", "║", "║"));
+  }
+
+  if (hx711Activo) {
+    snprintf(tmp, sizeof(tmp), "  HX711 Peso    ✓ ACTIVO   %8.2f kg", ultimoPeso);
+    Serial.println(lineaCaja(String(tmp), "║", "║"));
+  } else {
+    Serial.println(lineaCaja("  HX711         ✗ NO DETECTADO  (Peso de la colmena)", "║", "║"));
+  }
+
+  snprintf(tmp, sizeof(tmp), "  MAX4466 Son   ✓ ANALÓGICO %8.3f V (GPIO%d)",
+           ultimoSonido, MIC_ANALOG);
+  Serial.println(lineaCaja(String(tmp), "║", "║"));
+
+  snprintf(tmp, sizeof(tmp), "  microSD       %s Respaldo local",
+           sdActivo ? "✓ ACTIVA" : "✗ NO DET.");
+  Serial.println(lineaCaja(String(tmp), "║", "║"));
+
+  Serial.println(lineaCaja(sep, "╚", "╝"));
+
+  // Estado del registro continuo en la microSD
+  if (sdActivo) {
+    Serial.println("[SD]  " + archivoSDActivo + "  ·  " + String(registrosSD) + " registros");
+  } else {
+    Serial.println("[SD]  ✗ Sin tarjeta microSD — no se registra localmente");
+  }
+
+  if (WiFi.status() == WL_CONNECTED) {
+    Serial.printf("[RED] Conectado a '%s' · IP %s · %s\n",
+                  WiFi.SSID().c_str(),
+                  WiFi.localIP().toString().c_str(),
+                  modoPortalCautivo ? "PORTAL" : "ESTACIÓN");
+    Serial.printf("[WEB] Monitoreo en vivo → http://%s/monitoreo\n",
+                  WiFi.localIP().toString().c_str());
+  } else if (modoPortalCautivo) {
+    Serial.println("[RED] Modo PORTAL CAUTIVO · conecta a 'BeeStation_Config' → http://192.168.4.1");
+  } else {
+    Serial.println("[RED] Sin conexión WiFi — leyendo sensores igualmente");
+  }
+}
+
 void imprimirBanner() {
   Serial.println();
   Serial.println("╔══════════════════════════════════════════════════════╗");
@@ -566,17 +747,124 @@ void imprimirMenuAyuda() {
   Serial.println("┌─── Comandos Serial (escribe y presiona Enter) ──────┐");
   Serial.println("│  status  → Estado actual de sensores y red           │");
   Serial.println("│  config  → Mostrar configuración guardada (NVS)      │");
+  Serial.println("│  host    → Ver/fijar la IP del servidor (NVS)        │");
+  Serial.println("│  datos   → Ver los datos guardados en la microSD     │");
   Serial.println("│  scan    → Escanear redes WiFi disponibles           │");
   Serial.println("│  test    → Enviar POST de prueba al servidor         │");
   Serial.println("│  reset   → Borrar configuración y reiniciar          │");
   Serial.println("│  help    → Mostrar este menú de ayuda                │");
   Serial.println("└─────────────────────────────────────────────────────┘");
   Serial.println();
+  Serial.println("[AUTOMÁTICO] Los sensores se leen cada " +
+                 String(INTERVALO_LECTURA / 60000) + " minutos.");
+  Serial.println("             Se guardan SIEMPRE en la microSD (con o sin WiFi)");
+  Serial.println("             y, sólo si hay red, se suben al servidor.");
+  Serial.println("             Verlos: escribe 'datos' o abre http://<ip>/monitoreo");
+  Serial.println();
 }
 
 // ══════════════════════════════════════════════════════════════
 //            PROCESAMIENTO DE COMANDOS SERIAL
 // ══════════════════════════════════════════════════════════════
+
+// Comando serial: ver o cambiar la IP del servidor guardada en NVS
+//   host                → muestra la IP actual
+//   host 172.30.0.170   → fija una IP concreta
+//   host auto           → borra la IP (autodescubrimiento por subred)
+void comandoHost(String arg) {
+  preferences.begin("beestation", true);
+  String actual = preferences.getString("host", "");
+  preferences.end();
+
+  if (arg.length() == 0) {
+    Serial.println("── IP del servidor ──");
+    Serial.printf("  Actual : %s\n",
+      actual.length() > 0 ? actual.c_str() : "(auto-detect por subred)");
+    Serial.println("  Uso    : host <ip>   → fija la IP del servidor");
+    Serial.println("           host auto   → borra la IP (autodescubrimiento)");
+    Serial.println("  Ejemplo: host 172.30.0.170");
+    Serial.println();
+    return;
+  }
+
+  bool esAuto = (arg == "auto" || arg == "clear");
+
+  if (!esAuto) {
+    IPAddress ip;
+    if (!ip.fromString(arg) || ip[0] == 0) {
+      Serial.printf("[HOST] ✗ '%s' no es una IP válida.\n", arg.c_str());
+      Serial.println("[HOST]   Ejemplo correcto: host 172.30.0.170");
+      Serial.println();
+      return;
+    }
+  }
+
+  preferences.begin("beestation", false);
+  preferences.putString("host", esAuto ? "" : arg);
+  preferences.end();
+
+  hostGuardado = esAuto ? "" : arg;
+
+  if (esAuto) {
+    Serial.println("[HOST] ✓ IP borrada. El nodo autodescubrirá el servidor por subred.");
+  } else {
+    Serial.printf("[HOST] ✓ Servidor fijado en %s\n", hostGuardado.c_str());
+    Serial.printf("[HOST]   Destino: http://%s/BeeStation_Sena/api/ingest.php\n",
+                  hostGuardado.c_str());
+  }
+  Serial.println();
+}
+
+// Comando serial: muestra los datos YA guardados en la microSD
+//   datos        → últimas 20 filas del CSV del día
+//   datos 50     → últimas 50 filas
+void comandoDatos(String arg) {
+  int n = arg.toInt();
+  if (n <= 0 || n > 200) n = 20;
+
+  String ruta;
+  int total = 0;
+  String filas = leerUltimasFilasSD(n, ruta, total);
+
+  Serial.println("\u2500\u2500 Datos guardados en la microSD \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500");
+  if (ruta.length() == 0) {
+    Serial.println("  \u2717 No hay ficheros de registro en la tarjeta.");
+    Serial.println();
+    return;
+  }
+  Serial.printf("  Fichero : %s\n", ruta.c_str());
+  Serial.printf("  Filas   : %d (mostrando hasta %d)\n", total, n);
+  if (filas.length() == 0) {
+    Serial.println("  (fichero creado, a\u00fan sin datos)");
+    Serial.println();
+    return;
+  }
+
+  Serial.println();
+  Serial.printf("  %-20s %9s %8s %6s %6s %6s %7s %6s\n",
+                "Fecha_hora", "Millis", "Temp", "Hum", "Pres", "Peso", "Sonido", "Luz");
+
+  unsigned int inicio = 0;
+  while (inicio <= filas.length()) {
+    int fin = filas.indexOf('\n', inicio);
+    if (fin < 0) fin = filas.length();
+    String l = filas.substring(inicio, fin);
+    if (l.length() > 0) {
+      char fh[24]; unsigned long ms = 0;
+      float t = 0, h = 0, pr = 0, pz = 0, sn = 0, lz = 0;
+      if (sscanf(l.c_str(), "%23[^,],%lu,%f,%f,%f,%f,%f,%f",
+                 fh, &ms, &t, &h, &pr, &pz, &sn, &lz) == 8) {
+        Serial.printf("  %-20s %9lu %8.2f %6.2f %6.2f %6.2f %7.3f %6.2f\n",
+                      fh, ms, t, h, pr, pz, sn, lz);
+      } else {
+        Serial.println("  " + l);
+      }
+    }
+    if ((unsigned int)fin >= filas.length()) break;
+    inicio = fin + 1;
+  }
+  Serial.println();
+}
 
 void procesarComandoSerial() {
   if (!Serial.available()) return;
@@ -593,6 +881,14 @@ void procesarComandoSerial() {
     comandoStatus();
   } else if (cmd == "config") {
     comandoConfig();
+  } else if (cmd.startsWith("host")) {
+    String arg = cmd.substring(4);
+    arg.trim();
+    comandoHost(arg);
+  } else if (cmd.startsWith("datos")) {
+    String arg = cmd.substring(5);
+    arg.trim();
+    comandoDatos(arg);
   } else if (cmd == "scan") {
     comandoScan();
   } else if (cmd == "test") {
@@ -933,23 +1229,140 @@ float leerNivelAcustico(unsigned int milliseconds) {
 // ══════════════════════════════════════════════════════════════
 //       SISTEMA DE RESPALDO EN MICROSD (DATALOGGER)
 // ══════════════════════════════════════════════════════════════
-void guardarRespaldoSD(float t, float h, float pres, float peso, float s, float l) {
-  File dataFile = SD.open("/telemetria.csv", FILE_WRITE);
-  if (dataFile) {
-    if (dataFile.size() == 0) {
-      dataFile.println("Timestamp,Temp,Hum,Presion,Peso,Sonido,Luz");
-    }
-    dataFile.printf("%lu,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f\n", millis(), t, h, pres, peso, s, l);
-    dataFile.close();
-    Serial.println("[SD] Registro guardado con éxito en tarjeta local.");
-  } else {
-    Serial.println("[SD] ✗ Error de acceso a tarjeta.");
+// ── Registro continuo en microSD ───────────────────────────────
+// Se llama en CADA ciclo de recopilación (cada 5 minutos), con o
+// sin WiFi. Un fichero por día (/log_AAAA-MM-DD.csv) y columna de
+// fecha real vía NTP; si aún no hay hora, /log_sin_hora.csv.
+void guardarRespaldoSD(float temp, float hum, float pres, float peso, float s, float l) {
+  if (!sdActivo) return;
+
+  // Hora local (America/Bogota) si el NTP ya se sincronizó
+  struct tm reloj;
+  bool hayHora = getLocalTime(&reloj, 0);
+  char fecha[24] = "sin_hora";
+  char nombreFichero[32] = "/log_sin_hora.csv";
+
+  if (hayHora) {
+    strftime(fecha, sizeof(fecha), "%Y-%m-%d %H:%M:%S", &reloj);
+    char dia[16];
+    strftime(dia, sizeof(dia), "%Y-%m-%d", &reloj);
+    snprintf(nombreFichero, sizeof(nombreFichero), "/log_%s.csv", dia);
   }
+
+  File dataFile = SD.open(nombreFichero, FILE_WRITE);
+  if (!dataFile) {
+    Serial.println("[SD] ✗ Error de acceso a tarjeta.");
+    return;
+  }
+
+  bool ficheroNuevo = (dataFile.size() == 0);
+  if (ficheroNuevo) {
+    dataFile.println("Fecha_hora,Millis,Temp,Hum,Presion,Peso,Sonido,Luz");
+    if (archivoSDActivo != nombreFichero) {
+      archivoSDActivo = nombreFichero;
+      registrosSD = 0;
+      Serial.println("[SD] ▶ Nuevo fichero: " + String(nombreFichero));
+    }
+  }
+
+  dataFile.printf("%s,%lu,%.2f,%.2f,%.2f,%.2f,%.3f,%.2f\n",
+                  fecha, millis(), temp, hum, pres, peso, s, l);
+  dataFile.close();
+  registrosSD++;
+}
+
+// ── Consulta de los datos YA guardados en la microSD ──────────
+// Ruta del CSV del día en curso (con respaldo si no hay hora).
+String rutaCSVActual() {
+  struct tm reloj;
+  if (getLocalTime(&reloj, 0)) {
+    char dia[16];
+    strftime(dia, sizeof(dia), "%Y-%m-%d", &reloj);
+    String r = String("/log_") + dia + ".csv";
+    if (SD.exists(r)) return r;
+  }
+  if (archivoSDActivo.length() > 0 && SD.exists(archivoSDActivo)) return archivoSDActivo;
+  if (SD.exists("/log_sin_hora.csv")) return "/log_sin_hora.csv";
+  return "";
+}
+
+// Devuelve las últimas 'n' filas de datos (sin la cabecera),
+// separadas por '\n'. 'ruta' y 'totalFilas' salen rellenos.
+// Se usa un anillo en memoria para no cargar el fichero entero.
+String leerUltimasFilasSD(int n, String &ruta, int &totalFilas) {
+  ruta = rutaCSVActual();
+  totalFilas = 0;
+  if (ruta.length() == 0) return "";
+
+  File f = SD.open(ruta, FILE_READ);
+  if (!f) return "";
+
+  String *anillo = new String[n];
+  if (anillo == NULL) { f.close(); return ""; }
+
+  int idx = 0, llenas = 0, lineaNum = 0;
+  while (f.available()) {
+    String linea = f.readStringUntil('\n');
+    linea.trim();
+    if (linea.length() == 0) continue;
+    lineaNum++;
+    if (lineaNum == 1) continue;            // ignora la cabecera
+    totalFilas++;
+    anillo[idx] = linea;
+    idx = (idx + 1) % n;
+    if (llenas < n) llenas++;
+  }
+  f.close();
+
+  String out = "";
+  int inicio = (llenas == n) ? idx : 0;    // lleno -> idx apunta a la mas vieja
+  for (int i = 0; i < llenas; i++) {
+    if (i > 0) out += "\n";
+    out += anillo[(inicio + i) % n];
+  }
+  delete[] anillo;
+  return out;
 }
 
 // ══════════════════════════════════════════════════════════════
 //            RUTINAS DEL PORTAL CAUTIVO
 // ══════════════════════════════════════════════════════════════
+// ══════════════════════════════════════════════════════════════
+//   SERVIDOR WEB COMPARTIDO (PORTAL CAUTIVO + MONITOREO EN VIVO)
+// ══════════════════════════════════════════════════════════════
+
+// Registra todas las rutas y arranca el servidor UNA sola vez.
+// Funciona igual en modo AP (portal de configuración) y en modo
+// STA (panel de monitoreo en vivo servido por el propio ESP32).
+void configurarRutasWeb() {
+  if (rutasWebConfiguradas) return;
+  rutasWebConfiguradas = true;
+
+  // "/" → portal de configuración en AP, panel de monitoreo en STA
+  server.on("/", HTTP_GET, []() {
+    if (modoPortalCautivo) atenderPortal();
+    else                   atenderMonitoreo();
+  });
+
+  server.on("/monitoreo", HTTP_GET, atenderMonitoreo);
+  server.on("/status",    HTTP_GET, atenderStatusJSON);
+  server.on("/datos",     HTTP_GET, atenderDatosSD);
+  server.on("/save",      HTTP_POST, procesarGuardado);
+
+  server.onNotFound([]() {
+    server.sendHeader("Location", modoPortalCautivo ? "http://192.168.4.1/" : "/monitoreo", true);
+    server.send(302, "text/plain", "");
+  });
+
+  server.begin();
+  Serial.println("[WEB] Servidor web iniciado en el puerto 80.");
+}
+
+// Página de monitoreo en vivo (modo estación)
+void atenderMonitoreo() {
+  server.send(200, "text/html; charset=utf-8", String(MONITOREO_HTML));
+}
+
 void iniciarPortalCautivo() {
   Serial.println("\n[AP] Levantando señal inalámbrica 'BeeStation_Config'...");
   WiFi.mode(WIFI_AP);
@@ -958,17 +1371,8 @@ void iniciarPortalCautivo() {
 
   dnsServer.start(DNS_PORT, "*", apIP);
 
-  // Rutas del servidor web
-  server.on("/", HTTP_GET, atenderPortal);
-  server.on("/save", HTTP_POST, procesarGuardado);
-  server.on("/status", HTTP_GET, atenderStatusJSON);
-
-  server.onNotFound([]() {
-    server.sendHeader("Location", "http://192.168.4.1/", true);
-    server.send(302, "text/plain", "");
-  });
-
-  server.begin();
+  // Rutas y servidor web (registrados una sola vez, ver configurarRutasWeb)
+  configurarRutasWeb();
   Serial.println("[AP] Servidor Web del Portal Cautivo listo.");
   Serial.println("[AP] ─────────────────────────────────────────────");
   Serial.println("[AP]   Conéctate al WiFi 'BeeStation_Config'");
@@ -1022,13 +1426,54 @@ String generarIndicadorSensor(const char* nombre, const char* descripcion, bool 
   return html;
 }
 
-// Endpoint JSON para diagnóstico desde el navegador
+// Endpoint JSON con los datos YA guardados en la microSD.
+// Devuelve las últimas filas del CSV del día en curso para que
+// la página de monitoreo pueda mostrarlas al abrirse.
+// GET /datos?n=50
+void atenderDatosSD() {
+  int n = server.hasArg("n") ? server.arg("n").toInt() : 50;
+  if (n <= 0 || n > 200) n = 50;
+
+  String ruta;
+  int total = 0;
+  String filas = leerUltimasFilasSD(n, ruta, total);
+
+  int mostradas = 0;
+  String json = "{";
+  json += "\"fichero\":\"" + ruta + "\",";
+  json += "\"total\":" + String(total) + ",";
+  json += "\"filas\":[";
+
+  unsigned int inicio = 0;
+  while (inicio <= filas.length()) {
+    int fin = filas.indexOf('\n', inicio);
+    if (fin < 0) fin = filas.length();
+    String l = filas.substring(inicio, fin);
+    if (l.length() > 0) {
+      if (mostradas > 0) json += ",";
+      json += "\"" + l + "\"";
+      mostradas++;
+    }
+    if ((unsigned int)fin >= filas.length()) break;
+    inicio = fin + 1;
+  }
+
+  json += "],\"mostradas\":" + String(mostradas) + "}";
+  server.send(200, "application/json", json);
+}
+
+// Endpoint JSON para diagnóstico desde el navegador y para la
+// página de monitoreo en vivo (/monitoreo).
+// Usa las lecturas cacheadas por leerSensores() para que la
+// respuesta nunca bloquee el loop (el HX711 puede tardar 500 ms).
 void atenderStatusJSON() {
   String json = "{";
   json += "\"firmware\":\"" + String(FIRMWARE_VERSION) + "\",";
   json += "\"mac\":\"" + WiFi.macAddress() + "\",";
   json += "\"heap\":" + String(ESP.getFreeHeap()) + ",";
   json += "\"uptime\":" + String(millis() / 1000) + ",";
+  json += "\"lectura_edad_s\":" + String((ultimaLecturaMs > 0) ? (millis() - ultimaLecturaMs) / 1000 : -1) + ",";
+
   json += "\"sensores\":{";
   json += "\"bme280\":" + String(bmeActivo ? "true" : "false") + ",";
   json += "\"bh1750\":" + String(bh1750Activo ? "true" : "false") + ",";
@@ -1037,18 +1482,26 @@ void atenderStatusJSON() {
   json += "\"microsd\":" + String(sdActivo ? "true" : "false");
   json += "}";
 
-  // Añadir lecturas en tiempo real si los sensores están activos
-  if (bmeActivo) {
-    json += ",\"bme280_data\":{";
-    json += "\"temp\":" + String(bme.readTemperature(), 1) + ",";
-    json += "\"hum\":" + String(bme.readHumidity(), 1) + ",";
-    json += "\"pres\":" + String(bme.readPressure() / 100.0F, 1);
-    json += "}";
-  }
-  if (bh1750Activo) {
-    json += ",\"bh1750_data\":{\"lux\":" + String(lightMeter.readLightLevel(), 1) + "}";
-  }
+  // Últimas lecturas de todos los sensores
+  json += ",\"bme280_data\":{";
+  json += "\"temp\":" + String(ultimaTemp, 1) + ",";
+  json += "\"hum\":" + String(ultimaHum, 1) + ",";
+  json += "\"pres\":" + String(ultimaPresion, 1);
+  json += "}";
+  json += ",\"lux\":" + String(ultimaLuz, 1);
+  json += ",\"peso\":" + String(ultimoPeso, 2);
+  json += ",\"sonido\":" + String(ultimoSonido, 3);
   json += ",\"mic_raw\":" + String(analogRead(MIC_ANALOG));
+
+  // Estado de red (informativo en ambos modos)
+  json += ",\"red\":{";
+  json += "\"modo\":\"" + String(modoPortalCautivo ? "ap" : "sta") + "\",";
+  json += "\"ssid\":\"" + String(modoPortalCautivo ? "BeeStation_Config" : WiFi.SSID()) + "\",";
+  json += "\"ip\":\"" + String(modoPortalCautivo ? apIP.toString() : WiFi.localIP().toString()) + "\",";
+  json += "\"rssi\":" + String(WiFi.status() == WL_CONNECTED ? WiFi.RSSI() : 0) + ",";
+  json += "\"servidor\":\"" + hostGuardado + "\"";
+  json += "}";
+
   json += "}";
 
   server.send(200, "application/json", json);
