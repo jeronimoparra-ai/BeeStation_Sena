@@ -161,7 +161,7 @@ document.addEventListener('DOMContentLoaded', () => {
             responsive: true, maintainAspectRatio: false,
             plugins: { legend: { display: false } },
             scales: {
-                x: { grid: { display: false }, ticks: { color: theme.textSecondary, font: { family: 'IBM Plex Mono', size: 11 } } },
+                x: { grid: { display: false }, ticks: { color: theme.textSecondary, font: { family: 'IBM Plex Mono', size: 11 }, autoSkip: false, callback: function (v) { const l = this.getLabelForValue(v); return (typeof l === 'string' && l.slice(-3) === ':00') ? l : ''; } } },
                 y: { title: { display: true, text: 'Frecuencia (Hz)', color: theme.textSecondary, font: { family: 'Inter', size: 11 } }, ticks: { color: theme.textSecondary }, grid: { color: theme.grid } }
             }
         }

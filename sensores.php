@@ -132,7 +132,7 @@
                         <?php endif; ?>
                     </td>
                     <td class="text-mono text-sm"><?= $s['ultima_lectura'] !== null ? number_format($s['ultima_lectura'], 2) : '— —' ?></td>
-                    <td class="text-sm u-muted-strong"><?= tiempoRelativo($s['ultima_fecha']) ?></td>
+                    <td class="text-sm u-muted-strong"><?= horaSubida($s['ultima_fecha']) ?> <span class="text-tertiary">· <?= tiempoRelativo($s['ultima_fecha']) ?></span></td>
                 </tr>
                 <?php endforeach; ?>
             </tbody>

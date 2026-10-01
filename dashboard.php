@@ -33,10 +33,13 @@
         <h1 class="page-title">Resumen General</h1>
         <p class="page-subtitle"><?= htmlspecialchars($colmenaActiva['nombre']) ?> · Estado: <?= htmlspecialchars($colmenaActiva['estado']) ?></p>
     </div>
-    <button class="btn btn-secondary btn-sm" onclick="location.reload()">
-        <i data-lucide="refresh-cw"></i>
-        Actualizar
-    </button>
+    <div class="page-header-actions">
+        <span class="text-tertiary text-xs" id="lastUpdate"></span>
+        <button class="btn btn-secondary btn-sm" onclick="location.reload()">
+            <i data-lucide="refresh-cw"></i>
+            Actualizar
+        </button>
+    </div>
 </div>
 
 <div class="card dashboard-hero animate-fadeUp stagger-1">
@@ -51,19 +54,19 @@
             </span>
             <span class="hero-chip">
                 <i data-lucide="wifi"></i>
-                <?= $espOnline ? 'ESP32 sincronizado' : ($espTieneHistorial ? 'Reconectando…' : 'Sin datos recientes') ?>
+                <span id="heroEsp"><?= $espOnline ? 'ESP32 sincronizado' : ($espTieneHistorial ? 'Reconectando…' : 'Sin datos recientes') ?></span>
             </span>
             <span class="hero-chip">
                 <i data-lucide="alert-triangle"></i>
-                <?= count($alertas) ?> alertas activas
+                <span id="heroAlertas"><?= count($alertas) ?> alertas activas</span>
             </span>
         </div>
     </div>
     <div class="hero-panel">
         <div class="hero-ring">
             <div class="hero-kpi">
-                <div class="hero-kpi-value"><?= $ibb ? number_format($ibb['valor'], 1) : '—' ?></div>
-                <div class="hero-kpi-label"><?= $ibb ? htmlspecialchars($ibb['estado']) : 'IBB pendiente' ?></div>
+                <div class="hero-kpi-value" id="heroIbb"><?= $ibb ? number_format($ibb['valor'], 1) : '—' ?></div>
+                <div class="hero-kpi-label" id="heroIbbLabel"><?= $ibb ? htmlspecialchars($ibb['estado']) : 'IBB pendiente' ?></div>
             </div>
         </div>
     </div>
@@ -73,7 +76,7 @@
 <div class="grid-4-cols dashboard-metrics">
 
     <!-- Temperatura -->
-    <div class="card metric-card animate-fadeUp stagger-1 <?= ($temp && $temp['valor_calibrado'] >= 34 && $temp['valor_calibrado'] <= 36) ? 'success' : ($temp ? 'warning' : '') ?>">
+    <div data-metric="temp" class="card metric-card animate-fadeUp stagger-1 <?= ($temp && $temp['valor_calibrado'] >= 34 && $temp['valor_calibrado'] <= 36) ? 'success' : ($temp ? 'warning' : '') ?>">
         <div class="metric-icon <?= ($temp && $temp['valor_calibrado'] >= 34 && $temp['valor_calibrado'] <= 36) ? 'success' : 'warning' ?>">
             <i data-lucide="thermometer"></i>
         </div>
@@ -87,7 +90,7 @@
                 <span class="badge <?= ($temp['valor_calibrado'] >= 34 && $temp['valor_calibrado'] <= 36) ? 'badge-success' : 'badge-warning' ?>">
                     <?= ($temp['valor_calibrado'] >= 34 && $temp['valor_calibrado'] <= 36) ? 'Rango óptimo' : 'Fuera de rango' ?>
                 </span>
-                <span class="text-tertiary text-xs"><?= tiempoRelativo($temp['fecha_hora']) ?></span>
+                <span class="metric-time text-tertiary text-xs"><?= horaSubida($temp['fecha_hora']) ?> · <?= tiempoRelativo($temp['fecha_hora']) ?></span>
             </div>
         <?php else: ?>
             <div class="metric-value metric-empty">—<span class="metric-unit">°C</span></div>
@@ -96,7 +99,7 @@
     </div>
 
     <!-- Humedad -->
-    <div class="card metric-card animate-fadeUp stagger-2 <?= ($hum && $hum['valor_calibrado'] >= 50 && $hum['valor_calibrado'] <= 70) ? 'success' : ($hum ? 'warning' : '') ?>">
+    <div data-metric="hum" class="card metric-card animate-fadeUp stagger-2 <?= ($hum && $hum['valor_calibrado'] >= 50 && $hum['valor_calibrado'] <= 70) ? 'success' : ($hum ? 'warning' : '') ?>">
         <div class="metric-icon <?= ($hum && $hum['valor_calibrado'] >= 50 && $hum['valor_calibrado'] <= 70) ? 'success' : 'warning' ?>">
             <i data-lucide="droplets"></i>
         </div>
@@ -110,7 +113,7 @@
                 <span class="badge <?= ($hum['valor_calibrado'] >= 50 && $hum['valor_calibrado'] <= 70) ? 'badge-success' : 'badge-warning' ?>">
                     <?= ($hum['valor_calibrado'] >= 50 && $hum['valor_calibrado'] <= 70) ? 'Normal' : 'Atención' ?>
                 </span>
-                <span class="text-tertiary text-xs"><?= tiempoRelativo($hum['fecha_hora']) ?></span>
+                <span class="metric-time text-tertiary text-xs"><?= horaSubida($hum['fecha_hora']) ?> · <?= tiempoRelativo($hum['fecha_hora']) ?></span>
             </div>
         <?php else: ?>
             <div class="metric-value metric-empty">—<span class="metric-unit">%</span></div>
@@ -119,7 +122,7 @@
     </div>
 
     <!-- Peso -->
-    <div class="card metric-card animate-fadeUp stagger-3 brand">
+    <div data-metric="peso" class="card metric-card animate-fadeUp stagger-3 brand">
         <div class="metric-icon brand">
             <i data-lucide="scale"></i>
         </div>
@@ -131,9 +134,10 @@
             </div>
             <div class="metric-footer">
                 <span class="badge badge-brand">Flujo néctar</span>
-                <span class="text-secondary text-xs">
+                <span class="text-secondary text-xs" id="f-flujo">
                     <?= $flujoDiario !== null ? (($flujoDiario >= 0 ? '+' : '') . $flujoDiario . ' kg/día') : 'Calculando…' ?>
                 </span>
+                <span class="metric-time text-tertiary text-xs"><?= horaSubida($peso['fecha_hora']) ?> · <?= tiempoRelativo($peso['fecha_hora']) ?></span>
             </div>
         <?php else: ?>
             <div class="metric-value metric-empty">—<span class="metric-unit">kg</span></div>
@@ -142,7 +146,7 @@
     </div>
 
     <!-- Acústica -->
-    <div class="card metric-card animate-fadeUp stagger-4 <?= ($sonido && $sonido['valor_calibrado'] >= 400 && $sonido['valor_calibrado'] <= 600) ? 'critical' : 'success' ?>">
+    <div data-metric="sonido" class="card metric-card animate-fadeUp stagger-4 <?= ($sonido && $sonido['valor_calibrado'] >= 400 && $sonido['valor_calibrado'] <= 600) ? 'critical' : 'success' ?>">
         <div class="metric-icon <?= ($sonido && $sonido['valor_calibrado'] >= 400 && $sonido['valor_calibrado'] <= 600) ? 'critical' : 'success' ?>">
             <i data-lucide="activity"></i>
         </div>
@@ -156,7 +160,7 @@
                 <span class="badge <?= ($sonido['valor_calibrado'] >= 400 && $sonido['valor_calibrado'] <= 600) ? 'badge-critical' : 'badge-success' ?>">
                     <?= ($sonido['valor_calibrado'] >= 400 && $sonido['valor_calibrado'] <= 600) ? 'Zona de alerta' : 'Normal' ?>
                 </span>
-                <span class="text-tertiary text-xs"><?= tiempoRelativo($sonido['fecha_hora']) ?></span>
+                <span class="metric-time text-tertiary text-xs"><?= horaSubida($sonido['fecha_hora']) ?> · <?= tiempoRelativo($sonido['fecha_hora']) ?></span>
             </div>
         <?php else: ?>
             <div class="metric-value metric-empty">—<span class="metric-unit">Hz</span></div>
@@ -178,14 +182,14 @@
         <div class="metric-header"><i data-lucide="thermometer"></i> Delta T (Interior - Exterior)</div>
         <?php if ($deltaT): ?>
             <div class="metric-value">
-                <span data-countup="<?= number_format($deltaT['valor'], 1, '.', '') ?>" data-decimals="1"><?= number_format($deltaT['valor'], 1) ?></span>
+                <span id="v-deltat" data-countup="<?= number_format($deltaT['valor'], 1, '.', '') ?>" data-decimals="1"><?= number_format($deltaT['valor'], 1) ?></span>
                 <span class="metric-unit">°C</span>
             </div>
             <div class="metric-footer">
-                <span class="badge <?= ($deltaT['estado'] === 'Normal') ? 'badge-success' : 'badge-critical' ?>">
+                <span id="b-deltat" class="badge <?= ($deltaT['estado'] === 'Normal') ? 'badge-success' : 'badge-critical' ?>">
                     <?= htmlspecialchars($deltaT['estado']) ?>
                 </span>
-                <span class="text-tertiary text-xs">Actual</span>
+                <span class="text-tertiary text-xs" id="f-deltat">Actual</span>
             </div>
         <?php else: ?>
             <div class="metric-value metric-empty">—<span class="metric-unit">°C</span></div>
@@ -201,14 +205,14 @@
         <div class="metric-header"><i data-lucide="droplet"></i> Humedad de Miel</div>
         <?php if ($hMiel): ?>
             <div class="metric-value">
-                <span data-countup="<?= number_format($hMiel['valor'], 1, '.', '') ?>" data-decimals="1"><?= number_format($hMiel['valor'], 1) ?></span>
+                <span id="v-hmiel" data-countup="<?= number_format($hMiel['valor'], 1, '.', '') ?>" data-decimals="1"><?= number_format($hMiel['valor'], 1) ?></span>
                 <span class="metric-unit">%</span>
             </div>
             <div class="metric-footer">
-                <span class="badge <?= ($hMiel['estado'] === 'Lista para cosecha') ? 'badge-success' : 'badge-warning' ?>">
+                <span id="b-hmiel" class="badge <?= ($hMiel['estado'] === 'Lista para cosecha') ? 'badge-success' : 'badge-warning' ?>">
                     <?= htmlspecialchars($hMiel['estado']) ?>
                 </span>
-                <span class="text-tertiary text-xs">Actual</span>
+                <span class="text-tertiary text-xs" id="f-hmiel">Actual</span>
             </div>
         <?php else: ?>
             <div class="metric-value metric-empty">—<span class="metric-unit">%</span></div>
@@ -221,7 +225,7 @@
         <div class="card-header card-header-compact">
             <div class="card-title">Eficiencia Ventilación</div>
             <?php if ($ev): ?>
-                <span class="badge <?= $ev['valor'] >= 50 ? 'badge-success' : 'badge-warning' ?>">
+                <span id="evBadge" class="badge <?= $ev['valor'] >= 50 ? 'badge-success' : 'badge-warning' ?>">
                     <?= htmlspecialchars($ev['estado']) ?>
                 </span>
             <?php endif; ?>
@@ -229,9 +233,9 @@
         <?php if ($ev): ?>
             <div class="ibb-gauge">
                 <div class="ibb-bar">
-                    <div class="ibb-fill" data-progress="<?= $ev['valor'] ?>"></div>
+                    <div class="ibb-fill" id="evBar" data-progress="<?= $ev['valor'] ?>"></div>
                 </div>
-                <div class="ibb-value"><?= $ev['valor'] ?></div>
+                <div class="ibb-value" id="evValue"><?= $ev['valor'] ?></div>
             </div>
             <p class="text-xs text-secondary ibb-note">Porcentaje EV (basado en CO₂)</p>
         <?php else: ?>
@@ -270,12 +274,11 @@
             <div class="card-header">
                 <div class="card-title alert-title-row">
                     Alertas
-                    <span class="badge <?= count($alertas) > 0 ? 'badge-critical' : 'badge-neutral' ?>"><?= count($alertas) ?> activas</span>
+                    <span id="alertCount" class="badge <?= count($alertas) > 0 ? 'badge-critical' : 'badge-neutral' ?>"><?= count($alertas) ?> activas</span>
                 </div>
             </div>
 
-            <?php if (count($alertas) > 0): ?>
-            <ul class="alert-list">
+            <ul class="alert-list" id="alertList"<?= count($alertas) === 0 ? ' style="display:none"' : '' ?>>
                 <?php foreach ($alertas as $al): ?>
                 <li class="alert-item">
                     <div class="alert-dot <?= $al['nivel'] >= 3 ? 'bg-critical' : ($al['nivel'] == 2 ? 'bg-warning' : 'brand-dot') ?>"></div>
@@ -283,16 +286,14 @@
                         <div class="alert-title"><?= htmlspecialchars($al['tipo']) ?></div>
                         <div class="alert-desc"><?= htmlspecialchars($al['mensaje']) ?></div>
                     </div>
-                    <div class="alert-time"><?= tiempoRelativo($al['fecha_hora']) ?></div>
+                    <div class="alert-time"><?= horaSubida($al['fecha_hora']) ?> · <?= tiempoRelativo($al['fecha_hora']) ?></div>
                 </li>
                 <?php endforeach; ?>
             </ul>
-            <?php else: ?>
-                <p class="text-secondary text-sm alert-zero">
-                    <i data-lucide="check-circle-2" class="u-icon-md text-success"></i>
-                    Sin alertas activas.
-                </p>
-            <?php endif; ?>
+            <p class="text-secondary text-sm alert-zero" id="alertVacia"<?= count($alertas) > 0 ? ' style="display:none"' : '' ?>>
+                <i data-lucide="check-circle-2" class="u-icon-md text-success"></i>
+                Sin alertas activas.
+            </p>
         </div>
 
         <!-- IBB -->
@@ -300,7 +301,7 @@
             <div class="card-header card-header-compact">
                 <div class="card-title">Bienestar (IBB)</div>
                 <?php if ($ibb): ?>
-                    <span class="badge <?= $ibb['valor'] >= 85 ? 'badge-success' : ($ibb['valor'] >= 50 ? 'badge-warning' : 'badge-critical') ?>">
+                    <span id="ibbBadge" class="badge <?= $ibb['valor'] >= 85 ? 'badge-success' : ($ibb['valor'] >= 50 ? 'badge-warning' : 'badge-critical') ?>">
                         <?= htmlspecialchars($ibb['estado']) ?>
                     </span>
                 <?php endif; ?>
@@ -308,9 +309,9 @@
             <?php if ($ibb): ?>
                 <div class="ibb-gauge">
                     <div class="ibb-bar">
-                        <div class="ibb-fill" data-progress="<?= $ibb['valor'] ?>"></div>
+                        <div class="ibb-fill" id="ibbBar" data-progress="<?= $ibb['valor'] ?>"></div>
                     </div>
-                    <div class="ibb-value"><?= $ibb['valor'] ?></div>
+                    <div class="ibb-value" id="ibbValue"><?= $ibb['valor'] ?></div>
                 </div>
                 <p class="text-xs text-secondary ibb-note">Índice 0–100 basado en T°, humedad y CO₂</p>
             <?php else: ?>
@@ -340,7 +341,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const labels = tempLabels.length ? tempLabels : pesoLabels;
 
-    new Chart(ctx, {
+    window.tempWeightChart = new Chart(ctx, {
         type: 'line',
         data: {
             labels: labels,
@@ -372,7 +373,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
             },
             scales: {
-                x: { grid: { display: false }, ticks: { color: colors.textSecondary, font: { family: 'IBM Plex Mono', size: 11 } } },
+                x: { grid: { display: false }, ticks: { color: colors.textSecondary, font: { family: 'IBM Plex Mono', size: 11 }, autoSkip: false, callback: function (v) { const l = this.getLabelForValue(v); return (typeof l === 'string' && l.slice(-3) === ':00') ? l : ''; } } },
                 y:  { type: 'linear', position: 'left',  title: { display: true, text: '°C', color: colors.textSecondary, font: { family: 'Inter', size: 11 } }, ticks: { color: colors.textSecondary }, grid: { color: colors.grid } },
                 y1: { type: 'linear', position: 'right', title: { display: true, text: 'kg', color: colors.textSecondary, font: { family: 'Inter', size: 11 } }, ticks: { color: colors.textSecondary }, grid: { drawOnChartArea: false } }
             }
@@ -381,6 +382,8 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 </script>
 <?php endif; ?>
+
+<script src="js/actualizar-dashboard.js"></script>
 
 <?php endif; ?>
 

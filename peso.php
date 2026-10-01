@@ -98,7 +98,7 @@ document.addEventListener('DOMContentLoaded', () => {
     gradArea.addColorStop(1, colors.brandAreaSoft);
 
     // Datos REALES desde PHP
-    const labels = <?= json_encode(array_map(fn($r) => date('d/m H:i', strtotime($r['fecha_hora'])), $serie30d)) ?>;
+    const labels = <?= json_encode(array_map(fn($r) => date('d/m', strtotime($r['fecha_hora'])), $serie30d)) ?>;
     const data    = <?= json_encode(array_map(fn($r) => (float) $r['valor_calibrado'], $serie30d)) ?>;
 
     new Chart(ctxArea, {
@@ -112,7 +112,7 @@ document.addEventListener('DOMContentLoaded', () => {
             responsive: true, maintainAspectRatio: false,
             plugins: { legend: { display: false } },
             scales: {
-                x: { grid: { display: false }, ticks: { color: colors.textSecondary, maxTicksLimit: 10 } },
+                x: { grid: { display: false }, ticks: { color: colors.textSecondary, maxTicksLimit: 31, autoSkip: true } },
                 y: { ticks: { color: colors.textSecondary }, grid: { color: colors.grid } }
             }
         }

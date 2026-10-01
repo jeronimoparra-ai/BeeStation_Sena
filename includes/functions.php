@@ -477,6 +477,16 @@ function tiempoRelativo(?string $fecha_hora): string {
 }
 
 /**
+ * Hora exacta (HH:MM:SS) en la que el ESP32 subió la lectura.
+ * `fecha_hora` se rellena con CURRENT_TIMESTAMP al insertar, es decir,
+ * en el momento en que llega el dato al servidor.
+ */
+function horaSubida(?string $fecha_hora): string {
+    if (!$fecha_hora) return '—';
+    return date('H:i:s', strtotime($fecha_hora));
+}
+
+/**
  * Revisa si el hardware del apiario ha transmitido telemetría reciente (5 min por defecto).
  */
 function dispositivoConectado(int $id_colmena, int $minutos = 5): bool {
