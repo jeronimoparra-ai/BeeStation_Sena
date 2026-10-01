@@ -76,7 +76,7 @@ const char* apiKey = "ba20858ed12a853bbcaafec2d9c753db0ad9f7e60022d6e1a3f94f9787
 // Una lectura cada 5 minutos. La lectura se registra SIEMPRE en
 // la microSD (con o sin WiFi) y, sólo si hay red, se sube al
 // servidor. Así el nodo funciona igual de bien offline.
-const unsigned long INTERVALO_LECTURA = 300000; // 5 minutos
+const unsigned long INTERVALO_LECTURA = 30000;  // 30 segundos
 unsigned long ultimaLecturaPanel = 0;
 
 // ── Estado del registro continuo en la microSD ────────────────
@@ -100,12 +100,26 @@ float ultimaLuz      = 0.0;
 float ultimoSonido   = 0.0;
 unsigned long ultimaLecturaMs = 0;
 
+// ── Último dato SUBIDO al servidor (hora local exacta) ─────────
+time_t ultimaSubidaEpoch = 0;
+unsigned long ultimaSubidaMs = 0;
+
+// Hora local HH:MM:SS de un epoch; sin reloj => "--:--:--"
+String horaLocal(time_t ep) {
+  if (ep <= 0) return "--:--:--";
+  struct tm t;
+  localtime_r(&ep, &t);
+  char b[12];
+  strftime(b, sizeof(b), "%H:%M:%S", &t);
+  return String(b);
+}
+
 // ══════════════════════════════════════════════════════════════
 //                        S E T U P
 // ══════════════════════════════════════════════════════════════
 void setup() {
   Serial.begin(115200);
-  delay(1000);
+  delay(300);
 
   Serial.println("INICIANDO SISTEMA...");
 
@@ -313,10 +327,10 @@ void setup() {
       // Esperar a que el reloj local esté listo ANTES de la primera
       // escritura en la microSD: así la primera fila del día cae en
       // su fichero correcto (/log_AAAA-MM-DD.csv) y no en el de
-      // respaldo. Máximo 6 s; si no hay NTP, se sigue con ese respaldo.
+      // respaldo. Máximo 3 s; si no hay NTP, se sigue con ese respaldo.
       {
         struct tm relojLocal;
-        if (getLocalTime(&relojLocal, 6000)) {
+        if (getLocalTime(&relojLocal, 3000)) {
           char ahora[24];
           strftime(ahora, sizeof(ahora), "%Y-%m-%d %H:%M:%S", &relojLocal);
           Serial.printf("[NTP] ✓ Hora local : %s  (COT5)\n", ahora);
@@ -409,13 +423,13 @@ void loop() {
     if (!modoPortalCautivo) {
       reconectarWiFi();
     }
-    delay(100);
+    delay(20);
     return;
   }
 
   // ── 4. ENVÍO AL SERVIDOR (sólo con lectura nueva + WiFi) ────
   if (!cicloNuevo) {
-    delay(100); // Pequeña pausa para no saturar el CPU
+    delay(20); // Pequeña pausa para no saturar el CPU
     return;
   }
 
@@ -485,6 +499,14 @@ void loop() {
     digitalWrite(LED_STATUS, HIGH);
     delay(100);
     digitalWrite(LED_STATUS, LOW);
+
+    // Marcar CUÁNDO se subió (hora local exacta) para el panel
+    ultimaSubidaEpoch = time(nullptr);
+    ultimaSubidaMs = millis();
+    if (ultimaSubidaEpoch > 1000000) {
+      Serial.printf("[ENV] ✓ Subido a las %s (hora local)\n",
+                    horaLocal(ultimaSubidaEpoch).c_str());
+    }
 
     // Reset del contador de reconexión tras envío exitoso
     intentosReconexionConsecutivos = 0;
@@ -706,6 +728,14 @@ void imprimirPanelSensores() {
     Serial.println("[SD]  ✗ Sin tarjeta microSD — no se registra localmente");
   }
 
+  if (ultimaSubidaMs > 0) {
+    unsigned long haceS = (millis() - ultimaSubidaMs) / 1000;
+    Serial.printf("[ENV] Última subida %s  ·  hace %lus\n",
+                  horaLocal(ultimaSubidaEpoch).c_str(), haceS);
+  } else {
+    Serial.println("[ENV] Aún no se ha subido ningún dato al servidor");
+  }
+
   if (WiFi.status() == WL_CONNECTED) {
     Serial.printf("[RED] Conectado a '%s' · IP %s · %s\n",
                   WiFi.SSID().c_str(),
@@ -755,8 +785,10 @@ void imprimirMenuAyuda() {
   Serial.println("│  help    → Mostrar este menú de ayuda                │");
   Serial.println("└─────────────────────────────────────────────────────┘");
   Serial.println();
-  Serial.println("[AUTOMÁTICO] Los sensores se leen cada " +
-                 String(INTERVALO_LECTURA / 60000) + " minutos.");
+  String periodo = (INTERVALO_LECTURA >= 60000)
+      ? String(INTERVALO_LECTURA / 60000) + " minutos"
+      : String(INTERVALO_LECTURA / 1000) + " segundos";
+  Serial.println("[AUTOMÁTICO] Los sensores se leen cada " + periodo + ".");
   Serial.println("             Se guardan SIEMPRE en la microSD (con o sin WiFi)");
   Serial.println("             y, sólo si hay red, se suben al servidor.");
   Serial.println("             Verlos: escribe 'datos' o abre http://<ip>/monitoreo");
@@ -1152,7 +1184,8 @@ bool validarTokenConServidor() {
 // intentos, activa el portal cautivo.
 void reconectarWiFi() {
   // Backoff exponencial: esperar más tiempo entre cada intento
-  unsigned long intervaloBackoff = (unsigned long)(2000 * pow(2, min(intentosReconexionConsecutivos, 5)));
+  // tope 8 s (antes llegaba a 64 s): el nodo vuelve a la red antes
+  unsigned long intervaloBackoff = (unsigned long)(1000 * pow(2, min(intentosReconexionConsecutivos, 3)));
   unsigned long ahora = millis();
 
   if (ahora - ultimoIntentoReconexion < intervaloBackoff) {
@@ -1171,12 +1204,12 @@ void reconectarWiFi() {
   digitalWrite(LED_STATUS, LOW);
 
   WiFi.disconnect();
-  delay(500);
+  delay(100);
   WiFi.begin(ssidGuardado.c_str(), passGuardado.c_str());
 
   int intentos = 0;
   while (WiFi.status() != WL_CONNECTED && intentos < 20) {
-    delay(500);
+    delay(250);
     Serial.print(".");
     digitalWrite(LED_STATUS, intentos % 2 == 0 ? HIGH : LOW);
     intentos++;
@@ -1199,7 +1232,7 @@ void reconectarWiFi() {
       iniciarPortalCautivo();
     } else {
       Serial.printf("[WiFi] ✗ Fallo. Próximo intento en %.1f segundos.\n", 
-        (2000 * pow(2, min(intentosReconexionConsecutivos, 5))) / 1000.0);
+        (1000 * pow(2, min(intentosReconexionConsecutivos, 3))) / 1000.0);
     }
   }
 }
@@ -1488,6 +1521,16 @@ void atenderStatusJSON() {
   json += "\"hum\":" + String(ultimaHum, 1) + ",";
   json += "\"pres\":" + String(ultimaPresion, 1);
   json += "}";
+  // Cuándo se subió el último dato (hora local exacta)
+  json += ",\"subida\":{";
+  if (ultimaSubidaMs > 0) {
+    json += "\"hora\":\"" + horaLocal(ultimaSubidaEpoch) + "\",";
+    json += "\"edad_s\":" + String((millis() - ultimaSubidaMs) / 1000);
+  } else {
+    json += "\"hora\":null,\"edad_s\":-1";
+  }
+  json += "}";
+
   json += ",\"lux\":" + String(ultimaLuz, 1);
   json += ",\"peso\":" + String(ultimoPeso, 2);
   json += ",\"sonido\":" + String(ultimoSonido, 3);

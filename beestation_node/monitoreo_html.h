@@ -69,6 +69,7 @@ td.empty{text-align:center;color:var(--muted);padding:22px 12px}
     </div>
     <div class="meta">
       <div id="uptime">Uptime: —</div>
+      <div id="subida">Última subida: —</div>
       <div id="mac">MAC: —</div>
       <div id="fw">Firmware: —</div>
     </div>
@@ -160,6 +161,11 @@ const num=(v,d)=>(v===null||v===undefined||isNaN(v))?'—':Number(v).toFixed(d);
 function pintar(d){
   $('fw').textContent='Firmware: '+(d.firmware||'—');
   $('mac').textContent='MAC: '+(d.mac||'—');
+  if(d.subida){
+    $('subida').textContent='Última subida: '+
+      (d.subida.hora||'—')+
+      (d.subida.edad_s>=0?' (hace '+d.subida.edad_s+' s)':'');
+  }
   const u=d.uptime||0;
   const p=n=>String(n).padStart(2,'0');
   $('uptime').textContent='Uptime: '+p(Math.floor(u/3600))+':'+p(Math.floor(u%3600/60))+':'+p(u%60);
