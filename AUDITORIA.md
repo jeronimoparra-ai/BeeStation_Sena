@@ -52,7 +52,16 @@ Alcance: revisión estática del backend PHP, el esquema SQL de instalación, la
 
 **Motivo:** antes, una respuesta 401, 404 o 500 también se trataba como modo offline y permitía continuar sin validar el token. Se mantiene la tolerancia a una desconexión real de red, pero los errores HTTP explícitos ya no se interpretan como autorización.
 
-### 6. Documentación sincronizada
+### 6. Protección de la página de diagnóstico
+**Archivo:** `test_connection.php`
+
+- Por defecto solo permite el acceso desde loopback (`127.0.0.1` / `::1`), porque la página muestra metadatos de conexión, versiones, conteos de tablas y mensajes internos de error.
+- El acceso remoto requiere habilitarlo deliberadamente con la variable de entorno `BEESTATION_ALLOW_REMOTE_DIAGNOSTICS=1`; no se recomienda en producción.
+- Se añadió `intento_vinculacion` a la lista de tablas comprobadas, para que corresponda con el esquema consolidado.
+
+**Motivo:** un `noindex` no es control de acceso y la página estaba accesible sin autenticación.
+
+### 7. Documentación sincronizada
 **Archivo:** `README.md`
 
 - Se corrigió el número de tablas de `schema.sql`.
@@ -91,5 +100,6 @@ El punto de acceso `BeeStation_Config` se crea sin contraseña. Durante el aprov
 - `api/ingest.php`
 - `api/validate_token.php`
 - `login.php`
+- `test_connection.php`
 - `beestation_node/beestation_node.ino`
 - `README.md`
