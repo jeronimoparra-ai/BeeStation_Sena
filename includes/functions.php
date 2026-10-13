@@ -63,10 +63,11 @@ function obtenerColmenaActiva(int $id_usuario): ?array {
 }
 
 /**
- * Genera un token de vinculación alfanumérico único para una nueva colmena.
+ * Genera un token de vinculación único con 128 bits aleatorios.
+ * El sufijo largo evita que el token dependa de solo 24 bits de entropía.
  */
 function generarTokenVinculacion(string $nombre = 'COL'): string {
-    $sufijo = strtoupper(bin2hex(random_bytes(3)));
+    $sufijo = strtoupper(bin2hex(random_bytes(16)));
     $slug = strtoupper(preg_replace('/[^a-zA-Z0-9]/', '', $nombre));
     $slug = substr($slug, 0, 8);
     if (empty($slug)) {
