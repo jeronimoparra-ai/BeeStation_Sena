@@ -65,16 +65,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['crear_colmena'])) {
             $stmtCol->execute([$nombre, $especie, $token_seguro, $id_apiario]);
             $id_nueva_colmena = $pdo->lastInsertId();
 
-            // 3. Autoprovisionamiento: Registramos automáticamente sus 7 sensores oficiales
-            // Esto evita errores de bases de datos vacías para el usuario final.
+            // 3. Autoprovisionamiento: registramos todos los sensores del esquema (9 tipos).
+            // Los datos solo aparecerán cuando el firmware envíe lecturas reales.
             $sensores_por_defecto = [
-                ['tipo' => 'temperatura_interna', 'modelo' => 'DHT22', 'min' => -40, 'max' => 80, 'prec' => 0.5, 'var' => 1],
-                ['tipo' => 'temperatura_externa', 'modelo' => 'DHT22', 'min' => -40, 'max' => 80, 'prec' => 0.5, 'var' => 2],
-                ['tipo' => 'humedad_relativa',   'modelo' => 'DHT22', 'min' => 0,   'max' => 100, 'prec' => 3.0, 'var' => 3],
-                ['tipo' => 'peso',               'modelo' => 'HX711', 'min' => 0,   'max' => 50,  'prec' => 0.01, 'var' => 4],
-                ['tipo' => 'sonido',             'modelo' => 'MAX9814','min' => 20,  'max' => 20000,'prec' => null, 'var' => 5],
-                ['tipo' => 'co2',                'modelo' => 'MQ-135', 'min' => 10,  'max' => 300,  'prec' => null, 'var' => 6],
-                ['tipo' => 'energia',            'modelo' => 'INA219', 'min' => 0,   'max' => 5,   'prec' => 0.01, 'var' => 7]
+                ['tipo' => 'temperatura_interna', 'modelo' => 'DHT22',  'min' => -40, 'max' => 80,    'prec' => 0.5,  'var' => 1],
+                ['tipo' => 'temperatura_externa', 'modelo' => 'DHT22',  'min' => -40, 'max' => 80,    'prec' => 0.5,  'var' => 2],
+                ['tipo' => 'humedad_relativa',    'modelo' => 'DHT22',  'min' => 0,   'max' => 100,   'prec' => 3.0,  'var' => 3],
+                ['tipo' => 'peso',                'modelo' => 'HX711',  'min' => 0,   'max' => 50,    'prec' => 0.01, 'var' => 4],
+                ['tipo' => 'sonido',              'modelo' => 'MAX9814','min' => 20,  'max' => 20000, 'prec' => null, 'var' => 5],
+                ['tipo' => 'co2',                 'modelo' => 'MQ-135', 'min' => 10,  'max' => 10000, 'prec' => null, 'var' => 6],
+                ['tipo' => 'energia',             'modelo' => 'INA219', 'min' => 0,   'max' => 5,     'prec' => 0.01, 'var' => 7],
+                ['tipo' => 'presion',             'modelo' => 'BME280', 'min' => 300, 'max' => 1100,  'prec' => 1.0,  'var' => 8],
+                ['tipo' => 'luminosidad',         'modelo' => 'BH1750', 'min' => 1,   'max' => 65535, 'prec' => 1.0,  'var' => 9]
             ];
 
             $stmtSens = $pdo->prepare("
