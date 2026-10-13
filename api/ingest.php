@@ -59,15 +59,34 @@ if (!hash_equals(BEESTATION_API_KEY, $apiKey)) {
 }
 
 // ── 3. LECTURA Y DECODIFICACIÓN DEL PAYLOAD JSON ─────────────────────────────
-$body = json_decode(file_get_contents('php://input'), true);
+$rawBody = file_get_contents('php://input');
+if ($rawBody === false || strlen($rawBody) > 16384) {
+    http_response_code(413);
+    echo json_encode(['ok' => false, 'error' => 'El cuerpo de la petición es demasiado grande']);
+    exit;
+}
 
-if (!$body || !isset($body['token']) || !isset($body['lecturas']) || !is_array($body['lecturas'])) {
+$body = json_decode($rawBody, true);
+if (
+    !is_array($body) ||
+    !isset($body['token']) ||
+    !is_string($body['token']) ||
+    !isset($body['lecturas']) ||
+    !is_array($body['lecturas']) ||
+    count($body['lecturas']) < 1 ||
+    count($body['lecturas']) > 32
+) {
     http_response_code(400);
-    echo json_encode(['ok' => false, 'error' => 'JSON inválido. Se requiere token alfanumérico y lecturas[]']);
+    echo json_encode(['ok' => false, 'error' => 'JSON inválido. Se requiere un token de texto y entre 1 y 32 lecturas']);
     exit;
 }
 
 $token = trim($body['token']);
+if ($token === '' || strlen($token) > 64) {
+    http_response_code(400);
+    echo json_encode(['ok' => false, 'error' => 'Token inválido']);
+    exit;
+}
 $ip_origen = $_SERVER['REMOTE_ADDR'] ?? null;
 $pdo = getPDO();
 
@@ -94,13 +113,22 @@ $errores = [];
 
 // ── 5. PROCESAMIENTO E INSERCIÓN INDIVIDUAL DE SENSORES ──────────────────────
 foreach ($body['lecturas'] as $l) {
-    if (!isset($l['tipo'], $l['valor'])) {
-        $errores[] = "Lectura incompleta o mal formateada: " . json_encode($l);
+    if (
+        !is_array($l) ||
+        !isset($l['tipo'], $l['valor']) ||
+        !is_string($l['tipo']) ||
+        !(is_int($l['valor']) || is_float($l['valor']) || (is_string($l['valor']) && is_numeric($l['valor'])))
+    ) {
+        $errores[] = 'Lectura inválida: cada elemento requiere tipo de texto y valor numérico';
         continue;
     }
 
     $tipo = trim($l['tipo']);
     $valor = (float)$l['valor'];
+    if ($tipo === '' || strlen($tipo) > 50 || !is_finite($valor)) {
+        $errores[] = 'Tipo o valor fuera de formato';
+        continue;
+    }
 
     // Buscamos si existe un sensor de este tipo registrado para nuestra colmena
     $stmtSensor = $pdo->prepare("SELECT id_sensor, precision_valor FROM sensor WHERE id_colmena = ? AND tipo = ? LIMIT 1");
