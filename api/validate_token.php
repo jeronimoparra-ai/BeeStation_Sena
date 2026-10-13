@@ -41,13 +41,32 @@ if (!hash_equals(BEESTATION_API_KEY, $apiKey)) {
 }
 
 // ── 3. Leer y validar token ─────────────────────────────────────
-$body = json_decode(file_get_contents('php://input'), true);
-$token = trim($body['token'] ?? '');
+$contentLength = isset($_SERVER['CONTENT_LENGTH']) ? (int) $_SERVER['CONTENT_LENGTH'] : 0;
+if ($contentLength > 4096) {
+    http_response_code(413);
+    echo json_encode(['ok' => false, 'error' => 'El cuerpo de la petición es demasiado grande']);
+    exit;
+}
+
+$rawBody = file_get_contents('php://input', false, null, 0, 4097);
+if ($rawBody === false || strlen($rawBody) > 4096) {
+    http_response_code(413);
+    echo json_encode(['ok' => false, 'error' => 'El cuerpo de la petición es demasiado grande']);
+    exit;
+}
+
+$body = json_decode($rawBody, true);
+if (!is_array($body) || !isset($body['token']) || !is_string($body['token'])) {
+    http_response_code(400);
+    echo json_encode(['ok' => false, 'error' => 'JSON inválido. Se requiere token de texto']);
+    exit;
+}
+$token = trim($body['token']);
 $ip = $_SERVER['REMOTE_ADDR'] ?? null;
 
-if ($token === '') {
+if ($token === '' || strlen($token) > 64) {
     http_response_code(400);
-    echo json_encode(['ok' => false, 'error' => 'Token requerido']);
+    echo json_encode(['ok' => false, 'error' => 'Token requerido o inválido']);
     exit;
 }
 

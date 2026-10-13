@@ -5,8 +5,9 @@
 -- Sistema sin roles: se elimina por completo la tabla rol y la columna id_rol.
 -- ============================================================
 
-DROP DATABASE IF EXISTS beestation_sena;
-CREATE DATABASE beestation_sena CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+-- IMPORTANTE: este esquema es para instalaciones nuevas. No elimina bases existentes.
+-- Si ya hay tablas, no reimportes este archivo; usa una migración compatible.
+CREATE DATABASE IF NOT EXISTS beestation_sena CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 USE beestation_sena;
 
 -- ── USUARIOS ──────────────────────────────────────────────────
@@ -35,8 +36,21 @@ CREATE TABLE colmena (
     especie VARCHAR(100) DEFAULT 'Apis mellifera',
     fecha_instalacion DATE,
     estado ENUM('activa','inactiva','en_revision') DEFAULT 'activa',
+    token_vinculacion VARCHAR(64) NOT NULL UNIQUE,
+    intentos_fallidos_token INT NOT NULL DEFAULT 0,
+    token_revocado TINYINT(1) NOT NULL DEFAULT 0,
     id_apiario INT NOT NULL,
     FOREIGN KEY (id_apiario) REFERENCES apiario(id_apiario)
+) ENGINE=InnoDB;
+
+-- Registro de intentos de vinculación. Requerido por la API y el panel de diagnóstico.
+CREATE TABLE intento_vinculacion (
+    id_intento BIGINT AUTO_INCREMENT PRIMARY KEY,
+    token_recibido VARCHAR(64) NOT NULL,
+    ip_origen VARCHAR(45),
+    resultado ENUM('token_invalido','sin_apikey','ok') NOT NULL,
+    fecha_hora DATETIME DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_fecha (fecha_hora)
 ) ENGINE=InnoDB;
 
 -- ── VARIABLES BIOCLIMÁTICAS ───────────────────────────────────
@@ -61,7 +75,9 @@ INSERT INTO variable_bioclimatica (
 ('peso', 'kg', NULL, NULL, NULL, NULL, NULL, NULL),
 ('sonido', 'Hz', 200, 380, 400, 600, 600, 900),
 ('co2', 'ppm', 2000, 4000, 1000, 6000, 500, 10000),
-('energia', 'V', 3.7, 4.2, 3.0, 4.2, 2.8, 4.2);
+('energia', 'V', 3.7, 4.2, 3.0, 4.2, 2.8, 4.2),
+('presion', 'hPa', 1000, 1025, 980, 1040, 960, 1060),
+('luminosidad', 'lux', NULL, NULL, NULL, NULL, NULL, NULL);
 
 -- ── SENSORES ──────────────────────────────────────────────────
 CREATE TABLE sensor (
@@ -149,8 +165,8 @@ INSERT INTO usuario (nombre, correo, contrasena) VALUES
 INSERT INTO apiario (nombre, ubicacion, municipio, id_usuario) VALUES
 ('Apiario Norte', 'Centro Minero Ambiental SENA', 'El Bagre, Antioquia', 1);
 
-INSERT INTO colmena (nombre, fecha_instalacion, estado, id_apiario) VALUES
-('Alpha-01', CURDATE(), 'activa', 1);
+INSERT INTO colmena (nombre, fecha_instalacion, estado, token_vinculacion, id_apiario) VALUES
+('Alpha-01', CURDATE(), 'activa', 'BS-ALPHA01-1A2B3C', 1);
 
 INSERT INTO sensor (tipo, modelo, rango_min, rango_max, precision_valor, estado, fecha_instalacion, id_colmena, id_variable) VALUES
 ('temperatura_interna', 'DHT22', -40, 80, 0.5, 'sin_senal', CURDATE(), 1, 1),
@@ -159,6 +175,8 @@ INSERT INTO sensor (tipo, modelo, rango_min, rango_max, precision_valor, estado,
 ('peso', 'HX711', 0, 50, 0.01, 'sin_senal', CURDATE(), 1, 4),
 ('sonido', 'MAX9814', 20, 20000, NULL, 'sin_senal', CURDATE(), 1, 5),
 ('co2', 'MQ-135', 10, 300, NULL, 'sin_senal', CURDATE(), 1, 6),
-('energia', 'INA219', 0, 5, 0.01, 'sin_senal', CURDATE(), 1, 7);
+('energia', 'INA219', 0, 5, 0.01, 'sin_senal', CURDATE(), 1, 7),
+('presion', 'BME280', 300, 1100, 1, 'sin_senal', CURDATE(), 1, 8),
+('luminosidad', 'BH1750', 1, 65535, 1, 'sin_senal', CURDATE(), 1, 9);
 
 -- NOTA: sin datos falsos, sin lecturas ni indicadores de ejemplo.

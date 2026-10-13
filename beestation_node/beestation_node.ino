@@ -1166,11 +1166,14 @@ bool validarTokenConServidor() {
     String resp = http.getString();
     Serial.println("[AUTH] Respuesta: " + resp);
     valido = resp.indexOf("\"ok\":true") >= 0;
-  } else {
-    // Si no hay red o el servidor no responde, asumimos token válido
-    // para permitir operación offline con respaldo en SD
-    Serial.printf("[AUTH] Servidor no accesible [%d]. Continuando en modo offline.\n", code);
+  } else if (code < 0) {
+    // Solo los errores de transporte permiten modo offline (respaldo en SD).
+    // Si el servidor respondió 401/404/5xx, no aceptar el token por defecto.
+    Serial.printf("[AUTH] Sin conexión con el servidor [%d]. Continuando en modo offline.\n", code);
     valido = true;
+  } else {
+    Serial.printf("[AUTH] El servidor rechazó/no pudo validar el token [%d].\n", code);
+    valido = false;
   }
   http.end();
   return valido;

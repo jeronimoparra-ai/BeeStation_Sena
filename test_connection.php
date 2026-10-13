@@ -1,4 +1,16 @@
 <?php
+// El diagnóstico revela metadatos de la base de datos y errores internos.
+// Por defecto solo se puede consultar desde loopback. No confíes en
+// X-Forwarded-For aquí: es un encabezado controlado por el cliente.
+$remoteAddress = $_SERVER['REMOTE_ADDR'] ?? '';
+$isLoopback = in_array($remoteAddress, ['127.0.0.1', '::1', '::ffff:127.0.0.1'], true);
+$allowRemoteDiagnostics = getenv('BEESTATION_ALLOW_REMOTE_DIAGNOSTICS') === '1';
+if (!$isLoopback && !$allowRemoteDiagnostics) {
+    http_response_code(404);
+    header('Content-Type: text/plain; charset=utf-8');
+    exit('Not Found');
+}
+
 /**
  * test_connection.php
  * ─────────────────────────────────────────────────────────────
@@ -19,6 +31,7 @@ $expectedTables = [
     'usuario',
     'apiario',
     'colmena',
+    'intento_vinculacion',
     'variable_bioclimatica',
     'sensor',
     'calibracion',
@@ -352,7 +365,7 @@ $statusLabels  = ['ok' => '✅ Todo correcto', 'warn' => '⚠️ Conexión OK �
       <?php if (!empty($missingTables)): ?>
         <div style="margin-top:1rem; padding:.75rem 1rem; background:#261212; border-radius:8px; font-size:.82rem; color:#f87171;">
           ⚠️ Tablas faltantes: <strong><?= htmlspecialchars(implode(', ', $missingTables)) ?></strong>
-          <br><small style="color:#a17070">Importa el esquema desde <code>database/beestation_sena.sql</code></small>
+          <br><small style="color:#a17070">Consulta <code>database/schema.sql</code> para instalaciones nuevas; no lo importes sobre tablas existentes. En bases existentes, aplica una migración específica.</small>
         </div>
       <?php endif; ?>
     </div>
