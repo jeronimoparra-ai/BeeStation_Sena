@@ -48,7 +48,7 @@ if ($contentLength > 4096) {
     exit;
 }
 
-$rawBody = file_get_contents('php://input');
+$rawBody = file_get_contents('php://input', false, null, 0, 4097);
 if ($rawBody === false || strlen($rawBody) > 4096) {
     http_response_code(413);
     echo json_encode(['ok' => false, 'error' => 'El cuerpo de la petición es demasiado grande']);
