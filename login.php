@@ -19,6 +19,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $usuario = intentarLogin($correo, $clave);
 
     if ($usuario) {
+        // Evita reutilizar el identificador de sesión anterior al autenticar.
+        session_regenerate_id(true);
         $_SESSION['id_usuario']   = $usuario['id_usuario'];
         $_SESSION['nombre']       = $usuario['nombre'];
         $_SESSION['correo']       = $usuario['correo'];
