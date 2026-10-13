@@ -59,6 +59,13 @@ if (!hash_equals(BEESTATION_API_KEY, $apiKey)) {
 }
 
 // ── 3. LECTURA Y DECODIFICACIÓN DEL PAYLOAD JSON ─────────────────────────────
+$contentLength = isset($_SERVER['CONTENT_LENGTH']) ? (int) $_SERVER['CONTENT_LENGTH'] : 0;
+if ($contentLength > 16384) {
+    http_response_code(413);
+    echo json_encode(['ok' => false, 'error' => 'El cuerpo de la petición es demasiado grande']);
+    exit;
+}
+
 $rawBody = file_get_contents('php://input');
 if ($rawBody === false || strlen($rawBody) > 16384) {
     http_response_code(413);
