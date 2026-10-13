@@ -105,7 +105,7 @@ flowchart LR
 
 ### 🔒 Seguridad
 - **API Key** obligatoria en toda petición (`hash_equals`, sin *timing attack*)
-- **Token de vinculación** único por colmena (`BS-XXXX-XXXX`)
+- **Token de vinculación** único por colmena, con sufijo criptográficamente aleatorio de **32 caracteres hexadecimales (128 bits)** para los tokens nuevos.
 - Control de intentos fallidos + revocación de token
 - Credenciales fuera del código vía `config/db.php`
 
@@ -254,6 +254,8 @@ curl -X POST http://localhost/BeeStation_Sena/api/ingest.php \
 ```
 
 *Respuesta reproducida de la implementación real (`api/ingest.php:211`). `delta_t` queda en `null` porque no se envió `temperatura_externa`; `ev` sí se calcula porque la fórmula de ventilación solo exige `co2`.*
+
+> El token del ejemplo corresponde a la colmena de demostración creada por `database/schema.sql`. No uses ese token ni la clave API publicada en este repositorio para desplegar una instalación real: reemplaza la clave por una credencial mantenida fuera del código y rota los tokens de colmenas importadas desde el volcado público.
 
 </details>
 
