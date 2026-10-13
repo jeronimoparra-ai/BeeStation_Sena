@@ -15,6 +15,7 @@ Alcance: revisión estática del backend PHP, el esquema SQL de instalación, la
 - Se añadieron las variables `presion` y `luminosidad`, y sus sensores iniciales BME280/BH1750, porque el firmware ya transmite esas magnitudes.
 - La colmena inicial recibe un token de vinculación, requerido por el nuevo esquema.
 - Se anotó que el archivo es para instalaciones nuevas, no una migración automática. Si las tablas ya existen, no debe reimportarse sin una migración adecuada.
+- Se sincronizó `dispositivos.php` para que cada nueva colmena también registre los sensores de presión y luminosidad con los identificadores de variable 8 y 9; se mantuvieron los rangos ya usados por los sensores existentes.
 
 **Motivo:** sin estos campos y tabla, una instalación construida desde el antiguo `schema.sql` no podía validar tokens correctamente; además, el firmware enviaba dos tipos de lectura que el esquema limpio no tenía registrados.
 
@@ -86,6 +87,7 @@ El punto de acceso `BeeStation_Config` se crea sin contraseña. Durante el aprov
 ## Archivos modificados
 
 - `database/schema.sql`
+- `dispositivos.php`
 - `api/ingest.php`
 - `api/validate_token.php`
 - `login.php`
