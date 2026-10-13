@@ -41,6 +41,13 @@ if (!hash_equals(BEESTATION_API_KEY, $apiKey)) {
 }
 
 // ── 3. Leer y validar token ─────────────────────────────────────
+$contentLength = isset($_SERVER['CONTENT_LENGTH']) ? (int) $_SERVER['CONTENT_LENGTH'] : 0;
+if ($contentLength > 4096) {
+    http_response_code(413);
+    echo json_encode(['ok' => false, 'error' => 'El cuerpo de la petición es demasiado grande']);
+    exit;
+}
+
 $rawBody = file_get_contents('php://input');
 if ($rawBody === false || strlen($rawBody) > 4096) {
     http_response_code(413);
