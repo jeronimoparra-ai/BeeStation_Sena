@@ -210,7 +210,7 @@ IBB = 100 − ( 0,45 · f_temp + 0,35 · f_hum + 0,20 · f_co2 )
 
 ## 🌐 API
 
-Tres endpoints, todos en `api/`. **Toda petición necesita el header `X-API-Key`.**
+Tres endpoints, todos en `api/`. **Los endpoints `api/ingest.php` y `api/validate_token.php` requieren el header `X-API-Key`. `api/ping.php` permanece público para el autodescubrimiento local de la IP del servidor.**
 
 | Método | Ruta | Descripción |
 |:-:|---|---|
@@ -301,9 +301,9 @@ erDiagram
     indicador ||--o{ alerta : "dispara"
 ```
 
-**`schema.sql` — 9 tablas:** `usuario` · `apiario` · `colmena` · `variable_bioclimatica` · `sensor` · `calibracion` · `lectura` · `indicador` · `alerta`
+**`schema.sql` — 10 tablas:** `usuario` · `apiario` · `colmena` · `intento_vinculacion` · `variable_bioclimatica` · `sensor` · `calibracion` · `lectura` · `indicador` · `alerta`
 
-**`beestation_sena.sql` — 10 tablas:** las anteriores **+ `intento_vinculacion`** (control de intentos fallidos de token)
+**`beestation_sena.sql`** es un volcado histórico del entorno de desarrollo; contiene datos de pruebas y duplicados de sensores de presión/luminosidad. Úsalo solo si necesitas recuperar ese entorno, no como esquema limpio para una instalación nueva.
 
 <details>
 <summary><b>▸ Notas de diseño</b></summary>
@@ -312,7 +312,8 @@ erDiagram
 - El sistema de roles (`rol` y `usuario.id_rol`) **fue eliminado del diseño**: todos los usuarios autenticados tienen el mismo nivel de acceso.
 - El modelo completo se diseñó en notación Chen con 12 entidades; la implementación usa este esquema simplificado.
 - El campo de precisión se llama `precision_valor` para evitar la palabra reservada `precision`.
-- Hay **dos SQL**: `database/schema.sql` (esquema limpio, crea la BD con datos de ejemplo) y `database/beestation_sena.sql` (dump completo del entorno de desarrollo).
+- `database/schema.sql` es para una **instalación nueva**: crea la base si no existe, incluye los campos y tabla que exige la API de vinculación y no elimina bases existentes. No lo reimportes sobre tablas ya creadas; para actualizar una instalación existente, prepara y verifica una migración específica.
+- `database/beestation_sena.sql` es un dump histórico del entorno de desarrollo y puede contener datos de pruebas.
 
 </details>
 
