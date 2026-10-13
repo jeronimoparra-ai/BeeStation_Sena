@@ -165,7 +165,7 @@ arduino-cli compile --fqbn esp32:esp32:esp32 beestation_node
 
 ## 📡 Sensores y umbrales
 
-Cada colmena se crea con **7 sensores** precargados. Los umbrales viven en `variable_bioclimatica`:
+Cada colmena se crea con **9 sensores** precargados. Los umbrales viven en `variable_bioclimatica`:
 
 | Variable | Unidad | ✅ Óptimo | ⚠️ Alerta | 🔴 Crítico |
 |---|:-:|:-:|:-:|:-:|
