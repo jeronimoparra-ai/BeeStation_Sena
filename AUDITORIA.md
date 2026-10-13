@@ -44,7 +44,14 @@ Alcance: revisión estática del backend PHP, el esquema SQL de instalación, la
 
 **Motivo:** impide conservar el identificador previo de sesión al cambiar de visitante a usuario autenticado.
 
-### 5. El firmware ya no interpreta cualquier respuesta HTTP como token válido
+### 5. Mayor entropía en tokens de nuevas colmenas
+**Archivo:** `includes/functions.php`
+
+- `generarTokenVinculacion()` usa ahora 16 bytes aleatorios (128 bits) en vez de solo 3 bytes (24 bits); el sufijo hexadecimal crece a 32 caracteres y cabe en la columna `VARCHAR(64)`.
+
+**Motivo:** 24 bits ofrecen un espacio de búsqueda demasiado pequeño para una credencial de vinculación. Los tokens ya existentes no se cambian automáticamente porque eso desconectaría dispositivos y requiere coordinación con cada ESP32.
+
+### 6. El firmware ya no interpreta cualquier respuesta HTTP como token válido
 **Archivo:** `beestation_node/beestation_node.ino`
 
 - Solo permite el modo offline cuando la petición falla a nivel de transporte (`code < 0`).
@@ -52,7 +59,7 @@ Alcance: revisión estática del backend PHP, el esquema SQL de instalación, la
 
 **Motivo:** antes, una respuesta 401, 404 o 500 también se trataba como modo offline y permitía continuar sin validar el token. Se mantiene la tolerancia a una desconexión real de red, pero los errores HTTP explícitos ya no se interpretan como autorización.
 
-### 6. Protección de la página de diagnóstico
+### 7. Protección de la página de diagnóstico
 **Archivo:** `test_connection.php`
 
 - Por defecto solo permite el acceso desde loopback (`127.0.0.1` / `::1`), porque la página muestra metadatos de conexión, versiones, conteos de tablas y mensajes internos de error.
@@ -61,7 +68,7 @@ Alcance: revisión estática del backend PHP, el esquema SQL de instalación, la
 
 **Motivo:** un `noindex` no es control de acceso y la página estaba accesible sin autenticación.
 
-### 7. Documentación sincronizada
+### 8. Documentación sincronizada
 **Archivo:** `README.md`
 
 - Se corrigió el número de tablas de `schema.sql`.
@@ -72,7 +79,7 @@ Alcance: revisión estática del backend PHP, el esquema SQL de instalación, la
 ## Hallazgos que requieren una intervención coordinada
 
 ### Alto — API Key expuesta en el repositorio público
-La misma clave compartida está escrita en `config/db.php` y en el firmware del repositorio público. Debe considerarse comprometida. No se rotó automáticamente porque cambiarla solo en el servidor interrumpiría los nodos configurados, y volver a incluir la nueva clave en el firmware público repetiría el problema. La solución correcta requiere un plan coordinado: credencial nueva, configuración fuera del repositorio para el servidor y mecanismo de provisionamiento de claves por dispositivo.
+La misma clave compartida está escrita en `config/db.php` y en el firmware del repositorio público. Debe considerarse comprometida. El volcado público también contiene tokens de vinculación conocidos, incluido el token de demostración del esquema. No se rotaron automáticamente porque hacerlo sin coordinar el servidor, los datos existentes y cada ESP32 puede interrumpir la ingesta. Antes de desplegar, reemplaza la clave por una credencial mantenida fuera del repositorio, provisiona la misma de forma privada al dispositivo y rota todos los tokens de colmenas creadas desde el dump público. Una rotación compartida no resuelve por sí sola el problema si la nueva clave se vuelve a publicar dentro del firmware; la solución robusta necesita credenciales por dispositivo o un mecanismo privado de provisionamiento.
 
 ### Alto — La alerta acústica compara unidades incompatibles
 El firmware calcula nivel pico a pico en voltios, mientras que la lógica del backend compara `sonido` con una banda de 400–600 Hz. Una amplitud en voltios no es una frecuencia en hercios. No se alteró la fórmula a ciegas: hace falta implementar y calibrar una extracción de frecuencia (por ejemplo, análisis espectral) y acordar unidades consistentes antes de afirmar que la detección de enjambrazón funciona.
@@ -97,6 +104,7 @@ El punto de acceso `BeeStation_Config` se crea sin contraseña. Durante el aprov
 
 - `database/schema.sql`
 - `dispositivos.php`
+- `includes/functions.php`
 - `api/ingest.php`
 - `api/validate_token.php`
 - `login.php`
