@@ -306,9 +306,14 @@ function ultimoIndicador(int $id_colmena, string $tipo): ?array {
 }
 
 /**
- * Calcula el flujo diario de néctar (peso acumulado ganado/perdido hoy).
+ * Calcula el flujo diario de néctar (variación de peso en las últimas 24 h).
+ *
+ * Filtra las intervenciones humanas: un salto mayor a $umbralIntervencion kg
+ * entre dos lecturas consecutivas (p. ej. quitar/poner un alza) no se cuenta
+ * como ganancia/pérdida de néctar. La detección de enjambrazón es un evento
+ * aparte (vía acústica), no parte del flujo diario.
  */
-function calcularFlujoDiarioPeso(int $id_colmena): ?float {
+function calcularFlujoDiarioPeso(int $id_colmena, float $umbralIntervencion = 3.0): ?float {
     $pdo = getPDO();
     $stmt = $pdo->prepare("
         SELECT l.valor_calibrado, l.fecha_hora 
@@ -324,9 +329,19 @@ function calcularFlujoDiarioPeso(int $id_colmena): ?float {
     $rows = $stmt->fetchAll();
 
     if (count($rows) < 2) return null;
-    $primero = (float)$rows[0]['valor_calibrado'];
-    $ultimo  = (float)end($rows)['valor_calibrado'];
-    return round($ultimo - $primero, 2);
+
+    $flujo = 0.0;
+    $anterior = (float)$rows[0]['valor_calibrado'];
+    for ($i = 1; $i < count($rows); $i++) {
+        $actual = (float)$rows[$i]['valor_calibrado'];
+        $delta = $actual - $anterior;
+        if (abs($delta) <= $umbralIntervencion) {
+            $flujo += $delta; // variación natural acumulada
+        }
+        // Un salto mayor al umbral se interpreta como intervención: no cuenta.
+        $anterior = $actual;
+    }
+    return round($flujo, 2);
 }
 
 /**
@@ -339,13 +354,27 @@ function calcularIBB(int $id_colmena): ?array {
     $h = ultimaLectura($id_colmena, 'humedad_relativa');
     $c = ultimaLectura($id_colmena, 'co2');
 
-    if (!$t || !$h || !$c) return null;
+    // Sin temperatura ni humedad no hay un IBB interpretable.
+    if (!$t || !$h) return null;
 
     $ft = abs(((float)$t['valor_calibrado'] - 35) / 3) * 100;
     $fh = abs(((float)$h['valor_calibrado'] - 60) / 20) * 100;
-    $fc = abs(((float)$c['valor_calibrado'] - 3000) / 3000) * 100;
 
-    $ibb = 100 - (0.45 * $ft + 0.35 * $fh + 0.20 * $fc);
+    // Ponderación validada del proyecto: temperatura 45 % + humedad 35 % + CO2 20 %.
+    // El sensor de CO2 (MQ-135) aún no está instalado en el hardware, así que se
+    // renormalizan los pesos de las variables disponibles para no anular el índice.
+    // Cuando exista lectura de CO2 vuelve a usarse la fórmula completa sin cambios.
+    if ($c) {
+        $fc = abs(((float)$c['valor_calibrado'] - 3000) / 3000) * 100;
+        $penalizacion = 0.45 * $ft + 0.35 * $fh + 0.20 * $fc;
+        $cobertura = 'temperatura+humedad+co2';
+    } else {
+        $peso_disponible = 0.45 + 0.35;
+        $penalizacion = (0.45 * $ft + 0.35 * $fh) / $peso_disponible;
+        $cobertura = 'temperatura+humedad (sin CO2)';
+    }
+
+    $ibb = 100 - $penalizacion;
     $ibb = max(0, min(100, round($ibb, 1)));
 
     if ($ibb >= 85)       $estado = 'Óptimo';
@@ -354,7 +383,7 @@ function calcularIBB(int $id_colmena): ?array {
     elseif ($ibb >= 30)   $estado = 'Deficiente';
     else                  $estado = 'Crítico';
 
-    return ['valor' => $ibb, 'estado' => $estado];
+    return ['valor' => $ibb, 'estado' => $estado, 'cobertura' => $cobertura];
 }
 
 /**
