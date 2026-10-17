@@ -35,7 +35,13 @@ CREATE TABLE colmena (
     especie VARCHAR(100) DEFAULT 'Apis mellifera',
     fecha_instalacion DATE,
     estado ENUM('activa','inactiva','en_revision') DEFAULT 'activa',
+    -- Token de vinculación que el ESP32 envía en cada POST a api/ingest.php.
+    -- Requerido por resolverColmenaPorToken(); sin esta columna la ingesta falla.
+    token_vinculacion VARCHAR(64) NOT NULL,
+    intentos_fallidos_token INT DEFAULT 0,
+    token_revocado TINYINT(1) DEFAULT 0,
     id_apiario INT NOT NULL,
+    UNIQUE KEY uq_token_vinculacion (token_vinculacion),
     FOREIGN KEY (id_apiario) REFERENCES apiario(id_apiario)
 ) ENGINE=InnoDB;
 
@@ -61,7 +67,11 @@ INSERT INTO variable_bioclimatica (
 ('peso', 'kg', NULL, NULL, NULL, NULL, NULL, NULL),
 ('sonido', 'Hz', 200, 380, 400, 600, 600, 900),
 ('co2', 'ppm', 2000, 4000, 1000, 6000, 500, 10000),
-('energia', 'V', 3.7, 4.2, 3.0, 4.2, 2.8, 4.2);
+('energia', 'V', 3.7, 4.2, 3.0, 4.2, 2.8, 4.2),
+-- Variables que el firmware YA envía (BME280: presion; BH1750: luminosidad).
+-- Sin su sensor asociado, api/ingest.php descarta esas lecturas.
+('presion', 'hPa', 1000, 1025, 980, 1040, 960, 1060),
+('luminosidad', 'lux', NULL, NULL, NULL, NULL, NULL, NULL);
 
 -- ── SENSORES ──────────────────────────────────────────────────
 CREATE TABLE sensor (
@@ -134,6 +144,19 @@ CREATE TABLE alerta (
     FOREIGN KEY (id_usuario) REFERENCES usuario(id_usuario)
 ) ENGINE=InnoDB;
 
+-- ── INTENTOS DE VINCULACIÓN (auditoría del token de colmena) ──
+-- La registra registrarIntentoVinculacion() en cada POST a api/ingest.php,
+-- exitoso o fallido. La consume conectar_dispositivo.php para diagnóstico.
+CREATE TABLE intento_vinculacion (
+    id_intento BIGINT AUTO_INCREMENT PRIMARY KEY,
+    token_recibido VARCHAR(50) NOT NULL,
+    ip_origen VARCHAR(45),
+    resultado ENUM('token_invalido','sin_apikey','ok') NOT NULL,
+    fecha_hora DATETIME DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_intento_fecha (fecha_hora),
+    INDEX idx_intento_token (token_recibido)
+) ENGINE=InnoDB;
+
 -- ── DATOS INICIALES MÍNIMOS ───────────────────────────────────
 -- ┌─────────────────────────────────────────────────────────┐
 -- │  CREDENCIALES DEL ADMINISTRADOR (uso temporal)          │
@@ -149,8 +172,8 @@ INSERT INTO usuario (nombre, correo, contrasena) VALUES
 INSERT INTO apiario (nombre, ubicacion, municipio, id_usuario) VALUES
 ('Apiario Norte', 'Centro Minero Ambiental SENA', 'El Bagre, Antioquia', 1);
 
-INSERT INTO colmena (nombre, fecha_instalacion, estado, id_apiario) VALUES
-('Alpha-01', CURDATE(), 'activa', 1);
+INSERT INTO colmena (nombre, fecha_instalacion, estado, token_vinculacion, id_apiario) VALUES
+('Alpha-01', CURDATE(), 'activa', 'BS-ALPHA01-1A2B3C', 1);
 
 INSERT INTO sensor (tipo, modelo, rango_min, rango_max, precision_valor, estado, fecha_instalacion, id_colmena, id_variable) VALUES
 ('temperatura_interna', 'DHT22', -40, 80, 0.5, 'sin_senal', CURDATE(), 1, 1),
@@ -159,6 +182,9 @@ INSERT INTO sensor (tipo, modelo, rango_min, rango_max, precision_valor, estado,
 ('peso', 'HX711', 0, 50, 0.01, 'sin_senal', CURDATE(), 1, 4),
 ('sonido', 'MAX9814', 20, 20000, NULL, 'sin_senal', CURDATE(), 1, 5),
 ('co2', 'MQ-135', 10, 300, NULL, 'sin_senal', CURDATE(), 1, 6),
-('energia', 'INA219', 0, 5, 0.01, 'sin_senal', CURDATE(), 1, 7);
+('energia', 'INA219', 0, 5, 0.01, 'sin_senal', CURDATE(), 1, 7),
+-- Sensores que el firmware envía: sin estas filas, la ingesta los rechaza.
+('presion', 'BME280', 300, 1100, 0.1, 'sin_senal', CURDATE(), 1, 8),
+('luminosidad', 'BH1750', 0, 65535, 1, 'sin_senal', CURDATE(), 1, 9);
 
 -- NOTA: sin datos falsos, sin lecturas ni indicadores de ejemplo.
