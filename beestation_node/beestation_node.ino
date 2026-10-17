@@ -614,7 +614,8 @@ void leerSensores() {
   ultimaHum     = bmeActivo  ? bme.readHumidity()    : 0.0;
   ultimaPresion = bmeActivo  ? (bme.readPressure() / 100.0F) : 0.0;
   ultimaLuz     = bh1750Activo ? lightMeter.readLightLevel() : 0.0;
-  ultimoSonido  = leerNivelAcustico(50); // muestreo de 50 ms del MAX4466
+  // Frecuencia del tono dominante (Hz) para la alerta de pre-enjambrazón.
+  ultimoSonido  = leerFrecuenciaDominante(50); // ~50 ms de muestreo del MAX4466
 
   ultimoPeso = 0.0;
   if (hx711Activo && scale.wait_ready_timeout(500)) {
@@ -711,7 +712,7 @@ void imprimirPanelSensores() {
     Serial.println(lineaCaja("  HX711         ✗ NO DETECTADO  (Peso de la colmena)", "║", "║"));
   }
 
-  snprintf(tmp, sizeof(tmp), "  MAX4466 Son   ✓ ANALÓGICO %8.3f V (GPIO%d)",
+  snprintf(tmp, sizeof(tmp), "  MAX4466 Son   ✓ ANALÓGICO %8.0f Hz (GPIO%d)",
            ultimoSonido, MIC_ANALOG);
   Serial.println(lineaCaja(String(tmp), "║", "║"));
 
@@ -956,7 +957,7 @@ void comandoStatus() {
     Serial.printf("  Presión     : %.1f hPa\n", ultimaPresion);
     Serial.printf("  Peso        : %.2f\n", ultimoPeso);
     Serial.printf("  Luz         : %.1f lux\n", ultimaLuz);
-    Serial.printf("  Sonido      : %.3f V\n", ultimoSonido);
+    Serial.printf("  Sonido      : %.0f Hz\n", ultimoSonido);
   }
 
   // Lecturas en tiempo real
@@ -1104,7 +1105,7 @@ void comandoTest() {
   float h = bmeActivo ? bme.readHumidity() : 50.0;
   float p = bmeActivo ? (bme.readPressure() / 100.0F) : 1013.25;
   float l = bh1750Activo ? lightMeter.readLightLevel() : 100.0;
-  float s = leerNivelAcustico(50);
+  float s = leerFrecuenciaDominante(50);
 
   String testPayload = "{\"token\":\"" + tokenGuardado + "\",\"lecturas\":[";
   testPayload += "{\"tipo\":\"temperatura_interna\",\"valor\":" + String(t, 2) + "},";
@@ -1257,6 +1258,59 @@ float leerNivelAcustico(unsigned int milliseconds) {
   unsigned int peakToPeak = signalMax - signalMin;
   float volts = (peakToPeak * 3.3) / 4095.0;
   return volts;
+}
+
+// ══════════════════════════════════════════════════════════════
+//   FRECUENCIA DOMINANTE (Hz) DEL MICRÓFONO
+// ══════════════════════════════════════════════════════════════
+// La alerta de pre-enjambrazón del backend (functions.php) y toda la UI
+// esperan una FRECUENCIA en Hz (variable_bioclimatica.sonido = 'Hz'),
+// pero antes el firmware enviaba voltios (0–3.3 V), por lo que la banda
+// de 400–600 Hz nunca podía alcanzarse y la alerta jamás se disparaba.
+//
+// Aquí se estima el tono dominante contando cruces por cero con histéresis
+// sobre una media DC móvil. Es una estimación ligera y adecuada para un
+// tono continuo (piping); NO sustituye a una FFT.
+// Devuelve 0.0 si la señal es demasiado débil o irregular.
+float leerFrecuenciaDominante(unsigned int milliseconds) {
+  const unsigned long durUs      = (unsigned long)milliseconds * 1000UL;
+  const int           UMBRAL     = 60;   // histéresis en cuentas ADC (0–4095)
+  const unsigned int  MIN_CRUCES = 6;    // cruces mínimos para estimar
+
+  // Componente DC estimada con una muestra corta (~4 ms).
+  long dcSum = 0; unsigned int dcN = 0;
+  unsigned long t0 = micros();
+  while (micros() - t0 < 4000UL) { dcSum += analogRead(MIC_ANALOG); dcN++; }
+  if (dcN == 0) return 0.0;
+  float dc = (float)dcSum / (float)dcN;
+
+  int estado = 0;                        // 0 = sin definir, 1 = alto, -1 = bajo
+  unsigned long ultimoCruceUs = 0;
+  unsigned long sumaPeriodosUs = 0;
+  unsigned int  cruces = 0;
+  unsigned long inicioUs = micros();
+
+  while (micros() - inicioUs < durUs) {
+    int s = analogRead(MIC_ANALOG);
+    int nuevo = estado;
+    if (s > dc + UMBRAL)      nuevo = 1;
+    else if (s < dc - UMBRAL) nuevo = -1;
+
+    if (nuevo != 0 && nuevo != estado) {
+      unsigned long ahora = micros();
+      if (estado != 0 && ultimoCruceUs != 0) {
+        sumaPeriodosUs += (ahora - ultimoCruceUs); // intervalo entre cruces = medio período
+        cruces++;
+      }
+      ultimoCruceUs = ahora;
+      estado = nuevo;
+    }
+  }
+
+  if (cruces < MIN_CRUCES || sumaPeriodosUs == 0) return 0.0;
+  float medioPeriodoUs = (float)sumaPeriodosUs / (float)cruces; // = T/2
+  float freq = 1000000.0 / (2.0 * medioPeriodoUs);              // = 1/T
+  return freq;
 }
 
 // ══════════════════════════════════════════════════════════════
