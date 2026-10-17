@@ -10,15 +10,19 @@
 // marcas de tiempo de PHP (time(), strtotime(), date()) sean coherentes.
 date_default_timezone_set('America/Bogota');
 
-define('DB_HOST', '127.0.0.1');
-define('DB_NAME', 'beestation_sena');
-define('DB_USER', 'root');
-define('DB_PASS', '');   // pon aquí la clave real de tu MySQL/MariaDB
+// Se pueden sobreescribir por variables de entorno para no dejar las
+// credenciales ni la clave en el repositorio. En XAMPP/Apache:
+//   SetEnv BEESTATION_DB_PASS "tu_clave"
+//   SetEnv BEESTATION_API_KEY "tu_clave_secreta"
+define('DB_HOST', getenv('BEESTATION_DB_HOST') ?: '127.0.0.1');
+define('DB_NAME', getenv('BEESTATION_DB_NAME') ?: 'beestation_sena');
+define('DB_USER', getenv('BEESTATION_DB_USER') ?: 'root');
+define('DB_PASS', getenv('BEESTATION_DB_PASS') ?: '');   // pon aquí la clave real de tu MySQL/MariaDB
 
 // ── SEGURIDAD API (ESP32 -> api/ingest.php) ──────────────────
 // Clave precompartida requerida en el header 'X-API-Key' de cada POST.
 // Cámbiala por una cadena segura y configúrala idéntica en el firmware del ESP32.
-define('BEESTATION_API_KEY', 'ba20858ed12a853bbcaafec2d9c753db0ad9f7e60022d6e1a3f94f978743808a');
+define('BEESTATION_API_KEY', getenv('BEESTATION_API_KEY') ?: 'ba20858ed12a853bbcaafec2d9c753db0ad9f7e60022d6e1a3f94f978743808a');
 
 function getPDO(): PDO {
     static $pdo = null;
