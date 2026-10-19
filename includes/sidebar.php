@@ -19,9 +19,37 @@
 
     <div class="sidebar-summary">
         <div class="sidebar-summary-label">Colmena activa</div>
-        <div class="sidebar-summary-name">
-            <?= $colmenaActiva ? htmlspecialchars($colmenaActiva['nombre']) : 'Sin colmena asignada' ?>
-        </div>
+
+        <?php
+        $colmenasUsuario = function_exists('obtenerColmenasDelUsuario')
+            ? obtenerColmenasDelUsuario((int) ($_SESSION['id_usuario'] ?? 0))
+            : [];
+        $paginaActual = basename($_SERVER['PHP_SELF']);
+        ?>
+
+        <?php if (count($colmenasUsuario) > 1): ?>
+            <form method="POST" action="seleccionar_colmena.php" class="sidebar-hive-form">
+                <input type="hidden" name="volver" value="<?= htmlspecialchars($paginaActual) ?>">
+                <input type="hidden" name="csrf" value="<?= htmlspecialchars($_SESSION['csrf_colmena'] ??= bin2hex(random_bytes(16))) ?>">
+                <select name="id_colmena" class="sidebar-hive-select"
+                        onchange="this.form.submit()" aria-label="Seleccionar colmena activa">
+                    <?php foreach ($colmenasUsuario as $c): ?>
+                        <option value="<?= (int) $c['id_colmena'] ?>"
+                            <?= ($colmenaActiva && (int) $colmenaActiva['id_colmena'] === (int) $c['id_colmena']) ? 'selected' : '' ?>>
+                            <?= htmlspecialchars($c['nombre']) ?>
+                        </option>
+                    <?php endforeach; ?>
+                </select>
+                <noscript>
+                    <button type="submit" class="sidebar-hive-btn">Cambiar</button>
+                </noscript>
+            </form>
+        <?php else: ?>
+            <div class="sidebar-summary-name">
+                <?= $colmenaActiva ? htmlspecialchars($colmenaActiva['nombre']) : 'Sin colmena asignada' ?>
+            </div>
+        <?php endif; ?>
+
         <div class="sidebar-summary-status">
             <a href="conectar_dispositivo.php" style="text-decoration: none;" title="Abrir radar de conexión">
                 <span class="sidebar-status-chip <?= $espOnline ? 'online' : 'offline' ?> hover-effect">

@@ -45,21 +45,58 @@ function intentarLogin(string $correo, string $clave): ?array {
 }
 
 /**
- * Devuelve la colmena activa por defecto (la primera del apiario del usuario).
+ * Devuelve la colmena activa del usuario.
+ * Si hay una seleccionada en sesión y le pertenece, la usa;
+ * si no, cae a la primera (comportamiento anterior).
  */
 function obtenerColmenaActiva(int $id_usuario): ?array {
     $pdo = getPDO();
+
+    if (!empty($_SESSION['id_colmena_activa'])) {
+        $stmt = $pdo->prepare("
+            SELECT c.*
+            FROM colmena c
+            INNER JOIN apiario a ON c.id_apiario = a.id_apiario
+            WHERE a.id_usuario = ? AND c.id_colmena = ?
+            LIMIT 1
+        ");
+        $stmt->execute([$id_usuario, (int) $_SESSION['id_colmena_activa']]);
+        $row = $stmt->fetch();
+        if ($row) {
+            return $row;
+        }
+        // La colmena ya no existe o no es del usuario: limpiar y continuar
+        unset($_SESSION['id_colmena_activa']);
+    }
+
     $stmt = $pdo->prepare("
-        SELECT c.* 
-        FROM colmena c 
-        INNER JOIN apiario a ON c.id_apiario = a.id_apiario 
-        WHERE a.id_usuario = ? 
-        ORDER BY c.id_colmena ASC 
+        SELECT c.*
+        FROM colmena c
+        INNER JOIN apiario a ON c.id_apiario = a.id_apiario
+        WHERE a.id_usuario = ?
+        ORDER BY c.id_colmena ASC
         LIMIT 1
     ");
     $stmt->execute([$id_usuario]);
     $row = $stmt->fetch();
     return $row ?: null;
+}
+
+/**
+ * Lista todas las colmenas del usuario, ordenadas por id.
+ * Se usa para llenar el selector de colmena activa.
+ */
+function obtenerColmenasDelUsuario(int $id_usuario): array {
+    $pdo = getPDO();
+    $stmt = $pdo->prepare("
+        SELECT c.id_colmena, c.nombre, c.estado
+        FROM colmena c
+        INNER JOIN apiario a ON c.id_apiario = a.id_apiario
+        WHERE a.id_usuario = ?
+        ORDER BY c.id_colmena ASC
+    ");
+    $stmt->execute([$id_usuario]);
+    return $stmt->fetchAll();
 }
 
 /**

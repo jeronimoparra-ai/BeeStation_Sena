@@ -432,6 +432,31 @@ code {
   font-size: 0.74rem;
   color: var(--color-sidebar-muted);
 }
+.sidebar-hive-form {
+  margin: 4px 0 10px;
+}
+.sidebar-hive-select {
+  width: 100%;
+  padding: 7px 10px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--color-sidebar-text);
+  font: inherit;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+.sidebar-hive-select:focus {
+  outline: 2px solid var(--color-brand);
+  outline-offset: 1px;
+}
+.sidebar-hive-select option {
+  color: #1f2937;
+  background: #ffffff;
+}
+.sidebar-hive-btn {
+  margin-top: 6px;
+}
 
 .sidebar-nav {
   flex: 1;

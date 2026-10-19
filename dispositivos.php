@@ -219,9 +219,16 @@ require_once __DIR__ . '/includes/header.php';
                                 <strong>Listo:</strong> Haz clic en Vincular. El ESP32 se enlazará automáticamente y verás encenderse el estado <span class="badge badge-success">En línea</span> en pocos segundos.
                             </li>
                         </ol>
+                        <?php
+                        $proto    = strtolower($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '');
+                        $esquema  = ($proto === 'https' || (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')) ? 'https' : 'http';
+                        $host     = $_SERVER['HTTP_X_FORWARDED_HOST'] ?? $_SERVER['HTTP_HOST'];
+                        $basePath = rtrim(str_replace('\\', '/', dirname($_SERVER['SCRIPT_NAME'])), '/');
+                        $endpoint = $esquema . '://' . $host . $basePath . '/api/ingest.php';
+                        ?>
                         <div class="endpoint-box u-mt-2" style="font-size: 0.78rem;">
                             <strong>Endpoint del Hosting:</strong><br>
-                            <code>https://<?= $_SERVER['HTTP_HOST']; ?>/api/ingest.php</code>
+                            <code><?= htmlspecialchars($endpoint) ?></code>
                         </div>
                     </div>
                 </div>
