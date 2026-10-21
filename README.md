@@ -384,7 +384,7 @@ El firmware se puede validar sin la placa conectada:
 
 ```bash
 arduino-cli compile --fqbn esp32:esp32:esp32:PartitionScheme=min_spiffs beestation_node
-# El Sketch usa 1297344 bytes (65%) del espacio de almacenamiento de programa.
+# El Sketch usa 1297468 bytes (65%) del espacio de almacenamiento de programa.
 # Las variables globales usan 57032 bytes (17%) de la memoria dinámica.
 ```
 

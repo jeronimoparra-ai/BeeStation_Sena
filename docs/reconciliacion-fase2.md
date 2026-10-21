@@ -148,12 +148,12 @@ Placa: `esp32:esp32:esp32` · `arduino-cli` 1.5.1 · core ESP32 3.3.12.
 |---|---|---|---|
 | Antes de la Fase 2 (HMAC) | 1.289.876 B | 98 % | 53.872 B |
 | Módulo ECDSA presente, sin cablear | 1.289.976 B | 98 % | 53.936 B |
-| **Fase 2 cableada (tabla por defecto)** | **1.297.312 B** | **98 %** | **57.032 B** |
-| **Fase 2 cableada (`min_spiffs`)** | **1.297.344 B** | **65 %** | **57.032 B** |
+| **Fase 2 cableada (tabla por defecto)** | **1.297.436 B** | **98 %** | **57.032 B** |
+| **Fase 2 cableada (`min_spiffs`)** | **1.297.468 B** | **65 %** | **57.032 B** |
 
-- Coste neto del cambio: **+7.436 B de flash** y **+3.160 B de RAM** respecto a
+- Coste neto del cambio: **+7.560 B de flash** y **+3.160 B de RAM** respecto a
   la base (el código HMAC eliminado compensa parte del coste).
-- Con la tabla por defecto quedan solo ~13,4 KB libres: no hay margen para
+- Con la tabla por defecto quedan solo ~13,0 KB libres: no hay margen para
   crecer ni para un OTA cómodo. Por eso se adopta **`PartitionScheme=min_spiffs`**
   (1,9 MB de APP, 128 KB de SPIFFS), que deja ~653 KB libres.
 
