@@ -1,0 +1,17 @@
+{
+  "recommendations": [
+    "felixalter.git-project-manager",
+    "github.vscode-pull-request-github",
+    "github.gitlens",
+    "mblode.php-intelephense",
+    "xdebug.php-debug",
+    "platformio.platformio-ide",
+    "ms-vscode.vscode-node-azurepack",
+    "timonwong.shellcheck",
+    "davidanson.vscode-markdownlint"
+  ],
+  "unwantedRecommendations": [
+    "redhat.telemetry-manager-registry",
+    "ms-python.python"
+  ]
+}

@@ -19,5 +19,8 @@ database/dumps/
 # ── Sistema operativo / editores ──
 .DS_Store
 Thumbs.db
-.vscode/
 .idea/
+# Configuración de VS Code: solo compartir settings.json y extensions.json
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
