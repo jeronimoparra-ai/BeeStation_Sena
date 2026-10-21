@@ -73,6 +73,13 @@ unsigned long ultimoEscaneoWifi = 0;
 int redesCacheadas = 0;
 String listaRedesCache = "";
 
+// ── Cola de salida del datalogger ───────────────────────────────────────
+// Fichero y numero de linea ya confirmados por el servidor. Se guardan en
+// la NVS, asi que sobreviven a los reinicios, y solo se escriben cuando el
+// servidor confirma un lote: no se desgasta la flash en cada lectura.
+String upArchivo = "";
+unsigned long upLinea = 0;
+
 // ── Configuración de red local para el Portal Cautivo ─────────
 const byte DNS_PORT = 53;
 IPAddress apIP(192, 168, 4, 1);
@@ -306,6 +313,9 @@ void setup() {
   // Token anti-CSRF del portal: se genera en cada arranque y caduca con
   // el reinicio. Sin él, cualquier web podría reconfigurar el nodo.
   tokenCsrf = generarTokenCsrf();
+
+  // Estado de la cola de subida del datalogger
+  cargarEstadoSubida();
 
   Serial.println("INICIANDO SISTEMA...");
 
@@ -640,6 +650,7 @@ void loop() {
   long epochLectura = (long)time(nullptr);
   bool hayReloj     = (epochLectura > 1000000);
 
+    bool envioEnVivoOk = false;
   String jsonPayload = "{\"lecturas\":[";
   jsonPayload += lecturaJson("temperatura_interna", tempInterna,  epochLectura, hayReloj) + ",";
   jsonPayload += lecturaJson("humedad_relativa",    humRelativa,  epochLectura, hayReloj) + ",";
@@ -728,6 +739,7 @@ void loop() {
 
     // Reset del contador de reconexión tras envío exitoso
     intentosReconexionConsecutivos = 0;
+    envioEnVivoOk = true;   // la fila actual queda confirmada en la microSD
 
   } else if (httpResponseCode >= 400) {
     // ── ERROR DE APLICACIÓN: NO es un envío correcto ──
@@ -783,6 +795,15 @@ void loop() {
     }
   }
   http.end();
+
+    // ── COLA OFFLINE ───────────────────────────────────────────────
+    // Si el envio en vivo funciono, la fila actual ya esta confirmada
+    // y se avanza el marcador. Si fallo, se reintentara en el proximo
+    // ciclo con enviarPendientesSD(), que sube los lotes pendientes.
+    if (envioEnVivoOk && sdActivo) {
+      guardarEstadoSubida(archivoSDActivo, registrosSD);
+    }
+    enviarPendientesSD();
 
   // Apagar LED al terminar el ciclo
   digitalWrite(LED_STATUS, LOW);
@@ -1581,7 +1602,7 @@ void guardarRespaldoSD(float temp, float hum, float pres, float peso, float s, f
 
   bool ficheroNuevo = (dataFile.size() == 0);
   if (ficheroNuevo) {
-    dataFile.println("Fecha_hora,Millis,Temp,Hum,Presion,Peso,Sonido,Luz");
+    dataFile.println("Fecha_hora,Epoch,Temp,Hum,Presion,Peso,Sonido,Luz");
     if (archivoSDActivo != nombreFichero) {
       archivoSDActivo = nombreFichero;
       registrosSD = 0;
@@ -1589,14 +1610,156 @@ void guardarRespaldoSD(float temp, float hum, float pres, float peso, float s, f
     }
   }
 
-  dataFile.printf("%s,%lu,%.2f,%.2f,%.2f,%.2f,%.3f,%.2f\n",
-                  fecha, millis(), temp, hum, pres, peso, s, l);
+  // La segunda columna es el epoch de la medicion: es lo que permite
+  // fechar los datos cuando se recuperan mas tarde y deduplicarlos al
+  // reenviarlos (el backend tiene UNIQUE(id_sensor, seq)).
+  long epochLectura = (long)time(nullptr);
+  dataFile.printf("%s,%ld,%.2f,%.2f,%.2f,%.2f,%.3f,%.2f\n",
+                  fecha, epochLectura, temp, hum, pres, peso, s, l);
   dataFile.close();
   registrosSD++;
 }
 
 // ── Consulta de los datos YA guardados en la microSD ──────────
 // Ruta del CSV del día en curso (con respaldo si no hay hora).
+// ── Estado de la cola de salida (sobrevive a reinicios) ───────────────
+void cargarEstadoSubida() {
+  preferences.begin("beestation", true);
+  upArchivo = preferences.getString("up_file", "");
+  upLinea   = preferences.getULong("up_line", 0);
+  preferences.end();
+  if (upArchivo.length() > 0) {
+    Serial.printf("[SD] Cola de subida: reanuda en %s linea %lu\n",
+                  upArchivo.c_str(), upLinea);
+  }
+}
+
+void guardarEstadoSubida(const String& archivo, unsigned long linea) {
+  upArchivo = archivo;
+  upLinea   = linea;
+  preferences.begin("beestation", false);
+  preferences.putString("up_file", archivo);
+  preferences.putULong("up_line", linea);
+  preferences.end();
+}
+
+// Divide una linea CSV en campos. Devuelve cuantos encontro.
+int dividirCSV(const String& linea, String campos[], int maxCampos) {
+  int n = 0;
+  int ini = 0;
+  for (int i = 0; i <= linea.length() && n < maxCampos; i++) {
+    if (i == linea.length() || linea[i] == ',') {
+      campos[n++] = linea.substring(ini, i);
+      ini = i + 1;
+    }
+  }
+  return n;
+}
+
+// ── Reenvio de las lecturas pendientes de la microSD ───────────────────
+// El nodo no pierde datos: TODA lectura queda en la tarjeta y se sube
+// cuando hay red. Si el envio en vivo falla, estas lineas se reintentan
+// en los ciclos siguientes hasta que el servidor las confirma.
+bool enviarPendientesSD() {
+  if (!sdActivo || tokenGuardado.length() == 0) return false;
+  if (WiFi.status() != WL_CONNECTED) return false;
+
+  // Ficheros CSV del datalogger, del mas antiguo al mas reciente
+  String archivos[24];
+  int nArchivos = 0;
+  File raiz = SD.open("/");
+  if (!raiz) return false;
+  for (File f = raiz.openNextFile(); f && nArchivos < 24; f = raiz.openNextFile()) {
+    String nombre = f.name();
+    if (!f.isDirectory() && nombre.startsWith("log_") && nombre.endsWith(".csv")) {
+      archivos[nArchivos++] = "/" + nombre;
+    }
+  }
+  raiz.close();
+  if (nArchivos == 0) return false;
+
+  // Punto de reanudacion: el fichero y la linea confirmados
+  int idxIni = 0;
+  unsigned long lineaIni = 0;
+  if (upArchivo.length() > 0) {
+    for (int i = 0; i < nArchivos; i++) {
+      if (archivos[i] == upArchivo) { idxIni = i; lineaIni = upLinea; break; }
+    }
+  }
+
+  for (int nf = idxIni; nf < nArchivos; nf++) {
+    File csv = SD.open(archivos[nf]);
+    if (!csv) continue;
+
+    // Saltar hasta la linea de reanudacion
+    if (nf == idxIni && lineaIni > 0) {
+      unsigned long saltadas = 0;
+      while (csv.available() && saltadas < lineaIni) { csv.readStringUntil('\n'); saltadas++; }
+    }
+
+    // Acumular hasta 30 filas (180 lecturas, por debajo del tope del servidor)
+    String lecturas = "";
+    unsigned long leidas = 0;
+    unsigned long validas = 0;
+    while (csv.available() && leidas < 30) {
+      String linea = csv.readStringUntil('\n');
+      leidas++;
+      linea.trim();
+      if (linea.length() == 0) continue;
+      if (linea.startsWith("Fecha_hora")) continue;   // cabecera
+
+      String c[8];
+      if (dividirCSV(linea, c, 8) < 8) continue;
+      long epoch = atol(c[1].c_str());
+      if (epoch <= 0) continue;   // sin reloj sincronizado: no se puede fechar
+
+      if (validas > 0) lecturas += ",";
+      String ts = ",\"ts\":" + String(epoch) + ",\"seq\":" + String(epoch);
+      lecturas += "{\"tipo\":\"temperatura_interna\",\"valor\":" + c[2] + ts + "}";
+      lecturas += ",{\"tipo\":\"humedad_relativa\",\"valor\":" + c[3] + ts + "}";
+      lecturas += ",{\"tipo\":\"presion\",\"valor\":" + c[4] + ts + "}";
+      lecturas += ",{\"tipo\":\"peso\",\"valor\":" + c[5] + ts + "}";
+      lecturas += ",{\"tipo\":\"sonido\",\"valor\":" + c[6] + ts + "}";
+      lecturas += ",{\"tipo\":\"luminosidad\",\"valor\":" + c[7] + ts + "}";
+      validas++;
+    }
+    csv.close();
+
+    if (validas == 0) continue;   // este fichero ya no tiene nada que subir
+
+    String payload = "{\"lecturas\":[" + lecturas + "]}";
+    String host = hostGuardado.length() > 0 ? hostGuardado : WiFi.gatewayIP().toString();
+    String url = "http://" + host + "/BeeStation_Sena/api/ingest.php";
+
+    String tsFirma = String((long)time(nullptr));
+    String firma = firmaHmac(tokenGuardado, cadenaFirma("POST", rutaDeUrl(url), tsFirma, payload));
+
+    HTTPClient http;
+    http.setReuse(false);
+    http.begin(url);
+    http.setConnectTimeout(3000);
+    http.setTimeout(10000);
+    http.addHeader("Content-Type", "application/json");
+    http.addHeader("X-BeeStation-Mac", macNodo());
+    http.addHeader("X-BeeStation-Timestamp", tsFirma);
+    http.addHeader("X-BeeStation-Signature", firma);
+    int code = http.POST(payload);
+    http.end();
+
+    if (code == 200) {
+      unsigned long nueva = (nf == idxIni ? lineaIni : 0) + leidas;
+      guardarEstadoSubida(archivos[nf], nueva);
+      Serial.printf("[SD] Subidas %lu lineas de %s (pendiente cerrada).\n",
+                    validas, archivos[nf].c_str());
+      return true;
+    } else {
+      Serial.printf("[SD] No se pudo subir el lote [%d]; se reintentara.\n", code);
+      return false;
+    }
+  }
+  return false;
+}
+
 String rutaCSVActual() {
   struct tm reloj;
   if (getLocalTime(&reloj, 0)) {

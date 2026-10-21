@@ -1,0 +1,143 @@
+/* ============================================================
+   informe.css · Estilos propios del informe imprimible
+   Diseñados para papel: fondo claro, tinta oscura, sin sombras
+   pesadas y con divisiones que no parten las tarjetas.
+   ============================================================ */
+
+.informe-body {
+  background: #EFEAE0;
+  min-height: 100vh;
+  padding: 0 0 48px;
+}
+
+/* ── Barra de herramientas (no se imprime) ───────────────────────── */
+.informe-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  max-width: 1080px;
+  margin: 0 auto 22px;
+  padding: 18px 20px 0;
+}
+
+.informe-toolbar-acciones { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+
+.btn-informe-volver {
+  display: inline-flex; align-items: center; gap: 8px;
+  color: var(--color-text-secondary); text-decoration: none;
+  font-size: .92rem; font-weight: 600;
+}
+.btn-informe-volver:hover { color: var(--color-brand-dark); }
+.btn-informe-volver svg { width: 17px; height: 17px; }
+
+.informe-rango {
+  display: inline-flex; align-items: center; gap: 8px;
+  font-size: .85rem; color: var(--color-text-secondary); font-weight: 600;
+}
+.informe-rango select {
+  font: inherit; padding: 7px 10px; border-radius: 9px;
+  border: 1px solid var(--color-border); background: #fff; color: var(--color-text);
+}
+
+.btn-informe-pdf {
+  display: inline-flex; align-items: center; gap: 8px;
+  background: var(--color-brand-dark); color: #fff;
+  border: none; border-radius: 10px; padding: 10px 16px;
+  font: inherit; font-size: .9rem; font-weight: 700; cursor: pointer;
+}
+.btn-informe-pdf:hover { background: var(--color-brand); }
+.btn-informe-pdf svg { width: 16px; height: 16px; }
+
+/* ── Documento ────────────────────────────────────────────────────── */
+.informe-doc {
+  max-width: 1080px;
+  margin: 0 auto;
+  background: #FFFFFF;
+  color: var(--color-text);
+  border-radius: 16px;
+  padding: 40px 44px 36px;
+  box-shadow: 0 18px 46px rgba(22, 18, 12, .10);
+}
+
+/* ── Cabecera ─────────────────────────────────────────────────────── */
+.informe-cabecera {
+  display: flex; align-items: flex-start; justify-content: space-between;
+  gap: 28px; flex-wrap: wrap;
+  padding-bottom: 18px; margin-bottom: 26px;
+  border-bottom: 2px solid var(--color-brand);
+}
+.informe-marca { display: flex; align-items: center; gap: 14px; }
+.informe-marca img { width: 52px; height: 52px; border-radius: 12px; object-fit: contain; }
+.informe-marca-nombre { font-family: var(--font-display); font-size: 1.6rem; font-weight: 700; line-height: 1.1; }
+.informe-marca-sub { font-size: .82rem; color: var(--color-text-secondary); margin-top: 3px; }
+
+.informe-meta { display: grid; grid-template-columns: repeat(2, minmax(120px, auto)); gap: 8px 28px; }
+.informe-meta div { display: flex; flex-direction: column; }
+.informe-meta span { font-size: .68rem; text-transform: uppercase; letter-spacing: .08em; color: var(--color-text-tertiary); }
+.informe-meta strong { font-size: .9rem; color: var(--color-text); }
+
+/* ── Bloques ─────────────────────────────────────────────────────── */
+.informe-bloque { margin-bottom: 30px; break-inside: avoid-page; }
+.informe-titulo {
+  font-family: var(--font-display);
+  font-size: 1.08rem; font-weight: 700; color: var(--color-text);
+  margin: 0 0 14px; padding-bottom: 7px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+/* ── KPIs ─────────────────────────────────────────────────────────── */
+.informe-kpis {
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px;
+}
+.informe-kpi {
+  border: 1px solid var(--color-border); border-radius: 12px;
+  padding: 13px 15px; background: #FCFAF6;
+  display: flex; flex-direction: column; gap: 2px;
+}
+.informe-kpi-label { font-size: .7rem; text-transform: uppercase; letter-spacing: .07em; color: var(--color-text-tertiary); }
+.informe-kpi-valor { font-family: var(--font-display); font-size: 1.85rem; line-height: 1.15; color: var(--color-text); }
+.informe-kpi-estado { font-style: normal; font-size: .78rem; color: var(--color-brand-dark); font-weight: 600; }
+
+/* ── Tablas ──────────────────────────────────────────────────────── */
+.informe-tabla { width: 100%; border-collapse: collapse; font-size: .84rem; }
+.informe-tabla th {
+  text-align: left; font-size: .7rem; text-transform: uppercase; letter-spacing: .06em;
+  color: var(--color-text-tertiary); font-weight: 700;
+  padding: 8px 10px; border-bottom: 1.5px solid var(--color-border);
+}
+.informe-tabla td { padding: 7px 10px; border-bottom: 1px solid var(--color-border-soft); }
+.informe-tabla tbody tr:nth-child(even) { background: #FBF9F5; }
+.informe-td-valor { font-family: var(--font-mono); font-weight: 600; }
+.informe-td-fecha { color: var(--color-text-secondary); font-family: var(--font-mono); font-size: .78rem; }
+
+.informe-estado {
+  display: inline-block; padding: 2px 9px; border-radius: 999px;
+  font-size: .72rem; font-weight: 700; text-transform: capitalize;
+}
+.informe-estado.en_linea   { background: #E4F3EC; color: #11835C; }
+.informe-estado.advertencia { background: #FBEEDA; color: #A66A0A; }
+.informe-estado.sin_senal  { background: #F7E6E6; color: #B63A3A; }
+
+/* ── Gráficas ─────────────────────────────────────────────────────── */
+.informe-graficas { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.informe-grafica { border: 1px solid var(--color-border); border-radius: 12px; padding: 12px 14px 8px; background: #fff; }
+.informe-grafica-titulo { font-size: .8rem; font-weight: 700; color: var(--color-text-secondary); margin-bottom: 6px; }
+.informe-canvas { position: relative; height: 190px; }
+
+/* ── Notas y pie ──────────────────────────────────────────────────── */
+.informe-nota { font-size: .86rem; color: var(--color-text-secondary); margin: 0; }
+.informe-vacio { padding: 40px; text-align: center; color: var(--color-text-secondary); }
+
+.informe-pie {
+  margin-top: 26px; padding-top: 14px; border-top: 1px solid var(--color-border);
+  display: flex; justify-content: space-between; gap: 20px; flex-wrap: wrap;
+  font-size: .72rem; color: var(--color-text-tertiary);
+}
+.informe-pie div:last-child { max-width: 62%; }
+
+@media (max-width: 900px) {
+  .informe-kpis, .informe-graficas { grid-template-columns: 1fr; }
+  .informe-doc { padding: 26px 20px; }
+}

@@ -35,7 +35,10 @@ DirectoryIndex index.php
 </IfModule>
 
 # --- Archivos sueltos que nunca deben servirse ---
-<FilesMatch "(^\.|^(?:repomix-output|README|INFORME|guia-configuracion)|\.(?:sql|md|log|ini|env|bak|orig|old|swp|dist|example|local|bak1|log1)$)">
+#  Nota: los nombres se acotan con su extension para no capturar por
+#  error paginas legitimas (p. ej. "informe.php" frente a
+#  "INFORME-FUNCIONAMIENTO.md").
+<FilesMatch "(^\.|(?:^|/)(?:repomix-output\.xml|README\.(?:md|txt)|INFORME-FUNCIONAMIENTO\.(?:md|docx)|guia-configuracion-beestation\.docx)$|\.(?:sql|md|log|ini|env|bak|orig|old|swp|dist|example|local|bak1|log1)$)">
     Require all denied
 </FilesMatch>
 

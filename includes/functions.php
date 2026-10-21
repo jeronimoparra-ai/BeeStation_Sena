@@ -269,6 +269,41 @@ function serieHistoricaDias(int $id_colmena, string $tipo_sensor, int $dias = 30
 }
 
 /**
+ * Serie temporal AGREGADA en cubos de N minutos.
+ *
+ * Para informes y gráficas largas no conviene traer las filas crudas:
+ * con el firmware a 30 s, 30 días son 86.400 filas por sensor. Aqui se
+ * agrupan en cubos (15 min, 1 h, 1 dia...) y se devuelve media, minimo,
+ * maximo y numero de muestras de cada cubo, que es ademas informacion
+ * mas util para el analisis.
+ *
+ * @param int    $id_colmena  Colmena
+ * @param string $tipo_sensor Tipo de sensor
+ * @param int    $horas       Ventana temporal en horas
+ * @param int    $minutos     Tamano del cubo en minutos
+ */
+function serieHistoricaAgregada(int $id_colmena, string $tipo_sensor, int $horas = 24, int $minutos = 15): array {
+    $pdo = getPDO();
+    $stmt = $pdo->prepare("
+        SELECT FROM_UNIXTIME(FLOOR(UNIX_TIMESTAMP(l.fecha_hora) / (? * 60)) * (? * 60)) AS fecha_hora,
+               AVG(l.valor_calibrado) AS valor,
+               MIN(l.valor_calibrado) AS minimo,
+               MAX(l.valor_calibrado) AS maximo,
+               COUNT(*) AS muestras
+        FROM lectura l
+        INNER JOIN sensor s ON l.id_sensor = s.id_sensor
+        WHERE s.id_colmena = ?
+          AND s.tipo = ?
+          AND l.es_valida = 1
+          AND l.fecha_hora >= (NOW() - INTERVAL ? HOUR)
+        GROUP BY fecha_hora
+        ORDER BY fecha_hora ASC
+    ");
+    $stmt->execute([$minutos, $minutos, $id_colmena, $tipo_sensor, $horas]);
+    return $stmt->fetchAll();
+}
+
+/**
  * Obtiene la lista completa de sensores de una colmena junto con su último reporte.
  */
 function sensoresConEstado(int $id_colmena): array {

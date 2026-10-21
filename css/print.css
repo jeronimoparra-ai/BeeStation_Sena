@@ -1,0 +1,121 @@
+/* ============================================================
+   print.css · Maquetacion del informe en papel (A4)
+   Se activa con Ctrl+P / "Guardar como PDF" del navegador.
+   ============================================================ */
+
+@page {
+  size: A4 portrait;
+  margin: 14mm 12mm 16mm;
+}
+
+@media print {
+
+  /* ── Fuera de la pantalla: solo el documento ───────────────────── */
+  .informe-toolbar,
+  .no-print,
+  .btn-floating,
+  .sidebar,
+  .topbar,
+  .page-header-actions,
+  .mobile-menu-btn,
+  .esp-status-pill,
+  .notifications-btn,
+  .clock,
+  .dark-mode-toggle {
+    display: none !important;
+  }
+
+  html, body {
+    background: #FFFFFF !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    font-size: 10.5pt;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  /* Si el panel esta en modo oscuro, la impresion sale siempre en claro */
+  html.dark, html.dark body {
+    background: #FFFFFF !important;
+    color: #16120C !important;
+  }
+  html.dark .informe-doc {
+    background: #FFFFFF !important;
+    color: #16120C !important;
+  }
+
+  .informe-body { background: #FFFFFF !important; padding: 0 !important; min-height: 0 !important; }
+
+  .informe-doc {
+    max-width: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    box-shadow: none !important;
+    border-radius: 0 !important;
+    background: #FFFFFF !important;
+    color: #16120C !important;
+  }
+
+  /* ── Tipografia y color ─────────────────────────────────────────── */
+  .informe-titulo {
+    font-size: 12.5pt !important;
+    color: #16120C !important;
+    border-bottom-color: #B97712 !important;
+    break-after: avoid-page;
+    page-break-after: avoid;
+  }
+
+  .informe-cabecera {
+    border-bottom: 2px solid #B97712 !important;
+    break-inside: avoid-page;
+    page-break-inside: avoid;
+  }
+  .informe-marca-nombre { color: #16120C !important; }
+  .informe-marca-sub, .informe-meta span { color: #605548 !important; }
+  .informe-meta strong { color: #16120C !important; }
+
+  .informe-kpi {
+    background: #FCFAF6 !important;
+    border-color: #E4DED2 !important;
+    break-inside: avoid-page;
+    page-break-inside: avoid;
+  }
+  .informe-kpi-valor { color: #16120C !important; font-size: 15pt !important; }
+  .informe-kpi-label { color: #8E8274 !important; }
+  .informe-kpi-estado { color: #B97712 !important; }
+
+  .informe-tabla th {
+    color: #605548 !important;
+    border-bottom-color: #C9C1B3 !important;
+    font-size: 7.5pt !important;
+  }
+  .informe-tabla td { border-bottom-color: #EDE8DE !important; }
+  .informe-tabla tbody tr:nth-child(even) { background: #FBF9F5 !important; }
+  .informe-td-valor { color: #16120C !important; }
+  .informe-td-fecha { color: #605548 !important; }
+
+  .informe-grafica {
+    break-inside: avoid-page;
+    page-break-inside: avoid;
+    border-color: #E4DED2 !important;
+  }
+  .informe-grafica-titulo { color: #605548 !important; }
+
+  .informe-bloque { break-inside: avoid-page; page-break-inside: avoid; }
+  .informe-bloque + .informe-bloque { break-before: auto; }
+
+  /* La rejilla se mantiene en papel: el A4 es mas estrecho que la
+     pantalla y, sin esto, los KPI y las graficas se apilaran en una
+     sola columna y el informe se alarga a tres paginas. */
+  .informe-kpis { grid-template-columns: repeat(3, 1fr) !important; gap: 8px !important; }
+  .informe-graficas { grid-template-columns: 1fr 1fr !important; gap: 10px !important; }
+  .informe-canvas { height: 150px !important; }
+  .informe-kpi { padding: 9px 11px !important; }
+  .informe-kpi-valor { font-size: 13pt !important; }
+  .informe-meta { grid-template-columns: repeat(2, minmax(110px, auto)) !important; }
+
+  .informe-pie { color: #8E8274 !important; border-top-color: #E4DED2 !important; }
+
+  /* Las gráficas deben imprimirse con su color */
+  canvas { print-color-adjust: exact !important; -webkit-print-color-adjust: exact !important; }
+}

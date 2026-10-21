@@ -96,6 +96,10 @@
                 <i data-lucide="settings-2"></i>
                 Sensores
             </a>
+            <a href="informe.php" class="nav-item <?= is_active('informe.php') ?>" data-name="Informe">
+                <i data-lucide="file-text"></i>
+                Informe
+            </a>
         </div>
     </nav>
 

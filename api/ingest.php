@@ -221,6 +221,22 @@ foreach ($body['lecturas'] as $l) {
     $insertados[] = $tipo;
 }
 
+// ── 5b. TRAZABILIDAD DEL LOTE ────────────────────────────────────────
+// Cuando el envio corresponde a un lote de la microSD (reenvio offline
+// o recogida fisica de la tarjeta), se registra que lote se ha
+// recibido: asi se puede reconciliar lo que el nodo dice que ha
+// subido con lo que el servidor ha recibido realmente.
+if ($lote !== null && $lote !== '') {
+    try {
+        $pdo->prepare("
+            INSERT INTO lote_ingesta (identificador, lote, id_colmena, filas_recibidas)
+            VALUES (?, ?, ?, ?)
+        ")->execute([$nodo['mac'], $lote, $id_colmena, count($insertados)]);
+    } catch (Throwable $e) {
+        // La trazabilidad nunca debe impedir la ingesta.
+    }
+}
+
 // ── 6. RECALCULO Y PERSISTENCIA DE INDICADORES EN TIEMPO REAL ────────────────
 $ibb = calcularIBB($id_colmena);
 if ($ibb !== null) {
