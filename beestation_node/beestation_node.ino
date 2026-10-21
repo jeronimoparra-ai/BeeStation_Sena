@@ -726,6 +726,9 @@ void loop() {
     ultimaLecturaPanel = millis();
     cicloNuevo = true;
     leerSensores();
+    // El identificador de la medicion se genera SIEMPRE, haya o no microSD:
+    // el envio en vivo lo usa para que el backend pueda deduplicar.
+    generarIdMedicion();
     guardarRespaldoSD(ultimaTemp, ultimaHum, ultimaPresion,
                       ultimoPeso, ultimoSonido, ultimaLuz);
     imprimirPanelSensores();
@@ -1654,6 +1657,18 @@ float leerNivelAcustico(unsigned int milliseconds) {
 // Se llama en CADA ciclo de recopilación (cada 5 minutos), con o
 // sin WiFi. Un fichero por día (/log_AAAA-MM-DD.csv) y columna de
 // fecha real vía NTP; si aún no hay hora, /log_sin_hora.csv.
+// Genera un identificador de medicion nuevo (128 bits hex). Los seis
+// sensores de este ciclo comparten los 30 primeros digitos y cambian los
+// dos ultimos, de modo que cada fila de `lectura` es unica.
+void generarIdMedicion() {
+  uint8_t azar[16];
+  for (size_t i = 0; i < sizeof(azar); i += 4) {
+    uint32_t v = esp_random();
+    memcpy(azar + i, &v, 4);
+  }
+  idMedicionActual = hexMinusculas(azar, sizeof(azar));
+}
+
 void guardarRespaldoSD(float temp, float hum, float pres, float peso, float s, float l) {
   if (!sdActivo) return;
 
@@ -1693,17 +1708,11 @@ void guardarRespaldoSD(float temp, float hum, float pres, float peso, float s, f
   // La segunda columna es el epoch de la medicion: es lo que permite
   // fechar los datos cuando se recuperan mas tarde y deduplicarlos al
   // reenviarlos (el backend tiene UNIQUE(id_sensor, seq)).
-  uint8_t azar[16];
-  for (size_t i = 0; i < sizeof(azar); i += 4) {
-    uint32_t v = esp_random();
-    memcpy(azar + i, &v, 4);
-  }
-  String idMedicion = hexMinusculas(azar, sizeof(azar));
-  idMedicionActual = idMedicion;
+  if (idMedicionActual.length() != 32) generarIdMedicion();
 
   long epochLectura = (long)time(nullptr);
   dataFile.printf("%s,%ld,%s,%.2f,%.2f,%.2f,%.2f,%.3f,%.2f\n",
-                  fecha, epochLectura, idMedicion.c_str(), temp, hum, pres, peso, s, l);
+                  fecha, epochLectura, idMedicionActual.c_str(), temp, hum, pres, peso, s, l);
   dataFile.close();
   registrosSD++;
 }
