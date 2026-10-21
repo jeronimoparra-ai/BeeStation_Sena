@@ -16,6 +16,15 @@ repomix-output.xml
 database/dumps/
 *.sql.gz
 
+# ── Semilla aleatoria de OpenSSL (nunca debe versionarse) ──
+.rnd
+
+# ── Compilaciones de pruebas y binarios ──
+tests/host/build/
+*.exe
+*.o
+*.a
+
 # ── Sistema operativo / editores ──
 .DS_Store
 Thumbs.db

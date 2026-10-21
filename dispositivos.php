@@ -9,18 +9,16 @@
  */
 
 // Iniciamos la sesión de forma segura
-if (session_status() === PHP_SESSION_NONE) {
-    session_start();
-}
-
-// Control de acceso y carga de librerías oficiales
-require_once __DIR__ . '/config/db.php';
-require_once __DIR__ . '/includes/functions.php';
+require_once __DIR__ . '/includes/auth.php';
 
 // Definimos la página activa para el sidebar
 $current_page = 'dispositivos.php';
 
-$id_usuario = $_SESSION['id_usuario'] ?? 1; // ID de sesión del apicultor
+$id_usuario = (int) ($_SESSION['id_usuario'] ?? 0);
+if ($id_usuario <= 0) {
+    header('Location: login.php');
+    exit;
+}
 $pdo = getPDO();
 
 // MEJORA DE USABILIDAD: Si el apicultor no tiene apiarios, le creamos uno por defecto automáticamente
@@ -42,16 +40,29 @@ $mensaje_error = "";
 
 // ── PROCESS POST: REGISTRO DE NUEVA COLMENA ──────────────────────────────────
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['crear_colmena'])) {
-    $nombre = trim($_POST['nombre'] ?? '');
-    $especie = trim($_POST['especie'] ?? 'Apis mellifera');
-    $id_apiario = (int)($_POST['id_apiario'] ?? 0);
+    if (!validarCsrfSesion($_POST['csrf'] ?? null)) {
+        http_response_code(403);
+        $mensaje_error = 'La sesión del formulario expiró. Recarga e inténtalo de nuevo.';
+    } else {
+    $nombreEntrada = $_POST['nombre'] ?? null;
+    $especieEntrada = $_POST['especie'] ?? 'Apis mellifera';
+    $nombre = is_string($nombreEntrada) ? trim($nombreEntrada) : '';
+    $especie = is_string($especieEntrada) ? trim($especieEntrada) : '';
+    $id_apiario = filter_var($_POST['id_apiario'] ?? null, FILTER_VALIDATE_INT) ?: 0;
 
-    if (empty($nombre)) {
+    if ($nombre === '' || mb_strlen($nombre) > 100) {
         $mensaje_error = "El nombre de la colmena es obligatorio.";
-    } elseif ($id_apiario === 0) {
+    } elseif ($especie === '' || mb_strlen($especie) > 100) {
+        $mensaje_error = 'La especie debe tener entre 1 y 100 caracteres.';
+    } elseif ($id_apiario <= 0) {
         $mensaje_error = "Debes seleccionar un apiario válido.";
     } else {
         try {
+            $propietario = $pdo->prepare('SELECT 1 FROM apiario WHERE id_apiario = ? AND id_usuario = ?');
+            $propietario->execute([$id_apiario, $id_usuario]);
+            if (!$propietario->fetchColumn()) {
+                throw new DomainException('Apiario no autorizado');
+            }
             $pdo->beginTransaction();
 
             // 1. Generamos algorítmicamente un token seguro de vinculación
@@ -94,11 +105,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['crear_colmena'])) {
             }
 
             $pdo->commit();
-            $mensaje_exito = "¡Colmena '<strong>{$nombre}</strong>' registrada con éxito! Token generado: <code>{$token_seguro}</code>.";
-        } catch (Exception $e) {
-            $pdo->rollBack();
-            $mensaje_error = "Error al registrar la colmena: " . $e->getMessage();
+            $mensaje_exito = 'Colmena registrada con éxito.';
+        } catch (Throwable $e) {
+            if ($pdo->inTransaction()) {
+                $pdo->rollBack();
+            }
+            error_log('BeeStation: fallo al registrar colmena.');
+            $mensaje_error = $e instanceof DomainException
+                ? 'El apiario seleccionado no pertenece a tu cuenta.'
+                : 'No fue posible registrar la colmena. Revisa la configuración e inténtalo de nuevo.';
         }
+    }
     }
 }
 
@@ -123,15 +140,7 @@ $colmenas = $stmtColmenas->fetchAll();
 require_once __DIR__ . '/includes/header.php';
 ?>
 
-<div class="app-container">
-    <!-- El Sidebar oficial del sistema con Jero_Dev theme -->
-    <?php require_once __DIR__ . '/includes/sidebar.php'; ?>
-
-    <main class="main-content">
-        <!-- Barra de navegación superior -->
-        <?php require_once __DIR__ . '/includes/header.php'; // Recargará la topbar superior ?>
-
-        <div class="page-content">
+<div class="page-content">
             
             <!-- Encabezado de Página -->
             <div class="page-header animate-fadeUp">
@@ -169,6 +178,7 @@ require_once __DIR__ . '/includes/header.php';
                     </div>
                     <form action="dispositivos.php" method="POST" class="stack">
                         <input type="hidden" name="crear_colmena" value="1">
+                        <input type="hidden" name="csrf" value="<?= htmlspecialchars(tokenCsrfSesion(), ENT_QUOTES, 'UTF-8') ?>">
                         
                         <div class="form-group">
                             <label class="ls-label" for="nombre">Nombre de la Colmena</label>
@@ -319,12 +329,10 @@ require_once __DIR__ . '/includes/header.php';
                 </div>
             </div>
 
-        </div>
-        
-        <!-- El Footer oficial con licencia del proyecto -->
-        <?php require_once __DIR__ . '/includes/footer.php'; ?>
-    </main>
-</div>
+    </div>
+    
+    <!-- El footer cierra los contenedores abiertos por header.php. -->
+    <?php require_once __DIR__ . '/includes/footer.php'; ?>
 
 <!-- LÓGICA JAVASCRIPT DINÁMICA DE COPIADO COMODO -->
 <script>

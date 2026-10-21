@@ -1,10 +1,10 @@
 <?php
 require_once __DIR__ . '/includes/auth.php';
 
-// Forzar nueva sesión siempre que se acceda al login
+// Una sesión autenticada no necesita volver a entrar al formulario.
 if (isset($_SESSION['id_usuario'])) {
-    session_unset();
-    session_destroy();
+    header('Location: dashboard.php');
+    exit;
 }
 
 $error = '';
@@ -14,11 +14,18 @@ elseif ($hora >= 12 && $hora < 19) $saludo = 'Buenas tardes';
 else $saludo = 'Buenas noches';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $correo = trim($_POST['email'] ?? '');
-    $clave  = $_POST['password'] ?? '';
+    if (!validarCsrfSesion($_POST['csrf'] ?? null)) {
+        $error = 'La sesión del formulario expiró. Recarga e inténtalo de nuevo.';
+    } else {
+    $correoEntrada = $_POST['email'] ?? null;
+    $claveEntrada = $_POST['password'] ?? null;
+    $correo = is_string($correoEntrada) ? trim($correoEntrada) : '';
+    $clave = is_string($claveEntrada) ? $claveEntrada : '';
     $usuario = intentarLogin($correo, $clave);
 
     if ($usuario) {
+        session_regenerate_id(true);
+        unset($_SESSION['csrf']);
         $_SESSION['id_usuario']   = $usuario['id_usuario'];
         $_SESSION['nombre']       = $usuario['nombre'];
         $_SESSION['correo']       = $usuario['correo'];
@@ -38,6 +45,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         exit;
     } else {
         $error = 'Correo o contraseña incorrectos.';
+    }
     }
 }
 ?>
@@ -190,6 +198,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         <!-- Form -->
         <form action="login.php" method="POST" id="loginForm" novalidate>
+          <input type="hidden" name="csrf" value="<?= htmlspecialchars(tokenCsrfSesion(), ENT_QUOTES, 'UTF-8') ?>">
 
           <!-- Correo electrónico -->
           <div class="ls-field-group">

@@ -69,9 +69,12 @@ SELECT 'luminosidad', 'BH1750', 0, 200000, 0.1, 'sin_senal', CURDATE(), c.id_col
 
 -- ── 7. Un solo sensor de cada tipo por colmena (dato no duplicado) ──
 -- Antes la búsqueda de sensor por tipo era arbitraria; ahora es única.
-DELETE s1 FROM sensor s1
-  INNER JOIN sensor s2
-    ON s1.id_colmena = s2.id_colmena AND s1.tipo = s2.tipo AND s1.id_sensor > s2.id_sensor;
+-- No eliminar sensores duplicados automáticamente: pueden tener
+-- lecturas o calibraciones dependientes. Inventario para reconciliación:
+SELECT id_colmena, tipo, COUNT(*) AS sensores, GROUP_CONCAT(id_sensor ORDER BY id_sensor) AS ids_sensor
+  FROM sensor
+ GROUP BY id_colmena, tipo
+HAVING COUNT(*) > 1;
 
 -- ── 8. Índices de apoyo para las consultas del panel ──
 ALTER TABLE lectura      ADD INDEX IF NOT EXISTS idx_fecha (fecha_hora);

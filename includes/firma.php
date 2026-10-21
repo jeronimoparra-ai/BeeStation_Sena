@@ -16,11 +16,12 @@
  *
  * Cabeceras requeridas en cada peticion del nodo:
  *   X-BeeStation-Mac        MAC del ESP32  (AA:BB:CC:DD:EE:FF)
- *   X-BeeStation-Timestamp  epoch unix del nodo (0 = sin reloj)
+ *   X-BeeStation-Timestamp  epoch unix sincronizado del nodo
+ *   X-BeeStation-Nonce      128 bits aleatorios, hexadecimal
  *   X-BeeStation-Signature  HMAC-SHA256 en hexadecimal
  *
  * Cadena canonica firmada (debe ser IDENTICA en el nodo):
- *   METODO \n RUTA \n TIMESTAMP \n sha256_hex(cuerpo)
+ *   METODO \n RUTA \n TIMESTAMP \n MAC \n NONCE \n sha256_hex(cuerpo)
  *
  *   - METODO en mayusculas
  *   - RUTA  = ruta de la peticion SIN query string
@@ -36,14 +37,29 @@ if (!defined('BEESTATION_API_CONTEXT')) {
 
 /** Ventana de validez de la marca de tiempo, en segundos. */
 const FIRMA_VENTANA_SEGUNDOS = 300;
+const FIRMA_TIMESTAMP_MINIMO = 1577836800;
+
+function firmaTimestampValido(string $timestamp, ?int $ahora = null): bool {
+    if (!preg_match('/^\d{10,12}$/', $timestamp) || (int) $timestamp < FIRMA_TIMESTAMP_MINIMO) {
+        return false;
+    }
+    $ahora ??= time();
+    return abs($ahora - (int) $timestamp) <= FIRMA_VENTANA_SEGUNDOS;
+}
+
+function firmaNonceValido(string $nonce): bool {
+    return (bool) preg_match('/^[0-9a-f]{32}$/i', $nonce);
+}
 
 /**
  * Construye la cadena canonica que se firma.
  */
-function firmaCanonica(string $metodo, string $ruta, string $timestamp, string $cuerpo): string {
+function firmaCanonica(string $metodo, string $ruta, string $timestamp, string $mac, string $nonce, string $cuerpo): string {
     return strtoupper($metodo) . "\n"
          . $ruta . "\n"
          . $timestamp . "\n"
+         . $mac . "\n"
+         . strtolower($nonce) . "\n"
          . hash('sha256', $cuerpo);
 }
 
@@ -80,15 +96,22 @@ function firmaMacNormalizada(?string $mac): ?string {
  */
 function firmaVerificar(string $metodo, string $ruta, string $cuerpo, ?array &$nodo = null): bool {
     $nodo = null;
+    $GLOBALS['firma_motivo_rechazo'] = '';
 
     $mac = firmaMacNormalizada($_SERVER['HTTP_X_BEESTATION_MAC'] ?? null);
     $ts  = trim((string) ($_SERVER['HTTP_X_BEESTATION_TIMESTAMP'] ?? ''));
+    $nonce = strtolower(trim((string) ($_SERVER['HTTP_X_BEESTATION_NONCE'] ?? '')));
     $sig = strtolower(trim((string) ($_SERVER['HTTP_X_BEESTATION_SIGNATURE'] ?? '')));
 
-    if ($mac === null || $ts === '' || $sig === '') {
+    if ($mac === null || $ts === '' || $nonce === '' || $sig === '') {
         return false;
     }
-    if (!preg_match('/^\d{1,12}$/', $ts)) {
+    if (!preg_match('/^\d{10,12}$/', $ts) || (int) $ts < FIRMA_TIMESTAMP_MINIMO) {
+        $GLOBALS['firma_motivo_rechazo'] = 'hora_invalida';
+        return false;
+    }
+    if (!firmaNonceValido($nonce)) {
+        $GLOBALS['firma_motivo_rechazo'] = 'nonce_invalido';
         return false;
     }
     if (!preg_match('/^[0-9a-f]{64}$/', $sig)) {
@@ -96,15 +119,12 @@ function firmaVerificar(string $metodo, string $ruta, string $cuerpo, ?array &$n
     }
 
     // Ventana temporal: evita reutilizar una peticion capturada.
-    // ts = 0 significa que el nodo todavia no tiene reloj (sin NTP);
-    // en ese caso se omite la comprobacion, pero la firma sigue siendo valida.
-    if ((int) $ts > 0) {
-        if (abs(time() - (int) $ts) > FIRMA_VENTANA_SEGUNDOS) {
-            return false;
-        }
+    if (!firmaTimestampValido($ts)) {
+        $GLOBALS['firma_motivo_rechazo'] = 'timestamp_expirado';
+        return false;
     }
 
-    $canonica = firmaCanonica($metodo, $ruta, $ts, $cuerpo);
+    $canonica = firmaCanonica($metodo, $ruta, $ts, $mac, $nonce, $cuerpo);
 
     // Se prueban los secretos de las colmenas activas hasta que una firma
     // coincide. El numero de colmenas es reducido y cada HMAC es de
@@ -125,6 +145,21 @@ function firmaVerificar(string $metodo, string $ruta, string $cuerpo, ?array &$n
         // haya escrito o pegado el token (el ESP32 tambien lo hace).
         $esperada = firmaCalcular(strtoupper((string) $c['token_vinculacion']), $canonica);
         if (hash_equals($esperada, $sig)) {
+            // UNIQUE(mac, nonce) hace atómica la comprobación anti-replay.
+            // Solo los nodos con firma válida pueden ocupar un nonce.
+            try {
+                // Un nonce de más de 10 minutos ya no puede acompañar una
+                // solicitud dentro de la ventana de firma de 5 minutos.
+                $pdo->exec("DELETE FROM nonce_peticion WHERE creado_en < (NOW() - INTERVAL 10 MINUTE)");
+                $pdo->prepare('INSERT INTO nonce_peticion (mac, nonce, creado_en) VALUES (?, ?, NOW())')
+                    ->execute([$mac, $nonce]);
+            } catch (PDOException $e) {
+                if (($e->errorInfo[1] ?? null) === 1062) {
+                    $GLOBALS['firma_motivo_rechazo'] = 'nonce_reutilizado';
+                    return false;
+                }
+                throw $e;
+            }
             $nodo = [
                 'id_colmena' => (int) $c['id_colmena'],
                 'nombre'     => $c['nombre'],
@@ -158,9 +193,22 @@ function firmaRegistrarContacto(int $id_colmena, string $mac): void {
  * Explica al nodo por que se rechazo su peticion.
  */
 function firmaMotivoRechazo(): string {
+    $motivo = $GLOBALS['firma_motivo_rechazo'] ?? '';
+    if ($motivo === 'timestamp_expirado') {
+        return 'La marca de tiempo del nodo está fuera de la ventana permitida. Sincroniza la hora y reintenta.';
+    }
+    if ($motivo === 'hora_invalida') {
+        return 'El nodo debe sincronizar la hora antes de enviar solicitudes.';
+    }
+    if ($motivo === 'nonce_reutilizado') {
+        return 'Solicitud repetida. Genera una prueba nueva para reintentar.';
+    }
+    if ($motivo === 'nonce_invalido') {
+        return 'Solicitud no válida.';
+    }
     $mac = firmaMacNormalizada($_SERVER['HTTP_X_BEESTATION_MAC'] ?? null);
     if ($mac === null) {
-        return 'Faltan las cabeceras de firma del nodo (X-BeeStation-Mac, X-BeeStation-Timestamp, X-BeeStation-Signature)';
+        return 'Faltan las cabeceras de autenticación requeridas.';
     }
     $ts = (int) ($_SERVER['HTTP_X_BEESTATION_TIMESTAMP'] ?? 0);
     if ($ts > 0 && abs(time() - $ts) > FIRMA_VENTANA_SEGUNDOS) {

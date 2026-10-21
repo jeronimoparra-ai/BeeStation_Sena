@@ -5,8 +5,11 @@
 #include <HTTPClient.h>
 #include <ESPmDNS.h>
 #include <time.h>            // NTP + hora real para los registros de la microSD
+#include <esp_system.h>      // esp_random para nonces criptográficos
   #include <mbedtls/md.h>      // HMAC-SHA256: firma de las peticiones al backend
-  #include <mbedtls/sha256.h>  // SHA-256: hash del cuerpo de la petición
+  #include <mbedtls/sha256.h>
+  #include "util_hex.h"         // hexadecimal (mayusculas / minusculas)
+  #include "identidad_ecdsa.h"  // identidad criptografica por dispositivo (ECDSA P-256)  // SHA-256: hash del cuerpo de la petición
 
 // ── LIBRERÍAS DE HARDWARE REAL (Diseño de tu Placa) ──────────
 #include <Wire.h>
@@ -100,16 +103,10 @@ IPAddress apIP(192, 168, 4, 1);
 #define FIRMA_VENTANA_SEGUNDOS 300
 
 // ── Utilidades de firma ───────────────────────────────────────────
-String hexMayusculas(const uint8_t* datos, size_t longitud) {
-  String r = "";
-  r.reserve(longitud * 2);
-  for (size_t i = 0; i < longitud; i++) {
-    char par[3];
-    snprintf(par, sizeof(par), "%02X", datos[i]);
-    r += par;
-  }
-  return r;
-}
+// Las utilidades de hexadecimal viven en util_hex.h (compartidas con
+// identidad_ecdsa.h). La convención documentada allí es la que sigue el
+// servidor PHP: la cadena canónica firmada usa SIEMPRE hex en MINÚSCULAS.
+// Ver docs/AUTENTICACION-Y-PORTAL.md y tests/php/interop_firmware_test.php.
 
 String sha256Hex(const String& texto) {
   uint8_t hash[32];
@@ -119,7 +116,7 @@ String sha256Hex(const String& texto) {
   mbedtls_sha256_update(&ctx, (const unsigned char*)texto.c_str(), texto.length());
   mbedtls_sha256_finish(&ctx, hash);
   mbedtls_sha256_free(&ctx);
-  return hexMayusculas(hash, 32);
+  return hexMinusculas(hash, 32);
 }
 
 String firmaHmac(const String& clave, const String& canonica) {
@@ -178,9 +175,25 @@ String firmaHmac(const String& clave, const String& canonica) {
 }
 
 // Cadena canónica firmada. DEBE ser idéntica a la del servidor:
-//   METODO \n RUTA \n TIMESTAMP \n sha256_hex(cuerpo)
-String cadenaFirma(const String& metodo, const String& ruta, const String& ts, const String& cuerpo) {
-  return metodo + "\n" + ruta + "\n" + ts + "\n" + sha256Hex(cuerpo);
+//   METODO \n RUTA \n TIMESTAMP \n MAC \n NONCE \n sha256_hex(cuerpo)
+String cadenaFirma(const String& metodo, const String& ruta, const String& ts,
+                   const String& mac, const String& nonce, const String& cuerpo) {
+  return metodo + "\n" + ruta + "\n" + ts + "\n" + mac + "\n" + nonce + "\n" + sha256Hex(cuerpo);
+}
+
+String nonceAleatorio() {
+  uint8_t bytes[16];
+  for (size_t i = 0; i < sizeof(bytes); i += 4) {
+    uint32_t valor = esp_random();
+    memcpy(bytes + i, &valor, sizeof(valor));
+  }
+  // En minúsculas: el servidor normaliza el nonce con strtolower() antes
+  // de construir la cadena canónica (firmaCanonica) y antes de guardarlo.
+  return hexMinusculas(bytes, sizeof(bytes));
+}
+
+bool horaSincronizada(time_t epoch) {
+  return epoch >= 1577836800;
 }
 
 // Ruta que se firma: la parte de la URL que va tras el host.
@@ -483,9 +496,7 @@ void setup() {
   if (ssidGuardado != "") {
     Serial.printf("[NVS] SSID guardado : %s\n", ssidGuardado.c_str());
     Serial.printf("[NVS] Host servidor : %s\n", hostGuardado.length() > 0 ? hostGuardado.c_str() : "(auto-detectar gateway)");
-    Serial.printf("[NVS] Token         : %s...%s\n", 
-      tokenGuardado.substring(0, 3).c_str(), 
-      tokenGuardado.substring(max(0, (int)tokenGuardado.length() - 4)).c_str());
+    Serial.println("[NVS] Credencial    : almacenada (contenido oculto)");
   } else {
     Serial.println("[NVS] Sin configuración guardada.");
   }
@@ -690,9 +701,16 @@ void loop() {
 
   // Firma de la petición: el servidor la valida contra el secreto de
   // cada colmena. El token nunca sale del ESP32.
-  String tsFirma   = String((long)time(nullptr));
+  time_t epochFirma = time(nullptr);
+  if (!horaSincronizada(epochFirma)) {
+    Serial.println("[HTTP] Sin hora sincronizada: lectura conservada en microSD; envío aplazado.");
+    return;
+  }
+  String tsFirma   = String((long)epochFirma);
+  String macFirma  = macNodo();
+  String nonce     = nonceAleatorio();
   String rutaFirma = rutaDeUrl(serverUrl);
-  String firma     = firmaHmac(tokenGuardado, cadenaFirma("POST", rutaFirma, tsFirma, jsonPayload));
+  String firma     = firmaHmac(tokenGuardado, cadenaFirma("POST", rutaFirma, tsFirma, macFirma, nonce, jsonPayload));
 
   if (firma.length() != 64) {
     Serial.println("[HTTP] ✗ No se puede firmar: falta el token de vinculación.");
@@ -703,8 +721,9 @@ void loop() {
     return;
   }
 
-  http.addHeader("X-BeeStation-Mac", macNodo());
+  http.addHeader("X-BeeStation-Mac", macFirma);
   http.addHeader("X-BeeStation-Timestamp", tsFirma);
+  http.addHeader("X-BeeStation-Nonce", nonce);
   http.addHeader("X-BeeStation-Signature", firma);
 
   int httpResponseCode = http.POST(jsonPayload);
@@ -739,7 +758,7 @@ void loop() {
 
     // Reset del contador de reconexión tras envío exitoso
     intentosReconexionConsecutivos = 0;
-    envioEnVivoOk = true;   // la fila actual queda confirmada en la microSD
+    envioEnVivoOk = okTotal; // una respuesta parcial no confirma la fila completa
 
   } else if (httpResponseCode >= 400) {
     // ── ERROR DE APLICACIÓN: NO es un envío correcto ──
@@ -1267,18 +1286,14 @@ void comandoConfig() {
   preferences.begin("beestation", true);
   String s = preferences.getString("ssid", "(vacío)");
   String p = preferences.getString("password", "");
-  String t = preferences.getString("token", "(vacío)");
   String h = preferences.getString("host", "(auto)");
   preferences.end();
 
   Serial.printf("  SSID       : %s\n", s.c_str());
   Serial.printf("  Contraseña : %s\n", p.length() > 0 ? "••••••••" : "(vacía)");
-  Serial.printf("  Token      : %s\n", t.c_str());
   Serial.printf("  Host       : %s\n", h.length() > 0 ? h.c_str() : "(auto-detect vía gateway)");
   // El token es la credencial del nodo: solo se muestran 6 caracteres.
-  Serial.printf("  Token      : %s...%s  (credencial de firma)\n",
-    t.length() > 8 ? t.substring(0, 8).c_str() : t.c_str(),
-    t.length() > 6 ? t.substring(t.length() - 4).c_str() : "");
+  Serial.println("  Credencial : almacenada (contenido oculto)");
   Serial.println(String("  MAC        : ") + macNodo().c_str());
   Serial.println(String("  mDNS       : ") + nombreMdns().c_str() + ".local");
   Serial.println();
@@ -1345,13 +1360,21 @@ void comandoTest() {
   Serial.println("[TEST] 2/3 - Validando la credencial del nodo...");
   String urlValidate = "http://" + ipServidor + "/BeeStation_Sena/api/validate_token.php";
   String payloadVal = "{}";
-  String tsVal = String((long)time(nullptr));
+  time_t horaVal = time(nullptr);
+  if (!horaSincronizada(horaVal)) {
+    Serial.println("[TEST] Hora no sincronizada; se omite la solicitud firmada.");
+    return;
+  }
+  String tsVal = String((long)horaVal);
+  String macVal = macNodo();
+  String nonceVal = nonceAleatorio();
   http.begin(urlValidate);
   http.addHeader("Content-Type", "application/json");
-  http.addHeader("X-BeeStation-Mac", macNodo());
+  http.addHeader("X-BeeStation-Mac", macVal);
   http.addHeader("X-BeeStation-Timestamp", tsVal);
+  http.addHeader("X-BeeStation-Nonce", nonceVal);
   http.addHeader("X-BeeStation-Signature",
-    firmaHmac(tokenGuardado, cadenaFirma("POST", rutaDeUrl(urlValidate), tsVal, payloadVal)));
+    firmaHmac(tokenGuardado, cadenaFirma("POST", rutaDeUrl(urlValidate), tsVal, macVal, nonceVal, payloadVal)));
   http.setTimeout(5000);
 
   code = http.POST(payloadVal);
@@ -1381,6 +1404,11 @@ void comandoTest() {
   float s = leerNivelAcustico(50);
 
   long epochTest = (long)time(nullptr);
+  if (!horaSincronizada(epochTest)) {
+    Serial.println("[TEST] Hora no sincronizada; no se envían mediciones de prueba.");
+    http.end();
+    return;
+  }
   bool conReloj   = (epochTest > 1000000);
   String testPayload = "{\"lecturas\":[";
   testPayload += lecturaJson("temperatura_interna", t, epochTest, conReloj) + ",";
@@ -1393,10 +1421,13 @@ void comandoTest() {
 
   // La firma se calcula sobre el payload final (el servidor la recomputa).
   String tsIng = String((long)time(nullptr));
-  http.addHeader("X-BeeStation-Mac", macNodo());
+  String macIng = macNodo();
+  String nonceIng = nonceAleatorio();
+  http.addHeader("X-BeeStation-Mac", macIng);
   http.addHeader("X-BeeStation-Timestamp", tsIng);
+  http.addHeader("X-BeeStation-Nonce", nonceIng);
   http.addHeader("X-BeeStation-Signature",
-    firmaHmac(tokenGuardado, cadenaFirma("POST", rutaDeUrl(urlIngest), tsIng, testPayload)));
+    firmaHmac(tokenGuardado, cadenaFirma("POST", rutaDeUrl(urlIngest), tsIng, macIng, nonceIng, testPayload)));
 
   Serial.println("[TEST]   Payload: " + testPayload);
   code = http.POST(testPayload);
@@ -1442,15 +1473,23 @@ bool validarTokenConServidor() {
 
   // La peticion va FIRMADA: el token nunca viaja por la red.
   String payload = "{}";
-  String ts = String((long)time(nullptr));
-  String firma = firmaHmac(tokenGuardado, cadenaFirma("POST", rutaDeUrl(url), ts, payload));
+  time_t epoch = time(nullptr);
+  if (!horaSincronizada(epoch)) {
+    Serial.println("[AUTH] Hora no sincronizada; se conserva la configuración y se operará sin envío online.");
+    return true;
+  }
+  String ts = String((long)epoch);
+  String mac = macNodo();
+  String nonce = nonceAleatorio();
+  String firma = firmaHmac(tokenGuardado, cadenaFirma("POST", rutaDeUrl(url), ts, mac, nonce, payload));
 
   HTTPClient http;
   http.setReuse(false);
   http.begin(url);
   http.addHeader("Content-Type", "application/json");
-  http.addHeader("X-BeeStation-Mac", macNodo());
+  http.addHeader("X-BeeStation-Mac", mac);
   http.addHeader("X-BeeStation-Timestamp", ts);
+  http.addHeader("X-BeeStation-Nonce", nonce);
   http.addHeader("X-BeeStation-Signature", firma);
   http.setConnectTimeout(3000);
   http.setTimeout(8000);
@@ -1663,6 +1702,8 @@ int dividirCSV(const String& linea, String campos[], int maxCampos) {
 bool enviarPendientesSD() {
   if (!sdActivo || tokenGuardado.length() == 0) return false;
   if (WiFi.status() != WL_CONNECTED) return false;
+  time_t epochEnvio = time(nullptr);
+  if (!horaSincronizada(epochEnvio)) return false;
 
   // Ficheros CSV del datalogger, del mas antiguo al mas reciente
   String archivos[24];
@@ -1701,6 +1742,7 @@ bool enviarPendientesSD() {
     String lecturas = "";
     unsigned long leidas = 0;
     unsigned long validas = 0;
+    bool filaBloqueada = false;
     while (csv.available() && leidas < 30) {
       String linea = csv.readStringUntil('\n');
       leidas++;
@@ -1709,9 +1751,17 @@ bool enviarPendientesSD() {
       if (linea.startsWith("Fecha_hora")) continue;   // cabecera
 
       String c[8];
-      if (dividirCSV(linea, c, 8) < 8) continue;
+      if (dividirCSV(linea, c, 8) < 8) {
+        leidas--;
+        filaBloqueada = true;
+        break;
+      }
       long epoch = atol(c[1].c_str());
-      if (epoch <= 0) continue;   // sin reloj sincronizado: no se puede fechar
+      if (epoch <= 0) {
+        leidas--;
+        filaBloqueada = true;
+        break;
+      }
 
       if (validas > 0) lecturas += ",";
       String ts = ",\"ts\":" + String(epoch) + ",\"seq\":" + String(epoch);
@@ -1725,14 +1775,22 @@ bool enviarPendientesSD() {
     }
     csv.close();
 
-    if (validas == 0) continue;   // este fichero ya no tiene nada que subir
+    if (validas == 0) {
+      if (filaBloqueada) {
+        Serial.printf("[SD] Cola detenida en una fila sin fecha o malformada: %s.\n", archivos[nf].c_str());
+        return false; // conservar fila para diagnóstico/reparación
+      }
+      continue;
+    }
 
     String payload = "{\"lecturas\":[" + lecturas + "]}";
     String host = hostGuardado.length() > 0 ? hostGuardado : WiFi.gatewayIP().toString();
     String url = "http://" + host + "/BeeStation_Sena/api/ingest.php";
 
-    String tsFirma = String((long)time(nullptr));
-    String firma = firmaHmac(tokenGuardado, cadenaFirma("POST", rutaDeUrl(url), tsFirma, payload));
+    String tsFirma = String((long)epochEnvio);
+    String macFirma = macNodo();
+    String nonceFirma = nonceAleatorio();
+    String firma = firmaHmac(tokenGuardado, cadenaFirma("POST", rutaDeUrl(url), tsFirma, macFirma, nonceFirma, payload));
 
     HTTPClient http;
     http.setReuse(false);
@@ -1740,13 +1798,15 @@ bool enviarPendientesSD() {
     http.setConnectTimeout(3000);
     http.setTimeout(10000);
     http.addHeader("Content-Type", "application/json");
-    http.addHeader("X-BeeStation-Mac", macNodo());
+    http.addHeader("X-BeeStation-Mac", macFirma);
     http.addHeader("X-BeeStation-Timestamp", tsFirma);
+    http.addHeader("X-BeeStation-Nonce", nonceFirma);
     http.addHeader("X-BeeStation-Signature", firma);
     int code = http.POST(payload);
+    String respuesta = code == 200 ? http.getString() : "";
     http.end();
 
-    if (code == 200) {
+    if (code == 200 && respuesta.indexOf("\"ok_total\":true") >= 0) {
       unsigned long nueva = (nf == idxIni ? lineaIni : 0) + leidas;
       guardarEstadoSubida(archivos[nf], nueva);
       Serial.printf("[SD] Subidas %lu lineas de %s (pendiente cerrada).\n",
@@ -2081,14 +2141,13 @@ void procesarGuardado() {
     Serial.println("\n[PORTAL] ¡Configuración guardada exitosamente!");
     Serial.printf("[PORTAL] SSID  : %s\n", nuevoSsid.c_str());
     Serial.printf("[PORTAL] Host  : %s\n", nuevoHost.length() > 0 ? nuevoHost.c_str() : "(auto)");
-    Serial.printf("[PORTAL] Token : %s\n", nuevoToken.c_str());
 
     String respuesta = "<!DOCTYPE html><html><body style='background:#0B0B0B;color:#FFF;font-family:sans-serif;text-align:center;padding:50px;'>";
     respuesta += "<div style='max-width:400px;margin:0 auto;'>";
     respuesta += "<div style='font-size:3rem;margin-bottom:16px;'>✓</div>";
     respuesta += "<h2 style='color:#22c55e;margin-bottom:12px;'>Configuración Guardada</h2>";
     respuesta += "<p style='color:#999;'>El dispositivo se está reiniciando para conectarse a <strong>" + nuevoSsid + "</strong>...</p>";
-    respuesta += "<p style='color:#666;font-size:0.8rem;margin-top:20px;'>Token: " + nuevoToken + "</p>";
+    respuesta += "<p style='color:#666;font-size:0.8rem;margin-top:20px;'>Credencial guardada de forma local.</p>";
     respuesta += "</div></body></html>";
     server.send(200, "text/html", respuesta);
 

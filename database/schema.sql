@@ -5,8 +5,8 @@
 -- Sistema sin roles: se elimina por completo la tabla rol y la columna id_rol.
 -- ============================================================
 
-DROP DATABASE IF EXISTS beestation_sena;
-CREATE DATABASE beestation_sena CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+-- Instalación limpia no destructiva: no elimina una base ya existente.
+CREATE DATABASE IF NOT EXISTS beestation_sena CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 USE beestation_sena;
 
 -- ── USUARIOS ──────────────────────────────────────────────────
@@ -35,7 +35,13 @@ CREATE TABLE colmena (
     especie VARCHAR(100) DEFAULT 'Apis mellifera',
     fecha_instalacion DATE,
     estado ENUM('activa','inactiva','en_revision') DEFAULT 'activa',
+    token_vinculacion VARCHAR(64) NOT NULL,
+    intentos_fallidos_token INT NOT NULL DEFAULT 0,
+    token_revocado TINYINT(1) NOT NULL DEFAULT 0,
+    nodo_mac VARCHAR(17) NULL,
+    nodo_ultimo_contacto DATETIME NULL,
     id_apiario INT NOT NULL,
+    UNIQUE KEY uq_token_vinculacion (token_vinculacion),
     FOREIGN KEY (id_apiario) REFERENCES apiario(id_apiario)
 ) ENGINE=InnoDB;
 
@@ -59,9 +65,11 @@ INSERT INTO variable_bioclimatica (
 ('temperatura_externa', '°C', NULL, NULL, NULL, NULL, NULL, NULL),
 ('humedad_relativa', '%HR', 50, 70, 45, 80, 35, 85),
 ('peso', 'kg', NULL, NULL, NULL, NULL, NULL, NULL),
-('sonido', 'Hz', 200, 380, 400, 600, 600, 900),
+('sonido', 'V', NULL, NULL, NULL, NULL, NULL, NULL),
 ('co2', 'ppm', 2000, 4000, 1000, 6000, 500, 10000),
-('energia', 'V', 3.7, 4.2, 3.0, 4.2, 2.8, 4.2);
+('energia', 'V', 3.7, 4.2, 3.0, 4.2, 2.8, 4.2),
+('presion', 'hPa', 980, 1040, 950, 1060, 900, 1080),
+('luminosidad', 'lux', 50, 20000, 10, 60000, 0, 100000);
 
 -- ── SENSORES ──────────────────────────────────────────────────
 CREATE TABLE sensor (
@@ -75,6 +83,7 @@ CREATE TABLE sensor (
     fecha_instalacion DATE,
     id_colmena INT NOT NULL,
     id_variable INT NOT NULL,
+    UNIQUE KEY uq_sensor_colmena_tipo (id_colmena, tipo),
     FOREIGN KEY (id_colmena) REFERENCES colmena(id_colmena),
     FOREIGN KEY (id_variable) REFERENCES variable_bioclimatica(id_variable)
 ) ENGINE=InnoDB;
@@ -102,9 +111,11 @@ CREATE TABLE lectura (
     unidad VARCHAR(20),
     fecha_hora DATETIME DEFAULT CURRENT_TIMESTAMP,
     es_valida TINYINT(1) DEFAULT 1,
+    seq BIGINT NULL,
     id_sensor INT NOT NULL,
     FOREIGN KEY (id_sensor) REFERENCES sensor(id_sensor),
-    INDEX idx_sensor_fecha (id_sensor, fecha_hora)
+    INDEX idx_sensor_fecha (id_sensor, fecha_hora),
+    UNIQUE KEY uq_sensor_seq (id_sensor, seq)
 ) ENGINE=InnoDB;
 
 -- ── INDICADORES CALCULADOS ─────────────────────────────────────
@@ -134,31 +145,36 @@ CREATE TABLE alerta (
     FOREIGN KEY (id_usuario) REFERENCES usuario(id_usuario)
 ) ENGINE=InnoDB;
 
+CREATE TABLE intento_vinculacion (
+    id_intento BIGINT AUTO_INCREMENT PRIMARY KEY,
+    token_recibido VARCHAR(128) NOT NULL,
+    ip_origen VARCHAR(45) NULL,
+    resultado VARCHAR(40) NOT NULL,
+    fecha_hora DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_intento_resultado_fecha (resultado, fecha_hora)
+) ENGINE=InnoDB;
+
+CREATE TABLE lote_ingesta (
+    id_lote BIGINT AUTO_INCREMENT PRIMARY KEY,
+    identificador VARCHAR(64) NOT NULL,
+    lote VARCHAR(64) NULL,
+    id_colmena INT NULL,
+    filas_recibidas INT NOT NULL DEFAULT 0,
+    recibido_en DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_lote_identificador (identificador),
+    INDEX idx_lote_colmena (id_colmena),
+    INDEX idx_lote_recibido (recibido_en),
+    CONSTRAINT fk_lote_colmena FOREIGN KEY (id_colmena) REFERENCES colmena(id_colmena) ON DELETE RESTRICT
+) ENGINE=InnoDB;
+
+CREATE TABLE nonce_peticion (
+    mac VARCHAR(17) NOT NULL,
+    nonce CHAR(32) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    creado_en DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (mac, nonce),
+    KEY idx_nonce_creado (creado_en)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 -- ── DATOS INICIALES MÍNIMOS ───────────────────────────────────
--- ┌─────────────────────────────────────────────────────────┐
--- │  CREDENCIALES DEL ADMINISTRADOR (uso temporal)          │
--- │  Correo   : admin@beestation.io                         │
--- │  Contraseña: beestation_temporal_2026                   │
--- │                                                         │
--- │  IMPORTANTE: cambiar la contraseña en producción.       │
--- │  NOTA: esta contraseña es solo para uso temporal.        │
--- └─────────────────────────────────────────────────────────┘
-INSERT INTO usuario (nombre, correo, contrasena) VALUES
-('Administrador', 'admin@beestation.io', '$2y$12$RuZe9KwyxXpLVJ0ox.Q6OeYg.RC9LkK.hXuQfL3wGG0PJvc/o2W2S');
-
-INSERT INTO apiario (nombre, ubicacion, municipio, id_usuario) VALUES
-('Apiario Norte', 'Centro Minero Ambiental SENA', 'El Bagre, Antioquia', 1);
-
-INSERT INTO colmena (nombre, fecha_instalacion, estado, id_apiario) VALUES
-('Alpha-01', CURDATE(), 'activa', 1);
-
-INSERT INTO sensor (tipo, modelo, rango_min, rango_max, precision_valor, estado, fecha_instalacion, id_colmena, id_variable) VALUES
-('temperatura_interna', 'DHT22', -40, 80, 0.5, 'sin_senal', CURDATE(), 1, 1),
-('temperatura_externa', 'DHT22', -40, 80, 0.5, 'sin_senal', CURDATE(), 1, 2),
-('humedad_relativa', 'DHT22', 0, 100, 3, 'sin_senal', CURDATE(), 1, 3),
-('peso', 'HX711', 0, 50, 0.01, 'sin_senal', CURDATE(), 1, 4),
-('sonido', 'MAX9814', 20, 20000, NULL, 'sin_senal', CURDATE(), 1, 5),
-('co2', 'MQ-135', 10, 300, NULL, 'sin_senal', CURDATE(), 1, 6),
-('energia', 'INA219', 0, 5, 0.01, 'sin_senal', CURDATE(), 1, 7);
-
--- NOTA: sin datos falsos, sin lecturas ni indicadores de ejemplo.
+-- No se incluyen credenciales, usuarios, colmenas ni lecturas de demostración.
+-- Provisiona la primera cuenta mediante un proceso administrativo seguro.

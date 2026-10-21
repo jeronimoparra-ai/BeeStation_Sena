@@ -49,6 +49,7 @@ require_once __DIR__ . '/../config/db.php';
 define('BEESTATION_API_CONTEXT', true);
 require_once __DIR__ . '/../includes/functions.php';
 require_once __DIR__ . '/../includes/firma.php';
+require_once __DIR__ . '/../includes/dispositivo.php';
 
 // ── 1. FILTRO DE PROTOCOLO: Validar método HTTP ──────────────────────────────
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
@@ -57,26 +58,63 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     exit;
 }
 
-// ── 2. AUTENTICACIÓN DEL NODO: firma HMAC-SHA256 (sin API Key global) ────────
-// El nodo no envía su token: firma la petición. El secreto nunca viaja
-// por la red y cada colmena se revoca por separado.
+// ── 2. AUTENTICACIÓN DEL NODO ───────────────────────────────────────────────
+//
+//  Conviven dos esquemas durante la transición:
+//
+//    · ECDSA (nuevo): el nodo firma cada petición con su clave privada.
+//      La identidad la determina el propio dispositivo y el servidor
+//      comprueba que está autorizado y a qué colmena pertenece.
+//
+//    · HMAC (heredado): el nodo firma con el token de vinculación de la
+//      colmena. Se conserva hasta que todos los nodos desplegados
+//      estén migrados a ECDSA.
+//
+//  La presencia de la cabecera X-BeeStation-Dispositivo selecciona el
+//  esquema; si no está, se usa el heredado.
 $cuerpoCrudo = file_get_contents('php://input');
 $rutaPeticion = parse_url($_SERVER['REQUEST_URI'] ?? '', PHP_URL_PATH) ?: '/';
 $nodo = null;
+$esquema = 'hmac';
 
-if (!firmaVerificar('POST', $rutaPeticion, $cuerpoCrudo, $nodo)) {
-    http_response_code(401);
-    echo json_encode([
-        'ok'    => false,
-        'error' => 'No autorizado. ' . firmaMotivoRechazo(),
-    ]);
-    exit;
+if (trim((string) ($_SERVER['HTTP_X_BEESTATION_DISPOSITIVO'] ?? '')) !== '') {
+    $esquema = 'ecdsa';
+    $dispositivo = null;
+
+    if (!dispositivoVerificarFirma('POST', $rutaPeticion, $cuerpoCrudo, false, $dispositivo)) {
+        http_response_code(401);
+        echo json_encode([
+            'ok'      => false,
+            'error'   => 'No autorizado. ' . dispositivoMotivoRechazo(),
+            'motivo'  => (string) ($GLOBALS['dispositivo_motivo_rechazo'] ?? ''),
+            'esquema' => 'ecdsa',
+        ]);
+        exit;
+    }
+
+    $nodo = [
+        'id_colmena' => (int) $dispositivo['id_colmena'],
+        'nombre'     => (string) ($dispositivo['nombre_colmena'] ?? ''),
+        'mac'        => (string) $dispositivo['mac'],
+    ];
+    dispositivoRegistrarContacto((int) $dispositivo['id_dispositivo']);
+} else {
+    // El nodo no envía su token: firma la petición. El secreto nunca viaja
+    // por la red y cada colmena se revoca por separado.
+    if (!firmaVerificar('POST', $rutaPeticion, $cuerpoCrudo, $nodo)) {
+        http_response_code(401);
+        echo json_encode([
+            'ok'    => false,
+            'error' => 'No autorizado. ' . firmaMotivoRechazo(),
+        ]);
+        exit;
+    }
+    firmaRegistrarContacto((int) $nodo['id_colmena'], $nodo['mac']);
 }
 
 // La identidad de la colmena la determina la firma, no el cuerpo.
 $id_colmena = (int) $nodo['id_colmena'];
 $colmena    = ['nombre' => $nodo['nombre']];
-firmaRegistrarContacto($id_colmena, $nodo['mac']);
 
 // ── 3. LECTURA Y DECODIFICACIÓN DEL PAYLOAD JSON ─────────────────────────────
 $body = json_decode($cuerpoCrudo, true);
@@ -101,6 +139,16 @@ $insertados = [];
 $errores = [];
 $rechazadas = 0;
 
+// Acuse POR LECTURA: el nodo necesita saber, una a una, qué lecturas se
+// han guardado. Con ese dato puede borrar de la cola offline de la microSD
+// exactamente lo que el servidor confirma, y conservar lo que no.
+//   insertada          -> guardada y válida
+//   insertada_no_valida-> guardada pero marcada es_valida = 0 (fuera de rango)
+//   duplicada          -> ya existía (reenvío idempotente)
+//   rechazada          -> NO se ha guardado
+$resultados = [];
+$indice = 0;
+
 // ── 5. PROCESAMIENTO E INSERCIÓN INDIVIDUAL DE SENSORES ──────────────────────
 // Tope de seguridad: un cliente con un bug (o malicioso) no puede volcar
 // cientos de miles de lecturas en una sola petición.
@@ -117,9 +165,23 @@ if (count($body['lecturas']) > $MAX_LECTURAS) {
 $stmtSensor = $pdo->prepare("SELECT id_sensor, precision_valor, rango_min, rango_max FROM sensor WHERE id_colmena = ? AND tipo = ? LIMIT 1");
 
 foreach ($body['lecturas'] as $l) {
+    $indiceActual = $indice++;
+
+    // Identificador estable de la medición. Lo genera el nodo en el momento
+    // de TOMAR la lectura y viaja con ella incluso cuando la lectura se
+    // reenvía más tarde desde la cola offline de la microSD.
+    $idMedicion = null;
+    if (isset($l['id_medicion'])) {
+        $candidato = strtolower(trim((string) $l['id_medicion']));
+        if (preg_match('/^[0-9a-f]{32}$/', $candidato)) {
+            $idMedicion = $candidato;
+        }
+    }
+
     if (!isset($l['tipo']) || !array_key_exists('valor', $l)) {
         $errores[] = 'Lectura incompleta: se requiere tipo y valor';
         $rechazadas++;
+        $resultados[] = ['indice' => $indiceActual, 'id_medicion' => $idMedicion, 'estado' => 'rechazada'];
         continue;
     }
 
@@ -132,12 +194,14 @@ foreach ($body['lecturas'] as $l) {
     if (is_bool($valorBruto) || !is_numeric($valorBruto)) {
         $errores[] = "Valor no numerico en '{$tipo}'";
         $rechazadas++;
+        $resultados[] = ['indice' => $indiceActual, 'id_medicion' => $idMedicion, 'estado' => 'rechazada'];
         continue;
     }
     $valor = (float) $valorBruto;
     if (!is_finite($valor)) {
         $errores[] = "Valor no finito en '{$tipo}'";
         $rechazadas++;
+        $resultados[] = ['indice' => $indiceActual, 'id_medicion' => $idMedicion, 'estado' => 'rechazada'];
         continue;
     }
 
@@ -148,6 +212,7 @@ foreach ($body['lecturas'] as $l) {
     if (!$sensor) {
         $errores[] = "El sensor de tipo '{$tipo}' no se encuentra registrado para esta colmena en la plataforma";
         $rechazadas++;
+        $resultados[] = ['indice' => $indiceActual, 'id_medicion' => $idMedicion, 'estado' => 'rechazada'];
         continue;
     }
 
@@ -190,22 +255,25 @@ foreach ($body['lecturas'] as $l) {
 
     if ($ts !== null && $ts > 0) {
         $stmtIns = $pdo->prepare("
-            INSERT INTO lectura (valor_bruto, valor_calibrado, es_valida, id_sensor, fecha_hora, seq)
-            VALUES (?, ?, ?, ?, FROM_UNIXTIME(?), ?)
+            INSERT INTO lectura (valor_bruto, valor_calibrado, es_valida, id_sensor, fecha_hora, seq, id_medicion)
+            VALUES (?, ?, ?, ?, FROM_UNIXTIME(?), ?, ?)
             ON DUPLICATE KEY UPDATE id_lectura = id_lectura
         ");
-        $stmtIns->execute([$valor, $valor_calibrado, $es_valida, $id_sensor, $ts, $seq]);
+        $stmtIns->execute([$valor, $valor_calibrado, $es_valida, $id_sensor, $ts, $seq, $idMedicion]);
     } else {
         $stmtIns = $pdo->prepare("
-            INSERT INTO lectura (valor_bruto, valor_calibrado, es_valida, id_sensor, seq)
-            VALUES (?, ?, ?, ?, ?)
+            INSERT INTO lectura (valor_bruto, valor_calibrado, es_valida, id_sensor, seq, id_medicion)
+            VALUES (?, ?, ?, ?, ?, ?)
             ON DUPLICATE KEY UPDATE id_lectura = id_lectura
         ");
-        $stmtIns->execute([$valor, $valor_calibrado, $es_valida, $id_sensor, $seq]);
+        $stmtIns->execute([$valor, $valor_calibrado, $es_valida, $id_sensor, $seq, $idMedicion]);
     }
 
-    // Duplicado (mismo seq reenviado): no se cuenta como insertado
+    // Duplicado: la lectura ya estaba (mismo id_medicion o mismo seq).
+    // Se acusa como duplicada, NO como error: el reenvío offline es
+    // legitimo y el nodo puede borrar esa fila de su cola.
     if ($stmtIns->rowCount() === 0) {
+        $resultados[] = ['indice' => $indiceActual, 'id_medicion' => $idMedicion, 'estado' => 'duplicada'];
         continue;
     }
 
@@ -219,6 +287,11 @@ foreach ($body['lecturas'] as $l) {
     }
 
     $insertados[] = $tipo;
+    $resultados[] = [
+        'indice'      => $indiceActual,
+        'id_medicion' => $idMedicion,
+        'estado'      => $es_valida ? 'insertada' : 'insertada_no_valida',
+    ];
 }
 
 // ── 5b. TRAZABILIDAD DEL LOTE ────────────────────────────────────────
@@ -306,10 +379,14 @@ if ($hMiel !== null) {
 echo json_encode([
     'ok'        => true,
     'ok_total'  => ($rechazadas === 0),
+    'esquema'   => $esquema,
     'colmena'   => $colmena['nombre'],
     'insertados' => $insertados,
     'rechazadas' => $rechazadas,
     'errores'   => $errores,
+    // Acuse por lectura: el nodo borra de su cola offline solo lo que el
+    // servidor confirma (insertada, insertada_no_valida, duplicada).
+    'resultados' => $resultados,
     'ibb_calculado' => $ibb,
     'delta_t'   => $deltaT,
     'ev'        => $ev,
