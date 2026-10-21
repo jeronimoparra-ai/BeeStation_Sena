@@ -524,24 +524,24 @@ CREATE TABLE `sensor` (
 --
 
 INSERT INTO `sensor` (`id_sensor`, `tipo`, `modelo`, `rango_min`, `rango_max`, `precision_valor`, `estado`, `fecha_instalacion`, `id_colmena`, `id_variable`) VALUES
-(1, 'temperatura_interna', 'DHT22', -40, 80, 0.5, 'en_linea', '2026-08-25', 1, 1),
-(2, 'temperatura_externa', 'DHT22', -40, 80, 0.5, 'sin_senal', '2026-08-25', 1, 2),
-(3, 'humedad_relativa', 'DHT22', 0, 100, 3, 'en_linea', '2026-08-25', 1, 3),
-(4, 'peso', 'HX711', 0, 50, 0.01, 'en_linea', '2026-08-25', 1, 4),
-(5, 'sonido', 'MAX9814', 20, 20000, NULL, 'en_linea', '2026-08-25', 1, 5),
-(6, 'co2', 'MQ-135', 10, 300, NULL, 'en_linea', '2026-08-25', 1, 6),
-(7, 'energia', 'INA219', 0, 5, 0.01, 'sin_senal', '2026-08-25', 1, 7),
-(8, 'temperatura_interna', 'DHT22', -40, 80, 0.5, 'en_linea', '2026-08-28', 2, 1),
-(9, 'temperatura_externa', 'DHT22', -40, 80, 0.5, 'sin_senal', '2026-08-28', 2, 2),
-(10, 'humedad_relativa', 'DHT22', 0, 100, 3, 'en_linea', '2026-08-28', 2, 3),
-(11, 'peso', 'HX711', 0, 50, 0.01, 'en_linea', '2026-08-28', 2, 4),
-(12, 'sonido', 'MAX9814', 20, 20000, NULL, 'en_linea', '2026-08-28', 2, 5),
-(13, 'co2', 'MQ-135', 10, 300, NULL, 'sin_senal', '2026-08-28', 2, 6),
-(14, 'energia', 'INA219', 0, 5, 0.01, 'sin_senal', '2026-08-28', 2, 7),
-(15, 'presion', 'BME280', 300, 1100, 1, 'sin_senal', '2026-08-25', 1, 8),
-(16, 'luminosidad', 'BH1750', 1, 65535, 1, 'sin_senal', '2026-08-25', 1, 9),
-(17, 'presion', 'BME280', 300, 1100, 1, 'sin_senal', '2026-08-25', 1, 8),
-(18, 'luminosidad', 'BH1750', 1, 65535, 1, 'sin_senal', '2026-08-25', 1, 9);
+  (1, 'temperatura_interna', '°C', -40, 80, 0.5, 'en_linea', '2026-08-25', 1, 1),
+  (2, 'temperatura_externa', '°C', -40, 80, 0.5, 'sin_senal', '2026-08-25', 1, 2),
+  (3, 'humedad_relativa', 'DHT22', 0, 100, 3, 'en_linea', '2026-08-25', 1, 3),
+  (4, 'peso', 'HX711', 0, 50, 0.01, 'en_linea', '2026-08-25', 1, 4),
+  (5, 'sonido', 'MAX9814', 20, 20000, NULL, 'en_linea', '2026-08-25', 1, 5),
+  (6, 'co2', 'MQ-135', 10, 300, NULL, 'en_linea', '2026-08-25', 1, 6),
+  (7, 'energia', 'INA219', 0, 5, 0.01, 'sin_senal', '2026-08-25', 1, 7),
+  (8, 'temperatura_interna', 'DHT22', -40, 80, 0.5, 'en_linea', '2026-08-28', 2, 1),
+  (9, 'temperatura_externa', 'DHT22', -40, 80, 0.5, 'sin_senal', '2026-08-28', 2, 2),
+  (10, 'humedad_relativa', 'DHT22', 0, 100, 3, 'en_linea', '2026-08-28', 2, 3),
+  (11, 'peso', 'HX711', 0, 50, 0.01, 'en_linea', '2026-08-28', 2, 4),
+  (12, 'sonido', 'MAX9814', 20, 20000, NULL, 'en_linea', '2026-08-28', 2, 5),
+  (13, 'co2', 'MQ-135', 10, 300, NULL, 'sin_senal', '2026-08-28', 2, 6),
+  (14, 'energia', 'INA219', 0, 5, 0.01, 'sin_senal', '2026-08-28', 2, 7),
+  (15, 'presion', 'BME280', 300, 1100, 1, 'sin_senal', '2026-08-25', 1, 8),
+  (16, 'luminosidad', 'BH1750', 1, 65535, 1, 'sin_senal', '2026-08-25', 1, 9),
+  (19, 'presion', 'BME280', 300, 1100, 1, 'sin_senal', '2026-08-28', 2, 8),
+  (20, 'luminosidad', 'BH1750', 1, 65535, 1, 'sin_senal', '2026-08-28', 2, 9);
 
 -- --------------------------------------------------------
 
@@ -588,17 +588,15 @@ CREATE TABLE `variable_bioclimatica` (
 --
 
 INSERT INTO `variable_bioclimatica` (`id_variable`, `nombre`, `unidad_medida`, `optimo_min`, `optimo_max`, `alerta_min`, `alerta_max`, `critico_min`, `critico_max`) VALUES
-(1, 'temperatura_interna', '°C', 34, 36, 32, 38, 30, 40),
-(2, 'temperatura_externa', '°C', NULL, NULL, NULL, NULL, NULL, NULL),
-(3, 'humedad_relativa', '%HR', 50, 70, 45, 80, 35, 85),
-(4, 'peso', 'kg', NULL, NULL, NULL, NULL, NULL, NULL),
-(5, 'sonido', 'Hz', 200, 380, 400, 600, 600, 900),
-(6, 'co2', 'ppm', 2000, 4000, 1000, 6000, 500, 10000),
-(7, 'energia', 'V', 3.7, 4.2, 3, 4.2, 2.8, 4.2),
-(8, 'presion', 'hPa', 1000, 1025, 980, 1040, 960, 1060),
-(9, 'luminosidad', 'lux', NULL, NULL, NULL, NULL, NULL, NULL),
-(10, 'presion', 'hPa', 1000, 1025, 980, 1040, 960, 1060),
-(11, 'luminosidad', 'lux', NULL, NULL, NULL, NULL, NULL, NULL);
+  (1, 'temperatura_interna', '°C', 34, 36, 32, 38, 30, 40),
+  (2, 'temperatura_externa', '°C', NULL, NULL, NULL, NULL, NULL, NULL),
+  (3, 'humedad_relativa', '%HR', 50, 70, 45, 80, 35, 85),
+  (4, 'peso', 'kg', NULL, NULL, NULL, NULL, NULL, NULL),
+  (5, 'sonido', 'Hz', 200, 380, 400, 600, 600, 900),
+  (6, 'co2', 'ppm', 2000, 4000, 1000, 6000, 500, 10000),
+  (7, 'energia', 'V', 3.7, 4.2, 3, 4.2, 2.8, 4.2),
+  (8, 'presion', 'hPa', 1000, 1025, 980, 1040, 960, 1060),
+  (9, 'luminosidad', 'lux', NULL, NULL, NULL, NULL, NULL, NULL);
 
 --
 -- Índices para tablas volcadas

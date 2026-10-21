@@ -25,6 +25,27 @@ if (!empty($_SESSION['id_usuario'])) {
     }
 }
 
+/**
+ * Unidades reales de cada variable, leidas del catalogo
+ * `variable_bioclimatica`. No se escriben a mano: si el catalogo cambia
+ * (por ejemplo, el sonido pasa de Hz a dBFS), el informe lo refleja.
+ */
+$unidades = [];
+if ($idColmena) {
+    $stmtU = getPDO()->prepare("
+        SELECT v.nombre, v.unidad_medida
+        FROM variable_bioclimatica v
+        INNER JOIN sensor s ON s.id_variable = v.id_variable
+        WHERE s.id_colmena = ?
+        GROUP BY v.id_variable
+    ");
+    $stmtU->execute([$idColmena]);
+    foreach ($stmtU->fetchAll() as $u) {
+        $unidades[$u['nombre']] = $u['unidad_medida'];
+    }
+}
+$unidadDe = fn(string $tipo, string $porDefecto = '') => $unidades[$tipo] ?? $porDefecto;
+
 // ── Periodo del informe (parametro ?dias=) ─────────────────────────────
 $dias = isset($_GET['dias']) ? max(1, min(90, (int) $_GET['dias'])) : 7;
 $horas = $dias * 24;
@@ -179,21 +200,21 @@ $valoresSonid = array_map(fn($r) => (float) $r['valor'], $serieSonid);
             <tbody>
                 <?php
                 $lecturas = [
-                    'Temperatura interna' => [$temp, '°C', 2],
-                    'Temperatura externa' => [$tempEx, '°C', 2],
-                    'Humedad relativa'    => [$hum, '%HR', 1],
-                    'Presión atmosférica' => [$pres, 'hPa', 1],
-                    'Peso'               => [$peso, 'kg', 2],
-                    'Nivel sonoro'       => [$sonido, 'V', 3],
-                    'Luminosidad'        => [$luz, 'lux', 1],
-                    'CO₂'                => [$co2, 'ppm', 0],
-                    'Energía'            => [$energia, 'V', 2],
+                    'Temperatura interna'  => [$temp,   $unidadDe('temperatura_interna', '°C'),   2],
+                    'Temperatura externa'  => [$tempEx, $unidadDe('temperatura_externa', '°C'),   2],
+                    'Humedad relativa'     => [$hum,    $unidadDe('humedad_relativa', '%HR'),    1],
+                    'Presión atmosférica' => [$pres,   $unidadDe('presion', 'hPa'),            1],
+                    'Peso'                => [$peso,   $unidadDe('peso', 'kg'),                2],
+                    'Nivel sonoro'        => [$sonido, $unidadDe('sonido', 'Hz'),              2],
+                    'Luminosidad'         => [$luz,    $unidadDe('luminosidad', 'lux'),        1],
+                    'CO₂'                 => [$co2,    $unidadDe('co2', 'ppm'),                0],
+                    'Energía'             => [$energia,$unidadDe('energia', 'V'),              2],
                 ];
-                foreach ($lecturas as $nombre => [$l, $unidad, $dec]):
+                foreach ($lecturas as $nombre => [$l, $unidadVar, $dec]):
                     ?>
                     <tr>
                         <td><?= $nombre ?></td>
-                        <td class="informe-td-valor"><?= $l ? number_format((float) $l['valor_calibrado'], $dec) . ' ' . $unidad : '—' ?></td>
+                        <td class="informe-td-valor"><?= $l ? number_format((float) $l['valor_calibrado'], $dec) . ' ' . $unidadVar : '—' ?></td>
                         <td class="informe-td-fecha"><?= $l ? htmlspecialchars(date('d/m/Y H:i:s', strtotime($l['fecha_hora']))) : '—' ?></td>
                     </tr>
                 <?php endforeach; ?>
@@ -218,7 +239,7 @@ $valoresSonid = array_map(fn($r) => (float) $r['valor'], $serieSonid);
                 <div class="informe-canvas"><canvas id="infPeso"></canvas></div>
             </div>
             <div class="informe-grafica">
-                <div class="informe-grafica-titulo">Nivel sonoro (V) · últimas 12 h</div>
+                <div class="informe-grafica-titulo">Nivel sonoro (<?= htmlspecialchars($unidadDe('sonido', 'Hz')) ?>) · últimas 12 h</div>
                 <div class="informe-canvas"><canvas id="infSonido"></canvas></div>
             </div>
         </div>
