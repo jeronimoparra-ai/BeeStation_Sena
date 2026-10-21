@@ -121,7 +121,9 @@ function firmaVerificar(string $metodo, string $ruta, string $cuerpo, ?array &$n
     $stmt->execute();
 
     foreach ($stmt->fetchAll() as $c) {
-        $esperada = firmaCalcular((string) $c['token_vinculacion'], $canonica);
+        // El secreto se normaliza a mayusculas: asi da igual como se
+        // haya escrito o pegado el token (el ESP32 tambien lo hace).
+        $esperada = firmaCalcular(strtoupper((string) $c['token_vinculacion']), $canonica);
         if (hash_equals($esperada, $sig)) {
             $nodo = [
                 'id_colmena' => (int) $c['id_colmena'],

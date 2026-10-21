@@ -110,7 +110,9 @@ function obtenerColmenasDelUsuario(int $id_usuario): array {
  * Formato: BS-<SLUG4>-<8 grupos de 4 hex>, copiable y verificable a ojo.
  */
 function generarTokenVinculacion(string $nombre = 'COL'): string {
-    $grupos = implode('-', str_split(bin2hex(random_bytes(16)), 4));
+    // El hex va en MAYUSCULAS: el token se compara y se firma, y la
+    // normalizacion debe ser identica en el panel, en el ESP32 y aqui.
+    $grupos = implode('-', str_split(strtoupper(bin2hex(random_bytes(16))), 4));
     $slug = strtoupper(preg_replace('/[^a-zA-Z0-9]/', '', $nombre));
     $slug = substr($slug, 0, 4);
     if (empty($slug)) {

@@ -118,11 +118,17 @@ String sha256Hex(const String& texto) {
 String firmaHmac(const String& clave, const String& canonica) {
   if (clave.length() == 0) return "";
 
+  // El token se normaliza a mayusculas: la firma es sensible a las
+  // mayusculas y el usuario podria pegarlo en minusculas. Asi el nodo
+  // firma igual que el servidor guarde como lo guarde.
+  String claveNormalizada = clave;
+  claveNormalizada.toUpperCase();
+
   // HMAC(RFC 2104) con SHA-256, construido sobre mbedtls_sha256 para no
   // depender de la variante de mbedtls_md_hmac del core.
   uint8_t claveBytes[64];
   memset(claveBytes, 0, sizeof(claveBytes));
-  if (clave.length() > 64) {
+  if (claveNormalizada.length() > 64) {
     // RFC 2104: si la clave es mas larga que el bloque (64 bytes) se
     // resume con SHA-256 antes de usarla. Asi coincide exactamente con
     // hash_hmac() de PHP, que es el que verifica el servidor.
@@ -130,12 +136,12 @@ String firmaHmac(const String& clave, const String& canonica) {
     mbedtls_sha256_context ctxClave;
     mbedtls_sha256_init(&ctxClave);
     mbedtls_sha256_starts(&ctxClave, 0);
-    mbedtls_sha256_update(&ctxClave, (const unsigned char*)clave.c_str(), clave.length());
+    mbedtls_sha256_update(&ctxClave, (const unsigned char*)claveNormalizada.c_str(), claveNormalizada.length());
     mbedtls_sha256_finish(&ctxClave, resumen);
     mbedtls_sha256_free(&ctxClave);
     memcpy(claveBytes, resumen, 32);
   } else {
-    memcpy(claveBytes, clave.c_str(), clave.length());
+    memcpy(claveBytes, claveNormalizada.c_str(), claveNormalizada.length());
   }
 
   uint8_t ipad[64], opad[64];
@@ -1904,6 +1910,7 @@ void procesarGuardado() {
     preferences.begin("beestation", false);
     preferences.putString("ssid", nuevoSsid);
     preferences.putString("password", nuevoPass);
+    nuevoToken.toUpperCase();
     preferences.putString("token", nuevoToken);
     preferences.putString("host", nuevoHost); 
     preferences.end();
