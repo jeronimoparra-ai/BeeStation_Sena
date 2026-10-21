@@ -110,13 +110,12 @@ static char *leer_fichero(const char *ruta, size_t *longitud)
 
 /* ── Acceso al par de claves EC ─────────────────────────────────────────── */
 /*
- *  mbedtls_pk_ec() toma el contexto POR VALOR en Mbed TLS upstream 3.6.x
- *  y POR PUNTERO en el fork que incluye el core de Espressif 3.3.12
- *  (el que usa el firmware). Es la unica diferencia de API entre ambos;
- *  la REPRESENTACION (PEM SPKI, firma DER) es identica, que es
- *  justamente lo que esta prueba comprueba.
+ *  mbedtls_pk_ec() toma el contexto POR VALOR tanto en Mbed TLS upstream
+ *  3.6.x como en el fork que incluye el core de Espressif 3.3.12 (el que
+ *  usa el firmware). Se comprueba contra AMBAS cabeceras, no de memoria.
  *
- *  Se compila con -DMBEDTLS_PK_EC_POR_PUNTERO para el fork de Espressif.
+ *  Se deja la variante POR PUNTERO para otros forks, pero la de
+ *  Espressif 3.3.12 -la que de verdad compila el firmware- es la de valor.
  */
 #ifdef MBEDTLS_PK_EC_POR_PUNTERO
 static mbedtls_ecp_keypair *obtener_clave_ec(mbedtls_pk_context *pk)

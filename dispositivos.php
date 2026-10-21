@@ -11,6 +11,9 @@
 // Iniciamos la sesión de forma segura
 require_once __DIR__ . '/includes/auth.php';
 
+// Módulo de identidad de dispositivos (ECDSA P-256 por nodo, sin token).
+require_once __DIR__ . '/includes/dispositivo.php';
+
 // Definimos la página activa para el sidebar
 $current_page = 'dispositivos.php';
 
@@ -119,6 +122,94 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['crear_colmena'])) {
     }
 }
 
+// ── PROCESS POST: VINCULAR UN NODO (identidad propia, sin token) ─────────────
+//
+// El nodo genera su par de claves ECDSA P-256 y se da de alta con una
+// prueba de posesion. Queda en estado "pendiente" hasta que el usuario
+// introduce el codigo corto que muestra el dispositivo (XXXX-XXXX) y lo
+// asocia a una de sus colmenas. A partir de ahi el nodo firma cada
+// peticion con su clave privada: no existe ningun token compartido.
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['vincular_nodo'])) {
+    if (!validarCsrfSesion($_POST['csrf'] ?? null)) {
+        http_response_code(403);
+        $mensaje_error = 'La sesión del formulario expiró. Recarga e inténtalo de nuevo.';
+    } else {
+        $codigoEntrada = $_POST['codigo_nodo'] ?? null;
+        $codigo = is_string($codigoEntrada) ? strtoupper(trim($codigoEntrada)) : '';
+        $id_colmena_nodo = filter_var($_POST['id_colmena_nodo'] ?? null, FILTER_VALIDATE_INT) ?: 0;
+
+        if ($codigo === '' || $id_colmena_nodo <= 0) {
+            $mensaje_error = 'Introduce el código que muestra el nodo y elige la colmena a la que pertenece.';
+        } else {
+            try {
+                $nodo = dispositivoBuscarPorCodigo($codigo);
+
+                if ($nodo === null) {
+                    // Codigo no valido, caducado o con intentos agotados.
+                    // La respuesta es siempre la misma: no se revela si el
+                    // codigo existe. Si el nodo existe, se cuenta el intento
+                    // para limitar los ataques por fuerza bruta.
+                    $localizado = dispositivoLocalizarParaIntento($codigo);
+                    if ($localizado !== null && (int) $localizado['codigo_usado'] === 0) {
+                        dispositivoRegistrarIntentoCodigo((int) $localizado['id_dispositivo']);
+                    }
+                    $mensaje_error = 'El código no es válido o ha caducado. Comprueba el código que muestra el nodo.';
+                } else {
+                    $resultado = dispositivoAprobar(
+                        (int) $nodo['id_dispositivo'],
+                        $id_colmena_nodo,
+                        $id_usuario
+                    );
+
+                    if (!empty($resultado['ok'])) {
+                        $mensaje_exito = 'Nodo vinculado correctamente. Ya puede enviar telemetría.';
+                    } elseif (($resultado['error'] ?? '') === 'colmena_no_pertenece') {
+                        $mensaje_error = 'La colmena seleccionada no pertenece a tu cuenta.';
+                    } else {
+                        $mensaje_error = 'No fue posible vincular el nodo. Inténtalo de nuevo.';
+                    }
+                }
+            } catch (Throwable $e) {
+                error_log('BeeStation: fallo al vincular el nodo.');
+                $mensaje_error = 'No fue posible vincular el nodo. Inténtalo de nuevo.';
+            }
+        }
+    }
+}
+
+// ── PROCESS POST: REVOCAR UN NODO ───────────────────────────────────────────
+//
+// La revocacion es inmediata y afecta SOLO a ese nodo: el resto de los
+// dispositivos siguen funcionando sin reflashear nada.
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['revocar_nodo'])) {
+    if (!validarCsrfSesion($_POST['csrf'] ?? null)) {
+        http_response_code(403);
+        $mensaje_error = 'La sesión del formulario expiró. Recarga e inténtalo de nuevo.';
+    } else {
+        $id_dispositivo = filter_var($_POST['id_dispositivo'] ?? null, FILTER_VALIDATE_INT) ?: 0;
+        $motivoEntrada = $_POST['motivo_revocation'] ?? null;
+        $motivo = is_string($motivoEntrada) ? trim($motivoEntrada) : '';
+
+        if ($id_dispositivo <= 0) {
+            $mensaje_error = 'No se ha indicado qué nodo revocar.';
+        } else {
+            try {
+                $resultado = dispositivoRevocar($id_dispositivo, $id_usuario, $motivo);
+                if (!empty($resultado['ok'])) {
+                    $mensaje_exito = 'Nodo revocado. Ya no puede enviar telemetría.';
+                } elseif (($resultado['error'] ?? '') === 'dispositivo_no_pertenece') {
+                    $mensaje_error = 'Ese nodo no está asociado a ninguna de tus colmenas.';
+                } else {
+                    $mensaje_error = 'No fue posible revocar el nodo. Inténtalo de nuevo.';
+                }
+            } catch (Throwable $e) {
+                error_log('BeeStation: fallo al revocar el nodo.');
+                $mensaje_error = 'No fue posible revocar el nodo. Inténtalo de nuevo.';
+            }
+        }
+    }
+}
+
 // ── CONSULTAS DE DATOS: Apiarios y Colmenas del Usuario ──────────────────────
 // Obtenemos los apiarios del usuario para el selector (select)
 $stmtApiarios = $pdo->prepare("SELECT id_apiario, nombre FROM apiario WHERE id_usuario = ? ORDER BY nombre ASC");
@@ -136,6 +227,33 @@ $stmtColmenas = $pdo->prepare("
 $stmtColmenas->execute([$id_usuario]);
 $colmenas = $stmtColmenas->fetchAll();
 
+// Nodos IoT del usuario (identidad ECDSA propia, sin token compartido).
+// Solo se listan los nodos que ya le pertenecen: un nodo pendiente sin
+// propietario no se muestra a nadie, se vincula mediante su codigo.
+$stmtDispositivos = $pdo->prepare("
+    SELECT d.id_dispositivo, d.identificador, d.mac, d.nombre, d.estado,
+           d.creado_en, d.aprobado_en, d.revocado_en, d.motivo_revocacion,
+           d.ultimo_contacto, d.id_colmena,
+           c.nombre AS nombre_colmena
+    FROM dispositivo d
+    LEFT JOIN colmena c ON c.id_colmena = d.id_colmena
+    LEFT JOIN apiario a ON a.id_apiario = c.id_apiario
+    WHERE d.id_usuario = ? OR a.id_usuario = ?
+    ORDER BY FIELD(d.estado, 'pendiente', 'autorizado', 'revocado'), d.creado_en DESC
+");
+$stmtDispositivos->execute([$id_usuario, $id_usuario]);
+$dispositivos = $stmtDispositivos->fetchAll();
+
+// Mapa colmena -> nodo(s) para mostrar en la tabla de colmenas sin exponer
+// ningun secreto: la credencial de un nodo es su clave, no un token.
+$nodosPorColmena = [];
+foreach ($dispositivos as $d) {
+    $idc = (int) ($d['id_colmena'] ?? 0);
+    if ($idc > 0) {
+        $nodosPorColmena[$idc][] = $d;
+    }
+}
+
 // Incluimos la cabecera premium del sistema
 require_once __DIR__ . '/includes/header.php';
 ?>
@@ -146,7 +264,7 @@ require_once __DIR__ . '/includes/header.php';
             <div class="page-header animate-fadeUp">
                 <div>
                     <h1 class="page-title">Dispositivos y Nodos</h1>
-                    <p class="page-subtitle">Aprovisiona hardware de colmenas, copia tokens de emparejamiento y monitorea la conexión.</p>
+                    <p class="page-subtitle">Aprovisiona hardware de colmenas, autoriza nodos y monitorea la conexión.</p>
                 </div>
             </div>
 
@@ -255,7 +373,7 @@ require_once __DIR__ . '/includes/header.php';
                 <div class="card-header">
                     <h3 class="card-title">
                         <i data-lucide="cpu" class="text-brand"></i>
-                        Colmenas y Credenciales de Hardware
+                        Colmenas y Nodos Asignados
                     </h3>
                 </div>
                 
@@ -276,13 +394,14 @@ require_once __DIR__ . '/includes/header.php';
                                     <th>Apiario</th>
                                     <th>Especie</th>
                                     <th>Fecha Registro</th>
-                                    <th>Token de Vinculación Seguro</th>
+                                    <th>Nodo asignado</th>
                                     <th style="text-align: center;">Estado Conexión</th>
                                 </tr>
                             </thead>
                             <tbody>
                                 <?php foreach ($colmenas as $colmena): 
                                     $online = dispositivoConectado($colmena['id_colmena'], 5);
+                                    $nodosColmena = $nodosPorColmena[(int) $colmena['id_colmena']] ?? [];
                                 ?>
                                     <tr>
                                         <td class="font-bold"><?= htmlspecialchars($colmena['nombre']); ?></td>
@@ -290,22 +409,24 @@ require_once __DIR__ . '/includes/header.php';
                                         <td style="font-style: italic; font-size: 0.82rem; color: var(--color-text-secondary);"><?= htmlspecialchars($colmena['especie']); ?></td>
                                         <td class="text-mono text-sm"><?= $colmena['fecha_instalacion']; ?></td>
                                         <td>
-                                            <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
-                                                <code style="font-size: 0.88rem; background: var(--color-bg-muted); color: var(--color-brand-dark); font-weight: 700; border-radius: 8px; padding: 4px 10px; border: 1px solid var(--color-border);"><?= htmlspecialchars($colmena['token_vinculacion']); ?></code>
-                                                <button class="btn btn-secondary btn-sm" onclick="copyToken('<?= htmlspecialchars($colmena['token_vinculacion']); ?>', this)" title="Copiar Token al portapapeles" style="min-height:32px; padding: 4px 10px;">
-                                                    <i data-lucide="copy" style="width: 14px; height: 14px;"></i>
-                                                </button>
-                                            </div>
-                                            <?php if (!empty($colmena['nodo_mac'])): ?>
-                                                <div class="text-mono" style="font-size: 0.72rem; color: var(--color-text-tertiary); margin-top: 6px;">
-                                                    Nodo: <?= htmlspecialchars($colmena['nodo_mac']); ?>
-                                                    <?php if (!empty($colmena['nodo_ultimo_contacto'])): ?>
-                                                        &middot; último contacto <?= htmlspecialchars(tiempoRelativo($colmena['nodo_ultimo_contacto'])); ?>
-                                                    <?php endif; ?>
+                                            <?php if (empty($nodosColmena)): ?>
+                                                <div style="font-size: 0.76rem; color: var(--color-text-tertiary);">
+                                                    Sin nodo autorizado. Enciende el nodo y autorízalo con su código en la sección inferior.
                                                 </div>
                                             <?php else: ?>
-                                                <div style="font-size: 0.72rem; color: var(--color-text-tertiary); margin-top: 6px;">
-                                                    Sin nodo vinculado: pega este token en el portal cautivo del ESP32.
+                                                <?php foreach ($nodosColmena as $nodo):
+                                                    $estadoNodo = (string) $nodo['estado'];
+                                                    $claseNodo = $estadoNodo === 'autorizado' ? 'badge-success'
+                                                               : ($estadoNodo === 'revocado' ? 'badge-critical' : 'badge-warning');
+                                                ?>
+                                                    <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 4px;">
+                                                        <span class="badge <?= $claseNodo; ?>" style="font-size: 0.7rem;"><?= htmlspecialchars(ucfirst($estadoNodo)); ?></span>
+                                                        <span class="text-mono" style="font-size: 0.78rem;"><?= htmlspecialchars(substr((string) $nodo['identificador'], 0, 8)); ?>&hellip;</span>
+                                                        <span class="text-mono" style="font-size: 0.72rem; color: var(--color-text-tertiary);"><?= htmlspecialchars((string) $nodo['mac']); ?></span>
+                                                    </div>
+                                                <?php endforeach; ?>
+                                                <div style="font-size: 0.72rem; color: var(--color-text-tertiary); margin-top: 4px;">
+                                                    Credencial: clave ECDSA propia del nodo (no hay token que copiar).
                                                 </div>
                                             <?php endif; ?>
                                         </td>
@@ -329,34 +450,144 @@ require_once __DIR__ . '/includes/header.php';
                 </div>
             </div>
 
+            <!-- Nodos IoT: identidad propia por dispositivo (sin token) -->
+            <div class="card u-mt-4 animate-fadeUp stagger-3">
+                <div class="card-header">
+                    <h3 class="card-title">
+                        <i data-lucide="shield-check" class="text-brand"></i>
+                        Nodos IoT y Autorización de Dispositivos
+                    </h3>
+                </div>
+
+                <div class="card-body">
+                    <p style="font-size: 0.86rem; color: var(--color-text-secondary); margin-bottom: 18px;">
+                        Cada nodo genera su propia clave criptográfica al arrancar y se registra en el
+                        servidor con una <strong>prueba de posesión</strong>. Hasta que lo autorices aquí,
+                        el nodo queda <span class="badge badge-warning">pendiente</span> y no puede enviar
+                        datos. No hay ningún token que pegar ni que repartir: la clave privada nunca sale
+                        del dispositivo.
+                    </p>
+
+                    <form action="dispositivos.php" method="POST" class="stack" style="max-width: 560px;">
+                        <input type="hidden" name="csrf" value="<?= htmlspecialchars(tokenCsrfSesion(), ENT_QUOTES, 'UTF-8') ?>">
+                        <input type="hidden" name="vincular_nodo" value="1">
+
+                        <div class="form-group">
+                            <label for="codigo_nodo">Código del nodo</label>
+                            <input type="text" name="codigo_nodo" id="codigo_nodo" class="form-control"
+                                   placeholder="XXXX-XXXX" maxlength="9" required
+                                   pattern="[A-Za-z0-9]{4}-[A-Za-z0-9]{4}"
+                                   autocomplete="off" spellcheck="false"
+                                   style="text-transform: uppercase; letter-spacing: 1px;">
+                            <small style="color: var(--color-text-tertiary);">El nodo lo muestra en su portal cautivo y en el monitor por puerto serie.</small>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="id_colmena_nodo">Colmena a la que pertenece</label>
+                            <select name="id_colmena_nodo" id="id_colmena_nodo" class="form-control" required>
+                                <option value="">— Selecciona una colmena —</option>
+                                <?php foreach ($colmenas as $colmena): ?>
+                                    <option value="<?= (int) $colmena['id_colmena']; ?>">
+                                        <?= htmlspecialchars($colmena['nombre']); ?> (<?= htmlspecialchars($colmena['nombre_apiario']); ?>)
+                                    </option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
+
+                        <button type="submit" class="btn btn-primary">
+                            <i data-lucide="link" style="width:16px; height:16px;"></i>
+                            Autorizar nodo
+                        </button>
+                    </form>
+                </div>
+
+                <div class="table-container">
+                    <?php if (empty($dispositivos)): ?>
+                        <div class="empty-state">
+                            <div class="empty-icon-circle">
+                                <i data-lucide="cpu"></i>
+                            </div>
+                            <h4 class="empty-title">Sin nodos vinculados</h4>
+                            <p class="empty-desc">Cuando un nodo se registre, aparecerá aquí para que puedas autorizarlo o revocarlo.</p>
+                        </div>
+                    <?php else: ?>
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Nodo</th>
+                                    <th>Identificador</th>
+                                    <th>Colmena</th>
+                                    <th style="text-align: center;">Estado</th>
+                                    <th>Alta</th>
+                                    <th>Último contacto</th>
+                                    <th style="text-align: center;">Acciones</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <?php foreach ($dispositivos as $disp):
+                                    $estado = (string) $disp['estado'];
+                                    if ($estado === 'autorizado') {
+                                        $claseEstado = 'badge-success';
+                                        $textoEstado = 'Autorizado';
+                                    } elseif ($estado === 'revocado') {
+                                        $claseEstado = 'badge-critical';
+                                        $textoEstado = 'Revocado';
+                                    } else {
+                                        $claseEstado = 'badge-warning';
+                                        $textoEstado = 'Pendiente';
+                                    }
+                                    $idDisp = (int) $disp['id_dispositivo'];
+                                    $corto = substr((string) $disp['identificador'], 0, 8);
+                                ?>
+                                    <tr>
+                                        <td>
+                                            <div class="font-bold"><?= htmlspecialchars((string) ($disp['nombre'] ?: 'Nodo ' . $corto)); ?></div>
+                                            <div class="text-mono" style="font-size: 0.72rem; color: var(--color-text-tertiary);">
+                                                <?= htmlspecialchars((string) $disp['mac']); ?>
+                                            </div>
+                                        </td>
+                                        <td class="text-mono text-sm" title="<?= htmlspecialchars((string) $disp['identificador']); ?>">
+                                            <?= htmlspecialchars($corto); ?>…
+                                        </td>
+                                        <td><?= htmlspecialchars((string) ($disp['nombre_colmena'] ?: '—')); ?></td>
+                                        <td style="text-align: center;">
+                                            <span class="badge <?= $claseEstado; ?>"><?= $textoEstado; ?></span>
+                                            <?php if ($estado === 'revocado' && !empty($disp['motivo_revocacion'])): ?>
+                                                <div style="font-size: 0.72rem; color: var(--color-text-tertiary); margin-top: 4px;">
+                                                    <?= htmlspecialchars((string) $disp['motivo_revocacion']); ?>
+                                                </div>
+                                            <?php endif; ?>
+                                        </td>
+                                        <td class="text-mono text-sm"><?= htmlspecialchars((string) $disp['creado_en']); ?></td>
+                                        <td class="text-mono text-sm">
+                                            <?= !empty($disp['ultimo_contacto']) ? htmlspecialchars(tiempoRelativo((string) $disp['ultimo_contacto'])) : '—'; ?>
+                                        </td>
+                                        <td style="text-align: center;">
+                                            <?php if ($estado === 'autorizado'): ?>
+                                                <form action="dispositivos.php" method="POST" onsubmit="return confirm('¿Revocar este nodo? Dejará de enviar telemetría de inmediato.');">
+                                                    <input type="hidden" name="csrf" value="<?= htmlspecialchars(tokenCsrfSesion(), ENT_QUOTES, 'UTF-8') ?>">
+                                                    <input type="hidden" name="revocar_nodo" value="1">
+                                                    <input type="hidden" name="id_dispositivo" value="<?= $idDisp; ?>">
+                                                    <input type="hidden" name="motivo_revocation" value="Revocado por el usuario">
+                                                    <button type="submit" class="btn btn-secondary btn-sm" style="min-height:32px; padding: 4px 10px;">
+                                                        <i data-lucide="shield-off" style="width:14px; height:14px;"></i>
+                                                        Revocar
+                                                    </button>
+                                                </form>
+                                            <?php else: ?>
+                                                <span style="font-size: 0.72rem; color: var(--color-text-tertiary);">—</span>
+                                            <?php endif; ?>
+                                        </td>
+                                    </tr>
+                                <?php endforeach; ?>
+                            </tbody>
+                        </table>
+                    <?php endif; ?>
+                </div>
+            </div>
+
     </div>
     
     <!-- El footer cierra los contenedores abiertos por header.php. -->
     <?php require_once __DIR__ . '/includes/footer.php'; ?>
 
-<!-- LÓGICA JAVASCRIPT DINÁMICA DE COPIADO COMODO -->
-<script>
-function copyToken(text, buttonElement) {
-    navigator.clipboard.writeText(text).then(() => {
-        // Obtenemos el icono interno para dar feedback visual de éxito
-        const icon = buttonElement.querySelector('i');
-        const originalHtml = icon.outerHTML;
-        
-        // Cambiamos temporalmente el icono por un check de éxito
-        buttonElement.classList.add('btn-primary');
-        buttonElement.classList.remove('btn-secondary');
-        icon.setAttribute('data-lucide', 'check');
-        if (window.lucide) lucide.createIcons();
-        
-        // Restauramos el botón a su estado original después de 1.5 segundos
-        setTimeout(() => {
-            buttonElement.classList.remove('btn-primary');
-            buttonElement.classList.add('btn-secondary');
-            icon.setAttribute('data-lucide', 'copy');
-            if (window.lucide) lucide.createIcons();
-        }, 1500);
-    }).catch(err => {
-        alert('No se pudo copiar el token automáticamente: ', err);
-    });
-}
-</script>

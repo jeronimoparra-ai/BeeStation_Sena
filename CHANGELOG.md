@@ -1,5 +1,32 @@
 # Changelog
 
+## 2026-10-21 — Fase 2: autenticación sin token permanente
+
+### Added
+- Identidad **ECDSA P-256** por nodo, generada en el propio ESP32: la clave privada nunca sale del dispositivo (`beestation_node/identidad_ecdsa.h`).
+- Alta automática con prueba de posesión (`api/enroll.php`) y consulta de estado firmada (`api/enroll_estado.php`).
+- Autorización y revocación individual de nodos desde `dispositivos.php`, con código de alta de un solo uso (hash, caducidad 30 min, 5 intentos).
+- `lectura.id_medicion` (128 bits) y acuse **por lectura** (`resultados[]`) en la ingesta.
+- Pruebas: flujo E2E del servidor (49), interoperabilidad real Mbed TLS ↔ OpenSSL (18) y cadenas canónicas firmware ↔ servidor.
+- `docs/reconciliacion-fase2.md` con decisiones, mediciones y puesta en marcha.
+
+### Changed
+- El portal cautivo ya no pide token: muestra el identificador y el código de alta del nodo.
+- La cola de la microSD usa CSV de 9 columnas (`Id_medicion`) y avanza también cuando el servidor atendió todas las lecturas y alguna fue rechazada de forma definitiva.
+- El nodo no envía telemetría hasta que un usuario lo autoriza; mientras tanto sigue midiendo y guardando en la microSD.
+
+### Fixed
+- El SHA-256 de la cadena HMAC usaba hexadecimal en **mayúsculas** mientras el servidor usaba minúsculas: esas firmas nunca validaron. Se unificó en minúsculas.
+- `mbedtls_pk_parse_key` recibe ahora `strlen(pem) + 1`.
+- La opción `header` del wrapper `http://` de PHP recibe una lista de líneas, no un array asociativo.
+
+### Security
+- `database/beestation_sena.sql` deja de versionarse: contenía hashes de contraseñas, tokens de vinculación e intentos con tokens en claro. Rotar credenciales históricas.
+- Firmware compilado con `PartitionScheme=min_spiffs` (1,9 MB de APP): requiere reflashear la tabla de particiones por USB una vez.
+
+### Migration
+- Aplicar `database/migrations/005_identidad_dispositivo.sql` y `006_identificador_medicion.sql` antes de desplegar el backend nuevo.
+
 ## 2026-10-21
 
 ### Security

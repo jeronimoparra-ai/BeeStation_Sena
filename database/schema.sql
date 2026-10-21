@@ -112,10 +112,16 @@ CREATE TABLE lectura (
     fecha_hora DATETIME DEFAULT CURRENT_TIMESTAMP,
     es_valida TINYINT(1) DEFAULT 1,
     seq BIGINT NULL,
+    -- Identificador estable de la medicion (128 bits hex, minusculas). Lo
+    -- genera el nodo al TOMAR la lectura y viaja con ella aunque se
+    -- reenvie mas tarde desde la cola offline: permite deduplicar sin
+    -- depender del par (sensor, seq).
+    id_medicion CHAR(32) NULL,
     id_sensor INT NOT NULL,
     FOREIGN KEY (id_sensor) REFERENCES sensor(id_sensor),
     INDEX idx_sensor_fecha (id_sensor, fecha_hora),
-    UNIQUE KEY uq_sensor_seq (id_sensor, seq)
+    UNIQUE KEY uq_sensor_seq (id_sensor, seq),
+    UNIQUE KEY uq_lectura_id_medicion (id_medicion)
 ) ENGINE=InnoDB;
 
 -- ── INDICADORES CALCULADOS ─────────────────────────────────────
@@ -166,6 +172,48 @@ CREATE TABLE lote_ingesta (
     INDEX idx_lote_recibido (recibido_en),
     CONSTRAINT fk_lote_colmena FOREIGN KEY (id_colmena) REFERENCES colmena(id_colmena) ON DELETE RESTRICT
 ) ENGINE=InnoDB;
+
+-- ── IDENTIDAD DE DISPOSITIVOS (ECDSA P-256) ────────────────────
+-- Cada nodo genera su propia clave. La privada nunca sale del ESP32; aqui
+-- solo se guarda la publica (SPKI PEM) y la huella SHA-256 de sus bytes.
+CREATE TABLE dispositivo (
+    id_dispositivo   INT AUTO_INCREMENT PRIMARY KEY,
+    identificador     CHAR(32) NOT NULL,
+    mac               VARCHAR(17) NOT NULL,
+    nombre            VARCHAR(120) NULL,
+    clave_publica_pem TEXT NOT NULL,
+    huella_clave      CHAR(64) NOT NULL,
+    estado            ENUM('pendiente','autorizado','revocado') NOT NULL DEFAULT 'pendiente',
+    id_colmena        INT NULL,
+    id_usuario        INT NULL,
+    codigo_hash       CHAR(64) NULL,
+    codigo_expira     DATETIME NULL,
+    codigo_intentos   INT NOT NULL DEFAULT 0,
+    codigo_max_intentos INT NOT NULL DEFAULT 5,
+    codigo_usado      TINYINT(1) NOT NULL DEFAULT 0,
+    creado_en         DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    aprobado_en       DATETIME NULL,
+    revocado_en       DATETIME NULL,
+    motivo_revocacion VARCHAR(255) NULL,
+    ultimo_contacto   DATETIME NULL,
+    UNIQUE KEY uq_dispositivo_identificador (identificador),
+    UNIQUE KEY uq_dispositivo_huella (huella_clave),
+    KEY idx_dispositivo_estado (estado),
+    KEY idx_dispositivo_colmena (id_colmena),
+    CONSTRAINT fk_dispositivo_colmena FOREIGN KEY (id_colmena)
+        REFERENCES colmena (id_colmena) ON DELETE SET NULL,
+    CONSTRAINT fk_dispositivo_usuario FOREIGN KEY (id_usuario)
+        REFERENCES usuario (id_usuario) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Anti-replay del esquema ECDSA (separado del HMAC heredado).
+CREATE TABLE nonce_dispositivo (
+    identificador CHAR(32) NOT NULL,
+    nonce         CHAR(32) NOT NULL,
+    creado_en     DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (identificador, nonce),
+    KEY idx_nonce_dispositivo_fecha (creado_en)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE nonce_peticion (
     mac VARCHAR(17) NOT NULL,

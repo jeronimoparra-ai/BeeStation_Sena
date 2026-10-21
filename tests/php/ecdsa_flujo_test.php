@@ -181,6 +181,18 @@ $pdo = new PDO(
     [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION, PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC]
 );
 
+// Se carga el codigo de PRODUCCION para probar las mismas funciones que
+// usa el panel de dispositivos (includes/dispositivo.php), no copias.
+// El modo aislado garantiza que getPDO() nunca apunte a la base real.
+putenv('BEE_DB_AISLADA=1');
+putenv('DB_HOST=' . $dbHost);
+putenv('DB_PORT=' . $dbPuerto);
+putenv('DB_NAME=' . $dbNombre);
+putenv('DB_USER=' . $dbUsuario);
+putenv('DB_PASS=' . $dbClave);
+require_once $raiz . '/config/db.php';
+require_once $raiz . '/includes/dispositivo.php';
+
 $sufijo = strtoupper(substr(bin2hex(random_bytes(4)), 0, 8));
 
 // Usuario
@@ -331,16 +343,72 @@ ok('El motivo es "dispositivo_pendiente"', ($r['json']['motivo'] ?? '') === 'dis
 // ══════════════════════════════════════════════════════════════════════════
 //  3. AUTORIZACION POR UN USUARIO AUTENTICADO
 // ══════════════════════════════════════════════════════════════════════════
-titulo('3. Autorizacion del nodo por el usuario');
+titulo('3. Autorizacion del nodo por el usuario (panel de dispositivos)');
 
-$pdo->prepare("UPDATE dispositivo SET estado = 'autorizado', id_colmena = ?, id_usuario = ?, aprobado_en = NOW() WHERE id_dispositivo = ?")
-    ->execute([$idColmena, $idUsuario, $fila['id_dispositivo']]);
+// ── El panel de dispositivos usa estas mismas funciones ───────────────────
+// No se toca la tabla a mano: se ejercita el camino real que ejecuta
+// dispositivos.php cuando el usuario introduce el codigo y elige colmena.
+
+// Antes de autorizar, no se puede vincular a una colmena ajena.
+$ajena = dispositivoAprobar((int) $fila['id_dispositivo'], $idColmena, $idUsuario + 9999);
+ok('No se puede vincular el nodo a una colmena ajena',
+   empty($ajena['ok']) && ($ajena['error'] ?? '') === 'colmena_no_pertenece',
+   json_encode($ajena));
+
+// El usuario introduce el codigo corto que muestra el nodo.
+$nodoPorCodigo = dispositivoBuscarPorCodigo($nodo['codigo']);
+ok('El nodo se localiza por su codigo corto (XXXX-XXXX)', $nodoPorCodigo !== null);
+ok('El nodo localizado sigue PENDIENTE', ($nodoPorCodigo['estado'] ?? '') === 'pendiente');
+
+$alta = dispositivoAprobar((int) $fila['id_dispositivo'], $idColmena, $idUsuario);
+ok('La autorizacion del panel se acepta', !empty($alta['ok']), json_encode($alta));
 
 $stmt = $pdo->prepare("SELECT estado, id_colmena FROM dispositivo WHERE id_dispositivo = ?");
 $stmt->execute([$fila['id_dispositivo']]);
 $f = $stmt->fetch();
 ok('El nodo pasa a AUTORIZADO', $f['estado'] === 'autorizado');
 ok('El nodo queda asociado a la colmena', (int) $f['id_colmena'] === $idColmena);
+
+// El codigo queda consumido: no se puede reutilizar para otro nodo.
+ok('El codigo de alta ya no sirve tras autorizar', dispositivoBuscarPorCodigo($nodo['codigo']) === null);
+
+// ── Control de intentos del codigo (fuerza bruta) ─────────────────────────
+titulo('3b. Control de intentos del codigo de alta');
+
+$codigoLimite = 'TEST-' . strtoupper(bin2hex(random_bytes(2)));
+$idLimite = 'f' . bin2hex(random_bytes(15));
+$pdo->prepare("
+    INSERT INTO dispositivo (identificador, mac, nombre, clave_publica_pem, huella_clave,
+                             codigo_hash, codigo_expira, codigo_intentos, codigo_max_intentos)
+    VALUES (?, 'FF:FF:FF:FF:FF:FF', 'Nodo de limite', 'PEM-DE-PRUEBA', ?, ?, DATE_ADD(NOW(), INTERVAL 1 HOUR), 0, 3)
+")->execute([
+    $idLimite,
+    hash('sha256', 'huella-' . $codigoLimite),
+    hash('sha256', $codigoLimite),
+]);
+$idDispLimite = (int) $pdo->lastInsertId();
+
+ok('Un codigo inexistente no localiza ningun nodo',
+   dispositivoLocalizarParaIntento('ZZZZ-ZZZZ') === null);
+ok('Un codigo con formato invalido no localiza ningun nodo',
+   dispositivoLocalizarParaIntento('NO-VALE') === null);
+ok('El nodo de limite se localiza para contar intentos',
+   dispositivoLocalizarParaIntento($codigoLimite) !== null);
+ok('Con intentos disponibles el codigo es valido',
+   dispositivoBuscarPorCodigo($codigoLimite) !== null);
+
+dispositivoRegistrarIntentoCodigo($idDispLimite);
+dispositivoRegistrarIntentoCodigo($idDispLimite);
+ok('Tras 2 intentos fallidos el codigo AUN se acepta',
+   dispositivoBuscarPorCodigo($codigoLimite) !== null);
+
+dispositivoRegistrarIntentoCodigo($idDispLimite);
+ok('Tras agotar los 3 intentos el codigo se RECHAZA',
+   dispositivoBuscarPorCodigo($codigoLimite) === null);
+ok('El nodo sigue localizable para seguir contando intentos',
+   dispositivoLocalizarParaIntento($codigoLimite) !== null);
+
+$pdo->prepare("DELETE FROM dispositivo WHERE id_dispositivo = ?")->execute([$idDispLimite]);
 
 // ══════════════════════════════════════════════════════════════════════════
 //  4. TELEMETRIA AUTORIZADA

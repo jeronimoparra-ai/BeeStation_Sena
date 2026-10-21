@@ -428,6 +428,31 @@ function dispositivoBuscarPorCodigo(string $codigo): ?array {
 }
 
 /**
+ * Localiza un nodo a partir del codigo corto SOLO para contabilizar
+ * intentos fallidos.
+ *
+ * No se usa para MOSTRAR informacion al usuario: la respuesta del
+ * formulario es siempre la misma exista o no el codigo, de modo que no
+ * se puede usar para averiguar si un codigo existe. Si el nodo esta
+ * pendiente y se han agotado los intentos, devuelve tambien el estado
+ * para poder avisar.
+ */
+function dispositivoLocalizarParaIntento(string $codigo): ?array {
+    $codigo = strtoupper(trim($codigo));
+    if (!preg_match('/^[A-Z0-9]{4}-[A-Z0-9]{4}$/', $codigo)) {
+        return null;
+    }
+    $pdo = getPDO();
+    $stmt = $pdo->prepare("
+        SELECT id_dispositivo, estado, codigo_intentos, codigo_max_intentos, codigo_usado
+        FROM dispositivo
+        WHERE codigo_hash = ?
+    ");
+    $stmt->execute([hash('sha256', $codigo)]);
+    return $stmt->fetch() ?: null;
+}
+
+/**
  * Registra un intento fallido de introducir el codigo (limite de intentos).
  *
  * @return int numero de intentos acumulados

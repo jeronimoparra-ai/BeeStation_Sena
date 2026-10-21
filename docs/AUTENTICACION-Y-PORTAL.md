@@ -1,109 +1,120 @@
 # Autenticación del nodo y portal cautivo
 
-> Sustituye a la antigua **API Key global**. Documento de referencia para la
-> vinculación de nodos, el contrato de la API y la operación del portal.
+> Modelo **sin token permanente**: cada nodo tiene su propia identidad
+> criptográfica **ECDSA P-256**. El token compartido queda solo como ruta de
+> transición en el backend, para los nodos que ya estaban desplegados.
 
 ---
 
 ## 1. Por qué cambió
 
-El modelo anterior usaba una **clave global compartida**:
-
-| Problema | Consecuencia |
+| Modelo anterior (token / HMAC) | Modelo actual (identidad por nodo) |
 |---|---|
-| `BEESTATION_API_KEY` compilada en el firmware | Se extrae del binario con un lector de flash; la clave es la misma para todos los nodos |
-| Viaja en claro en cada `POST` (HTTP) | Un *sniffer* pasivo en la LAN del apiario la captura |
-| Versionada en git | Quedaba en el historial para siempre |
-| Rotarla | Exigía **reflashear todos los ESP32** a la vez |
-| Revocar un nodo | Implicaba tumbar el acceso de todos |
+| Un secreto por colmena, copiado a mano del panel al ESP32 | Cada nodo genera su clave al arrancar; no hay nada que copiar |
+| El secreto vive en la NVS y en la base de datos | La clave **privada nunca sale del ESP32** |
+| Rotarlo exige re-vincular el nodo | Cada nodo se revoca solo, sin tocar el resto |
+| El panel muestra el secreto | El panel solo muestra identidad pública (id, MAC, huella) |
+| Firma HMAC-SHA256 | Firma **ECDSA P-256 / SHA-256**, ASN.1 DER |
 
-## 2. El modelo actual
+---
 
-**Una credencial por colmena, que nunca viaja por la red.**
+## 2. Identidad del nodo
 
-```
-Panel web                         ESP32
-   │                                │
-   │  genera un token de 128 bits   │
-   │  (lo muestra una vez)          │
-   ▼                                │
-┌──────────────┐   el usuario lo   ▼
-│  Token       │────pega en el──►  ESP32 (NVS)
-│  BS-NODO-    │   portal          │  lo guarda y NUNCA
-│  887E-D9F3-  │   cautivo         │  lo vuelve a enviar
-│  C799-...    │                   │
-└──────────────┘                   │  firma cada petición
-       ▲                           │  con HMAC-SHA256
-       │                           ▼
-       │                    ┌──────────────┐
-       │                    │  API PHP     │
-       │                    │  verifica    │
-       │                    │  la firma    │
-       │                    └──────────────┘
-```
+La primera vez que arranca, el ESP32:
 
-### Lo que viaja en cada petición
+1. Genera un par de claves **ECDSA P-256** con `esp_random()` como entropía.
+2. Guarda en su NVS (`namespace beestation`):
+   `id_clave` (PEM privado), `id_pub` (SPKI PEM), `id_disp` (32 hex),
+   `id_cod` (código de alta) e `id_ok` (alta confirmada por el servidor).
+3. Se da de alta en `POST /api/enroll.php` con su clave pública y una
+   **prueba de posesión**: firma con su clave privada una cadena que incluye
+   la huella de su propia clave pública.
+4. Queda **pendiente**. Un usuario autenticado lo autoriza desde
+   `dispositivos.php` introduciendo el **código de 8 caracteres** (`XXXX-XXXX`)
+   que el nodo muestra por el monitor serie y en su portal.
 
-| Cabecera | Valor | Para qué |
-|---|---|---|
-| `X-BeeStation-Mac` | `AA:BB:CC:DD:EE:FF` | Identifica al nodo (no es secreto) |
-| `X-BeeStation-Timestamp` | epoch unix | Ventana anti-replay (±300 s) |
-| `X-BeeStation-Signature` | HMAC-SHA256 en hexadecimal | Prueba que el nodo conoce el secreto |
+Hasta que se autoriza, el nodo **sigue midiendo y guardando en la microSD**,
+pero no envía telemetría (el backend responde `401` con
+`motivo: dispositivo_pendiente`).
 
-Cadena canónica firmada (**debe coincidir exactamente**):
+### Cadenas canónicas
+
+Firma de peticiones (`BEE2`):
 
 ```
-METODO \n RUTA \n TIMESTAMP \n sha256_hex(cuerpo)
+BEE2 \n METODO \n RUTA \n TIMESTAMP \n MAC \n NONCE \n ID_DISPOSITIVO \n sha256_hex(cuerpo)
 ```
 
-- `METODO` en mayúsculas (`POST`)
-- `RUTA` sin *query string* (p. ej. `/BeeStation_Sena/api/ingest.php`)
-- `TIMESTAMP` tal cual viaja en la cabecera
+Prueba de posesión en el alta (`BEE2-POP`):
+
+```
+BEE2-POP \n ID_DISPOSITIVO \n MAC \n TIMESTAMP \n NONCE \n sha256_hex(PEM_PUBLICO)
+```
+
+Reglas:
+
+- `METODO` en mayúsculas (`POST`).
+- `RUTA` = ruta de la petición **sin query string**, tal como la ve el servidor
+  (p. ej. `/BeeStation_Sena/api/ingest.php`).
+- Hexadecimales **siempre en minúsculas**, incluido `sha256_hex`.
+- La huella es el SHA-256 de los **bytes exactos** del PEM público.
+
+### Cabeceras de una petición firmada
+
+| Cabecera | Valor |
+|---|---|
+| `X-BeeStation-Dispositivo` | Identificador del nodo (32 hex) |
+| `X-BeeStation-Mac` | `AA:BB:CC:DD:EE:FF` |
+| `X-BeeStation-Timestamp` | epoch unix (±300 s) |
+| `X-BeeStation-Nonce` | 128 bits aleatorios en hex |
+| `X-BeeStation-Firma` | Firma ECDSA ASN.1 DER en hex |
+
+La cabecera `X-BeeStation-Signature` (HMAC) queda reservada al esquema
+heredado; ambos caminos conviven durante la transición.
 
 ### Garantías
 
 | Propiedad | Cómo se consigue |
 |---|---|
-| El secreto no viaja | Solo se envía la firma |
-| No hay clave global | Cada colmena tiene la suya; el firmware no lleva ninguna |
-| Anti-replay | La marca de tiempo está dentro de la firma y el servidor acepta ±300 s |
-| Anti-manipulación | El cuerpo va dentro del hash firmado |
-| Rotación inmediata | Se regenera el token en el panel; el nodo se re-vincula |
-| Revocación por nodo | `token_revocado = 1` en esa colmena |
-| Entropía real | 128 bits (antes 24) |
+| La clave privada no viaja | Solo se envía la firma; el servidor guarda la pública |
+| No hay secreto compartido | Cada nodo tiene su par de claves |
+| Anti-replay | `UNIQUE(identificador, nonce)` en `nonce_dispositivo` + ventana de 300 s |
+| Anti-manipulación | El SHA-256 del cuerpo va dentro de la cadena firmada |
+| Revocación individual | `dispositivo.estado = 'revocado'` |
+| Alta sin intervención | Prueba de posesión verificada con la clave recibida |
+| Fuerza bruta del código | 5 intentos, caducidad de 30 min, solo se guarda el hash |
 
 ---
 
 ## 3. Cómo vincular un nodo (paso a paso)
 
-1. **En el panel**: `Dispositivos y Nodos` → registra la colmena (si no existe) y
-   copia su **Token de Vinculación** (botón de copiar).
-2. **En el ESP32**: enciende el nodo. Si no tiene configuración, levanta el portal
-   cautivo. En el monitor serie se imprime la red y la clave:
+1. **Enciende el nodo**. Si no tiene red configurada, levanta el portal
+   cautivo. En el monitor serie se imprime:
 
    ```
+   [IDENTIDAD] Nodo 3f9a...c1
+   [IDENTIDAD] Huella  9b7e...42
+   [IDENTIDAD] Codigo de vinculacion: K7Q2-9M4X
    [AP]   Red    : BeeStation_Config
    [AP]   Clave  : bee12233
    [AP]   URL    : http://192.168.4.1
    ```
 
-   La clave del AP se deriva de la MAC del nodo (`bee` + los 5 últimos dígitos).
-3. Con el móvil o el portátil: conéctate a esa red y abre `http://192.168.4.1`.
-4. Rellena: red del apiario, su contraseña y **pega el token**.
-5. Pulsa **Vincular Colmena**. El nodo guarda la configuración, se reinicia y
-   pasa a modo estación.
-6. **Verificación**: en el monitor serie, `estado` muestra la MAC y el mDNS; en
-   el panel, la colmena pasa a **En línea** con la MAC del nodo.
+   La clave del AP se deriva de la MAC (`bee` + 5 últimos dígitos).
+2. Conéctate a `BeeStation_Config` y abre `http://192.168.4.1`.
+3. Elige la red del apiario, su contraseña y (opcional) la IP del servidor.
+   **No hay token que pegar**: el portal muestra el código de alta del nodo.
+4. Pulsa **Guardar y conectar**. El nodo se reinicia en modo estación, se da de
+   alta solo y queda **pendiente**.
+5. **En el panel**: `Dispositivos y Nodos` → *Nodos IoT y Autorización de
+   Dispositivos* → introduce el código `XXXX-XXXX` y elige la colmena.
+6. El nodo consulta su estado cada 60 s y empieza a enviar en cuanto se
+   autoriza. El panel lo muestra como **Autorizado** y la colmena como
+   **En línea**.
 
-> La clave del AP también aparece en la propia página del portal, para poder
-> consultarla desde otro dispositivo.
-
-### Si el nodo ya estaba vinculado
-
-No hace falta el portal: basta con copiar el token nuevo y pegarlo por el
-monitor serie, o mantener el anterior. Si el token cambia, el nodo deja de
-firmar correctamente y el backend responde `401` (no se pierden datos: quedan
-en la microSD).
+> Si el nodo está revocado o el servidor no lo reconoce, vuelve a quedar
+> pendiente y reintenta el alta automáticamente (por ejemplo, tras recrear la
+> base de datos).
 
 ---
 
@@ -117,90 +128,126 @@ en la microSD).
 | Modo radio | `WIFI_AP_STA`: el nodo **conserva** la conexión del router |
 | Anti-CSRF | Token por sesión en el formulario `/save` |
 | `/save` | **Solo activo en modo portal**: en modo estación responde `403` |
-| Validación | Longitudes máximas (SSID 32, contraseña 64, token 64, host 64) |
+| Validación | Longitudes máximas (SSID 32, contraseña 64, host 64) |
 | XSS | Los SSID se escapan antes de inyectarlos en el HTML |
-| Escaneo WiFi | Se cachea 30 s (antes congelaba el nodo 2-4 s en cada carga) |
+| Escaneo WiFi | Se cachea 30 s |
 | Salida | Tras guardar, el nodo se reinicia en modo estación |
-| Red sin internet | El nodo **no abre el portal**: sigue reintentando y guarda en la microSD |
+| Red sin internet | El nodo **no abre el portal**: reintenta y guarda en la microSD |
+
+El formulario ya **no incluye el campo de token**: muestra el identificador y
+el código de alta del nodo, que es lo único que el usuario necesita para
+autorizarlo en la plataforma.
 
 ---
 
 ## 5. Contrato de la API
 
-### `POST /api/ingest.php`
+### `POST /api/enroll.php` — alta del nodo
+
+```json
+{
+  "identificador": "3f9a…c1",
+  "mac": "AA:BB:CC:DD:EE:FF",
+  "nombre": "Nodo AA:BB:CC:DD:EE:FF",
+  "clave_publica": "-----BEGIN PUBLIC KEY-----\n…\n-----END PUBLIC KEY-----\n",
+  "codigo": "K7Q2-9M4X",
+  "timestamp": 1792588800,
+  "nonce": "0123456789abcdef0123456789abcdef",
+  "firma": "3045022100…"
+}
+```
+
+`firma` es ECDSA DER hex sobre la cadena `BEE2-POP`. Respuesta `200`:
+
+```json
+{ "ok": true, "estado": "pendiente", "autorizado": false,
+  "id_colmena": null, "nombre_colmena": null,
+  "mensaje": "Nodo registrado. Espera a que un usuario lo autorice en el panel." }
+```
+
+Si la identidad ya existía (mismo identificador y misma huella), el alta se
+acepta de nuevo y **regenera el código** para que el usuario pueda autorizarla.
+
+### `POST /api/enroll_estado.php` — estado del nodo
+
+Cuerpo `{}`, firmado con las cabeceras ECDSA. Admite el estado `pendiente`
+(el nodo necesita preguntar antes de tener permiso para enviar).
+
+```json
+{ "ok": true, "estado": "autorizado", "autorizado": true,
+  "id_colmena": 4, "nombre_colmena": "Colmena Norte" }
+```
+
+### `POST /api/ingest.php` — telemetría
 
 ```json
 {
   "lecturas": [
-    { "tipo": "temperatura_interna", "valor": 35.2, "ts": 1789456123, "seq": 1789456123 },
-    { "tipo": "presion",             "valor": 1013.7, "ts": 1789456123, "seq": 1789456123 }
+    { "tipo": "temperatura_interna", "valor": 35.2, "ts": 1789456123,
+      "seq": 1789456123, "id_medicion": "a1b2…f0" }
   ]
 }
 ```
 
-- **No lleva token**: la identidad la determina la firma.
-- `ts` (epoch, opcional) = momento de la **medición**; sin él se usa la hora de llegada.
-- `seq` (opcional) = número de secuencia; con `UNIQUE(id_sensor, seq)` el
-  reenvío de un lote nunca duplica filas.
+- `id_medicion` (32 hex) lo genera el nodo **al tomar la lectura**. Los seis
+  sensores de una misma medición comparten los 30 primeros dígitos y difieren
+  en los dos últimos (`00`…`05`), de modo que cada fila de `lectura` tiene un
+  identificador único con 120 bits de entropía.
+- `ts` = momento de la medición; `seq` se conserva por compatibilidad.
 - Máximo 200 lecturas por petición (`413` si se supera).
 
-Respuesta:
+Respuesta (acuse **por lectura**):
 
 ```json
 {
   "ok": true,
   "ok_total": true,
-  "colmena": "Nodo virtual (simulador)",
-  "insertados": ["temperatura_interna", "presion"],
-  "rechazadas": 0,
-  "errores": [],
-  "ibb_calculado": { "valor": 93.9, "estado": "Óptimo" },
-  "delta_t": { "valor": 13.8, "estado": "Normal" },
-  "ev": { "valor": 99.5, "estado": "Excelente" },
-  "h_miel": { "valor": 18.4, "estado": "Cerca de madurar" }
+  "resultados": [
+    { "indice": 0, "id_medicion": "a1b2…00", "estado": "insertada" },
+    { "indice": 1, "id_medicion": "a1b2…01", "estado": "duplicada" }
+  ],
+  "insertados": 5,
+  "rechazadas": 0
 }
 ```
 
-`ok_total: false` indica que el backend aceptó el envío pero **descartó parte**
-de los datos: el firmware debe avisar en vez de dar el envío por bueno.
+Estados por lectura: `insertada`, `duplicada`, `rechazada`.
 
-### `POST /api/validate_token.php`
-
-Cuerpo `{}` (el token no viaja). Devuelve `{"ok":true,"nombre_colmena":"...","mac":"..."}`.
+El firmware avanza la cola de la microSD cuando `ok_total` es `true` **o**
+cuando el servidor atendió las 6 lecturas de todas las filas del lote y alguna
+fue rechazada de forma definitiva: así un dato inválido no bloquea la cola
+para siempre.
 
 ### Códigos de respuesta
 
 | Código | Significado |
 |---|---|
-| `200` | Correcto. Mirar `ok_total` y `errores[]` |
+| `200` | Correcto. Mirar `ok_total` y `resultados[]` |
 | `400` | JSON o lectura malformada |
-| `401` | Falta la firma, es inválida, o el timestamp está fuera de ventana |
+| `401` | Firma inválida, nonce reutilizado, timestamp fuera de ventana, nodo pendiente o revocado (mirar `motivo`) |
 | `404` | La colmena ya no existe |
 | `413` | Demasiadas lecturas en la petición |
-| `422` | (reservado) todas las lecturas fueron rechazadas |
+| `429` | Demasiados intentos de alta o de código |
 
 ---
 
 ## 6. Requisitos del reloj del nodo
 
 La firma incluye un *timestamp* que el servidor compara con su reloj
-(tolerancia **±300 s**). Si el ESP32 no tiene NTP, el `ts` vale `0` y el
-servidor omite la comprobación de ventana: la petición sigue siendo válida
-(la firma lo demuestra), pero **no hay protección anti-replay**.
-
-Para NTP: el firmware ya llama a `configTzTime()` al conectar. Si el nodo nunca
-consigue sincronizar, conviene revisar la configuración de `pool.ntp.org`.
+(tolerancia **±300 s**). Si el ESP32 no ha sincronizado NTP, **no firma**: la
+lectura se queda en la microSD y se reintenta. Para NTP el firmware usa
+`configTzTime("COT5", ...)` al conectar.
 
 ---
 
-## 7. Rotación y revocación
+## 7. Revocación y recuperación
 
 | Acción | Cómo |
 |---|---|
-| Rotar el token | Panel → colmena → regenerar token → re-vincular el nodo |
-| Revocar un nodo | `UPDATE colmena SET token_revocado = 1 WHERE id_colmena = ?` |
-| Ver el nodo de una colmena | Panel → *Dispositivos y Nodos* → columna "Nodo" (MAC y último contacto) |
-| Detectar un token usado desde otro equipo | La MAC registrada en `colmena.nodo_mac` no coincide con la de la petición |
+| Revocar un nodo | Panel → *Nodos IoT* → **Revocar** (inmediato, solo ese nodo) |
+| Ver identidad de un nodo | Panel → *Nodos IoT* (id corto, MAC, estado, último contacto) |
+| Recuperar un nodo revocado | Borrar su identidad (botón BOOT al arrancar) y autorizarlo de nuevo |
+| Nodo que no aparece | Comprobar que el alta llegó al servidor (`enroll.php`) y que el código no ha caducado |
 
 ---
 
@@ -208,10 +255,17 @@ consigue sincronizar, conviene revisar la configuración de `pool.ntp.org`.
 
 | Archivo | Rol |
 |---|---|
-| `includes/firma.php` | Verificación de la firma (servidor) |
-| `api/ingest.php` | Ingesta autenticada por firma |
-| `api/validate_token.php` | Validación de la credencial del nodo |
-| `includes/functions.php` | Generación del token de 128 bits |
-| `beestation_node/beestation_node.ino` | Firma en el nodo + portal cautivo |
-| `beestation_node/index_html.h` | Formulario del portal (anti-CSRF, clave del AP) |
-| `database/migrations/001_seguridad_firma_y_datos.sql` | Columnas, índices y variables nuevas |
+| `includes/dispositivo.php` | Validación PEM, huella, cadenas, firma, alta, autorización, revocación |
+| `includes/firma.php` | Verificación HMAC heredada (transición) |
+| `api/enroll.php` | Alta con prueba de posesión |
+| `api/enroll_estado.php` | Consulta de estado del nodo |
+| `api/ingest.php` | Ingesta autenticada (ECDSA o HMAC heredado) |
+| `beestation_node/identidad_ecdsa.h` | Identidad ECDSA en el ESP32 |
+| `beestation_node/beestation_node.ino` | Firma, alta, sondeo y portal |
+| `beestation_node/index_html.h` | Formulario del portal (sin token) |
+| `dispositivos.php` | Autorización y revocación de nodos |
+| `database/migrations/005_identidad_dispositivo.sql` | Tablas `dispositivo` y `nonce_dispositivo` |
+| `database/migrations/006_identificador_medicion.sql` | `lectura.id_medicion` y acuse por lectura |
+| `tests/php/ecdsa_flujo_test.php` | Flujo E2E del servidor |
+| `tests/php/ecdsa_interop_test.php` | Interoperabilidad real Mbed TLS ↔ OpenSSL |
+| `tests/php/interop_firmware_test.php` | Cadenas canónicas firmware ↔ servidor |

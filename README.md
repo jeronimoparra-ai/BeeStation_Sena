@@ -65,8 +65,8 @@ flowchart LR
 | Paso | Qué ocurre |
 |:--:|---|
 | **1** | El ESP32 despierta, lee todos los sensores y arma el JSON |
-| **2** | `POST` a `api/ingest.php` con la petición **firmada** (HMAC-SHA256) |
-| **3** | El backend valida la clave (`hash_equals`) y que el token no esté revocado |
+| **2** | `POST` a `api/ingest.php` con la petición **firmada** (ECDSA P-256) |
+| **3** | El backend verifica la firma con la clave pública del nodo y que siga autorizado |
 | **4** | Aplica el factor de calibración propio de cada sensor y guarda la lectura |
 | **5** | Recalcula el **IBB** y los indicadores derivados en la misma ingesta |
 | **6** | Evalúa los disparadores: **IBB < 50** y **enjambrazón acústico** (400–600 Hz) — si saltan, inserta la alerta (con ventana de supresión para no duplicar) |
@@ -104,10 +104,10 @@ flowchart LR
 <td>
 
 ### 🔒 Seguridad
-- **Firma HMAC-SHA256** en toda petición: el secreto del nodo **nunca viaja por la red**
-- **Token de vinculación** único por colmena (`BS-XXXX-XXXX`)
-- Control de intentos fallidos + revocación de token
-- Credenciales fuera del código vía `config/db.php`
+- **Identidad ECDSA P-256 por nodo**: la clave privada se genera en el ESP32 y **nunca sale del dispositivo**
+- Firma de cada petición + anti-replay por `nonce` y ventana de tiempo
+- **Autorización explícita** del nodo desde el panel mediante un código de un solo uso
+- Revocación individual sin reflashear el resto de nodos
 
 </td>
 <td>
@@ -210,14 +210,16 @@ IBB = 100 − ( 0,45 · f_temp + 0,35 · f_hum + 0,20 · f_co2 )
 
 ## 🌐 API
 
-Tres endpoints, todos en `api/`. **Toda petición va firmada con HMAC-SHA256** usando el
-token de vinculación de la colmena como secreto (ver `docs/AUTENTICACION-Y-PORTAL.md`).
+Cinco endpoints, todos en `api/`. **Toda petición va firmada con ECDSA P-256**
+usando la clave privada del nodo (ver `docs/AUTENTICACION-Y-PORTAL.md`).
 
 | Método | Ruta | Descripción |
 |:-:|---|---|
 | `GET` | `api/ping.php` | Salud del servicio |
-| `POST` | `api/validate_token.php` | Comprueba que el token de vinculación sea válido y no esté revocado |
+| `POST` | `api/enroll.php` | Alta del nodo con su clave pública y prueba de posesión |
+| `POST` | `api/enroll_estado.php` | Estado de autorización del nodo |
 | `POST` | `api/ingest.php` | Recibe lecturas, calibra, guarda y recalcula el IBB |
+| `POST` | `api/validate_token.php` | **Heredado**: valida el token de un nodo con firmware antiguo |
 
 <br>
 
@@ -226,43 +228,50 @@ token de vinculación de la colmena como secreto (ver `docs/AUTENTICACION-Y-PORT
 <br>
 
 ```bash
-# La petición va FIRMADA: el token no viaja, solo su HMAC-SHA256.
-SECRETO="BS-NODO-887E-D9F3-C799-A9BF-5D5F-B14D-6A53-BDF7"
+# La petición se firma con la clave privada del nodo; la clave NUNCA viaja.
+CLAVE="nodo_clave_privada.pem"
+ID="3f9a0c1d2e3b4a5968778695a4b3c2d1"
+MAC="AA:BB:CC:DD:EE:FF"
 RUTA="/BeeStation_Sena/api/ingest.php"
 TS=$(date +%s)
+NONCE=$(openssl rand -hex 16)
 CUERPO='{"lecturas":[
-  {"tipo":"temperatura_interna","valor":34.5},
-  {"tipo":"humedad_relativa",   "valor":62.0},
-  {"tipo":"co2",                "valor":2800},
-  {"tipo":"peso",               "valor":18.7},
-  {"tipo":"sonido",             "valor":312.0}
+  {"tipo":"temperatura_interna","valor":34.5,"id_medicion":"a1b2c3d4e5f60718293a4b5c6d7e8f00"},
+  {"tipo":"humedad_relativa",   "valor":62.0,"id_medicion":"a1b2c3d4e5f60718293a4b5c6d7e8f01"},
+  {"tipo":"peso",               "valor":18.7,"id_medicion":"a1b2c3d4e5f60718293a4b5c6d7e8f03"}
 ]}'
 HASH=$(printf '%s' "$CUERPO" | sha256sum | cut -d' ' -f1)
-FIRMA=$(printf 'POST\n%s\n%s\n%s' "$RUTA" "$TS" "$HASH" \
-        | openssl dgst -sha256 -hmac "$SECRETO" -hex | sed 's/^.* //' | tr 'a-f' 'A-F')
+CANON=$(printf 'BEE2\nPOST\n%s\n%s\n%s\n%s\n%s\n%s' "$RUTA" "$TS" "$MAC" "$NONCE" "$ID" "$HASH")
+FIRMA=$(printf '%s' "$CANON" | openssl dgst -sha256 -sign "$CLAVE" | xxd -p -c 256 | tr -d '\n')
 
 curl -X POST "http://localhost$RUTA" \
   -H 'Content-Type: application/json' \
-  -H 'X-BeeStation-Mac: AA:BB:CC:DD:EE:FF' \
+  -H "X-BeeStation-Dispositivo: $ID" \
+  -H "X-BeeStation-Mac: $MAC" \
   -H "X-BeeStation-Timestamp: $TS" \
-  -H "X-BeeStation-Signature: $FIRMA" \
+  -H "X-BeeStation-Nonce: $NONCE" \
+  -H "X-BeeStation-Firma: $FIRMA" \
   -d "$CUERPO"
 ```
 
 ```json
 {
   "ok": true,
+  "ok_total": true,
   "colmena": "Alpha-01",
-  "insertados": ["temperatura_interna", "humedad_relativa", "co2", "peso", "sonido"],
-  "errores": [],
-  "ibb_calculado": { "valor": 87.7, "estado": "Óptimo" },
-  "delta_t": null,
-  "ev": { "valor": 93.3, "estado": "Excelente" },
-  "h_miel": { "valor": 19.7, "estado": "Cerca de madurar" }
+  "resultados": [
+    { "indice": 0, "id_medicion": "a1b2…f00", "estado": "insertada" },
+    { "indice": 1, "id_medicion": "a1b2…f01", "estado": "insertada" },
+    { "indice": 2, "id_medicion": "a1b2…f03", "estado": "insertada" }
+  ],
+  "insertados": 3,
+  "rechazadas": 0,
+  "ibb_calculado": { "valor": 87.7, "estado": "Óptimo" }
 }
 ```
 
-*Respuesta reproducida de la implementación real (`api/ingest.php:211`). `delta_t` queda en `null` porque no se envió `temperatura_externa`; `ev` sí se calcula porque la fórmula de ventilación solo exige `co2`.*
+`resultados[]` permite al nodo saber **qué lectura** se guardó, cuál era
+duplicada y cuál fue rechazada, sin tener que reenviar el lote completo.
 
 </details>
 
@@ -273,9 +282,11 @@ curl -X POST "http://localhost$RUTA" \
 | Código | Causa |
 |:-:|---|
 | `200` | Ingesta correcta |
-| `401` | Firma ausente, inválida o con marca de tiempo fuera de ventana |
-| `400` | Token desconocido / revocado, o JSON malformado |
+| `401` | Firma ausente o inválida, nonce reutilizado, timestamp fuera de ventana, nodo pendiente o revocado |
+| `400` | JSON malformado o lectura incompleta |
 | `405` | Método distinto de `POST` |
+| `413` | Más de 200 lecturas en una petición |
+| `429` | Demasiados intentos de alta o de código |
 
 </details>
 
@@ -286,7 +297,7 @@ curl -X POST "http://localhost$RUTA" \
 | Vista | Ruta | Qué muestra |
 |---|---|---|
 | 📊 Resumen | `dashboard.php` | IBB actual, estado de la colonia y alertas recientes |
-| 📱 Dispositivos | `dispositivos.php` | Registro de colmenas, generación de tokens y estado de conexión |
+| 📱 Dispositivos | `dispositivos.php` | Registro de colmenas, autorización/revocación de nodos y estado de conexión |
 | 🌡️ Sensores | `sensores.php` | Todas las variables en vivo con su rango y estado |
 | 🎵 Acústica | `acustica.php` | Análisis de banda y detección de enjambrazón |
 | ⚖️ Peso | `peso.php` | Evolución del peso y flujo de néctar |
@@ -308,11 +319,10 @@ erDiagram
     sensor ||--o{ lectura : "registra"
     sensor ||--o{ calibracion : "ajusta con"
     indicador ||--o{ alerta : "dispara"
+    colmena ||--o{ dispositivo : "recibe datos de"
 ```
 
-**`schema.sql` — 9 tablas:** `usuario` · `apiario` · `colmena` · `variable_bioclimatica` · `sensor` · `calibracion` · `lectura` · `indicador` · `alerta`
-
-**`beestation_sena.sql` — 10 tablas:** las anteriores **+ `intento_vinculacion`** (control de intentos fallidos de token)
+**`schema.sql` — 14 tablas:** `usuario` · `apiario` · `colmena` · `variable_bioclimatica` · `sensor` · `calibracion` · `lectura` · `indicador` · `alerta` · `intento_vinculacion` · `lote_ingesta` · `nonce_peticion` · `dispositivo` · `nonce_dispositivo`
 
 <details>
 <summary><b>▸ Notas de diseño</b></summary>
@@ -321,7 +331,7 @@ erDiagram
 - El sistema de roles (`rol` y `usuario.id_rol`) **fue eliminado del diseño**: todos los usuarios autenticados tienen el mismo nivel de acceso.
 - El modelo completo se diseñó en notación Chen con 12 entidades; la implementación usa este esquema simplificado.
 - El campo de precisión se llama `precision_valor` para evitar la palabra reservada `precision`.
-- Hay **dos SQL**: `database/schema.sql` (esquema limpio, crea la BD con datos de ejemplo) y `database/beestation_sena.sql` (dump completo del entorno de desarrollo).
+- El esquema versionado es **`database/schema.sql`** (instalación limpia) más las migraciones de `database/migrations/`. El dump completo del entorno de desarrollo **no se versiona** porque contiene hashes de contraseñas y tokens de vinculación; cada instalación genera el suyo fuera del repositorio.
 
 </details>
 
@@ -360,11 +370,11 @@ git clone https://github.com/jeronimoparra-ai/BeeStation_Sena.git
 | # | Paso |
 |:-:|---|
 | 1 | Abre `beestation_node/beestation_node.ino` en **Arduino IDE** |
-| 2 | Verifica la **firma** — el nodo debe registrar "último contacto" en el panel |
-| 3 | Board: **ESP32 Dev Module** · selecciona el puerto COM/USB |
+| 2 | Board: **ESP32 Dev Module** · Partition Scheme: **Minimal SPIFFS (1.9MB APP)** |
+| 3 | Selecciona el puerto COM/USB |
 | 4 | ✔ Verificar → ⬆ Subir *(mantén BOOT si no avanza)* |
-| 5 | Registra la colmena en `dispositivos.php` y copia el **token** |
-| 6 | Conéctate a la red `BeeStation_Config` y pega el token en el portal cautivo |
+| 5 | Enciende el nodo, conéctate a `BeeStation_Config` y guarda tu red (no hay token) |
+| 6 | En `dispositivos.php` → *Nodos IoT*, introduce el **código `XXXX-XXXX`** del monitor serie y elige la colmena |
 
 <details>
 <summary><b>▸ Comprobación sin hardware</b></summary>
@@ -373,9 +383,15 @@ git clone https://github.com/jeronimoparra-ai/BeeStation_Sena.git
 El firmware se puede validar sin la placa conectada:
 
 ```bash
-arduino-cli compile --fqbn esp32:esp32:esp32 beestation_node
-# El Sketch usa 1218316 bytes (92%) del espacio de almacenamiento de programa.
+arduino-cli compile --fqbn esp32:esp32:esp32:PartitionScheme=min_spiffs beestation_node
+# El Sketch usa 1297344 bytes (65%) del espacio de almacenamiento de programa.
+# Las variables globales usan 57032 bytes (17%) de la memoria dinámica.
 ```
+
+> La Fase 2 (identidad ECDSA) deja el binario en ~1,30 MB. Con la tabla de
+> particiones por defecto quedaría al 98 %; por eso se usa `min_spiffs`
+> (1,9 MB de APP) y hay que **reflashear la tabla por USB una vez**.
+> Detalles en `docs/reconciliacion-fase2.md`.
 
 </details>
 
@@ -387,18 +403,22 @@ arduino-cli compile --fqbn esp32:esp32:esp32 beestation_node
 BeeStation_Sena/
 ├── 🌐 api/
 │   ├── ingest.php              # Ingesta de lecturas (ESP32 → servidor)
-│   ├── validate_token.php      # Pre-validación del token de vinculación
+│   ├── enroll.php              # Alta del nodo con prueba de posesión (ECDSA)
+│   ├── enroll_estado.php       # Estado de autorización del nodo
+│   ├── validate_token.php      # Heredado: token de firmware antiguo
 │   └── ping.php                # Salud del servicio
 ├── ⚙️ config/
 │   └── db.php                  # Conexión PDO (las credenciales reales están en db.local.php)
 ├── 🗄️ database/
 │   ├── schema.sql              # Esquema limpio (recomendado para empezar)
-│   └── beestation_sena.sql     # Dump completo del entorno de desarrollo
+│   └── migrations/             # Migraciones incrementales (001–006)
 ├── ♾️ includes/
 │   ├── functions.php           # Cálculo de IBB, indicadores y alertas
 │   ├── auth.php / header.php / sidebar.php / footer.php
 ├── 🐝 beestation_node/
 │   ├── beestation_node.ino     # Firmware ESP32 v3.0.0
+│   ├── identidad_ecdsa.h       # Identidad ECDSA P-256 + firma de peticiones
+│   ├── util_hex.h              # Hexadecimal (mayúsculas/minúsculas)
 │   └── index_html.h            # HTML del portal cautivo
 ├── 🎨 css/ · 📜 js/ · 🖼️ assets/
 ├── 📄 *.php                    # Vistas del dashboard
@@ -415,8 +435,9 @@ BeeStation_Sena/
 - [x] Prototipo físico impreso en 3D (carcasa hexagonal)
 - [x] Backend PHP + MySQL con dashboard sobre **datos reales** — sin valores de relleno
 - [x] `api/ingest.php`: valida, calibra, guarda y recalcula el IBB en cada ingesta
-- [x] **Autenticación por firma HMAC-SHA256** con `hash_equals` y ventana anti-replay
-- [x] **Token de vinculación único por colmena** + control de intentos y revocación
+- [x] **Identidad ECDSA P-256 por nodo** (sin token permanente) con prueba de posesión
+- [x] Autorización y revocación individual de nodos desde el panel
+- [x] Acuse por lectura (`id_medicion`) y cola offline que no se bloquea
 - [x] Indicadores **ΔT**, **EV**, **H_miel** y flujo de néctar implementados
 - [x] Alertas automáticas persistidas en la tabla `alerta`
 - [x] Sensor de energía (`energia`, INA219) registrado en el esquema
@@ -452,8 +473,9 @@ El repositorio incluye **`guia-configuracion-beestation.docx`**: manual de insta
 |---|---|---|
 | `fatal error: Adafruit_Sensor.h: No such file` | Falta la librería base | Instala **Adafruit Unified Sensor** |
 | Puerto COM gris o inhabilitado | Cable de solo carga o driver faltante | Usa cable de datos e instala CP210x / CH340 |
-| `HTTP 401 Unauthorized` en ingesta | El token de vinculación no es el de esa colmena | Copia de nuevo el token del panel y re-vincula el nodo |
-| Error SQL 500 al procesar el token | Faltan columnas de seguridad en `colmena` | Ejecuta el `ALTER TABLE` de la guía en phpMyAdmin |
+| `HTTP 401 Unauthorized` en ingesta | Firma inválida, nodo revocado/pendiente o reloj desincronizado | Revisa el `motivo` de la respuesta y el estado del nodo en *Dispositivos → Nodos IoT* |
+| El nodo no envía nada y el panel lo muestra pendiente | Falta autorizarlo con su código de alta | Introduce el código `XXXX-XXXX` en *Dispositivos → Nodos IoT* |
+| `Sketch too big` al compilar | Tabla de particiones por defecto | Compila con `PartitionScheme=min_spiffs` y reflashea la tabla por USB |
 
 </details>
 

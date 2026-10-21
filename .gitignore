@@ -13,8 +13,15 @@ repomix-output.xml
 *~
 
 # ── Datos sensibles generados ──
+# El dump completo del entorno de desarrollo contiene hashes de contraseñas,
+# tokens de vinculación e intentos con tokens en claro: NO se versiona.
+# El esquema vive en database/schema.sql y en las migraciones.
 database/dumps/
+database/beestation_sena.sql
 *.sql.gz
+
+# ── Compilaciones del firmware ──
+beestation_node/build/
 
 # ── Semilla aleatoria de OpenSSL (nunca debe versionarse) ──
 .rnd

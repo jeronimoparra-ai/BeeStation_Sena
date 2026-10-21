@@ -169,7 +169,10 @@ static bool identGenerarClave() {
     return false;
   }
 
-  mbedtls_ecp_keypair* clave = mbedtls_pk_ec(&identPk);
+  // OJO: tanto Mbed TLS upstream 3.6.x como el fork que incluye el core
+  // de Espressif 3.3.12 declaran mbedtls_pk_ec() POR VALOR
+  // (const mbedtls_pk_context pk). No se le pasa el puntero.
+  mbedtls_ecp_keypair* clave = mbedtls_pk_ec(identPk);
   if (clave == NULL) {
     Serial.println("[IDENTIDAD] no se pudo obtener el par de claves EC");
     mbedtls_pk_free(&identPk);

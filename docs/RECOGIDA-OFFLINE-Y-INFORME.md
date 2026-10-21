@@ -27,19 +27,24 @@ confirma.
 Ruta en la tarjeta: `/log_AAAA-MM-DD.csv` (un fichero por día).
 
 ```
-Fecha_hora,Epoch,Temp,Hum,Presion,Peso,Sonido,Luz
-2026-10-21 00:37:45,1792561065,35.20,58.30,1013.42,28.34,0.180,412.70
+Fecha_hora,Epoch,Id_medicion,Temp,Hum,Presion,Peso,Sonido,Luz
+2026-10-21 00:37:45,1792561065,a1b2c3d4e5f60718293a4b5c6d7e8f00,35.20,58.30,1013.42,28.34,0.180,412.70
 ```
 
 | Columna | Significado |
 |---|---|
-| `Fecha_hora` | Hora local de la medición ( legible) |
-| `Epoch` | **Epoch UTC de la medición** → es la fecha real del dato y la clave de idempotencia |
+| `Fecha_hora` | Hora local de la medición (legible) |
+| `Epoch` | **Epoch UTC de la medición** → fecha real del dato y clave de idempotencia |
+| `Id_medicion` | 128 bits hex generados **al tomar** la lectura; los 6 sensores derivan de él cambiando los 2 últimos dígitos |
 | `Temp`…`Luz` | Los 6 valores medidos en ese ciclo |
 
 > El `Epoch` es lo que permite que un dato recogido **a días vista** se guarde
-> con su fecha de medición y no con la de subida. También hace que reenviar un
-> lote **no duplique** nada.
+> con su fecha de medición y no con la de subida. El `Id_medicion` hace que
+> reenviar un lote **no duplique** nada aunque cambie el orden o se mezclen
+> ficheros.
+
+> Los CSV de 8 columnas grabados por firmware anterior se aceptan como legado:
+> no traen `Id_medicion` y se deduplican por `(sensor, seq)`.
 
 ### 1.3 El estado de la cola
 
@@ -48,8 +53,19 @@ Fecha_hora,Epoch,Temp,Hum,Presion,Peso,Sonido,Luz
 | `up_file` | Fichero del que se han confirmado líneas |
 | `up_line` | Nº de líneas confirmadas de ese fichero |
 
-Solo se escriben **cuando el servidor confirma un lote** (no en cada lectura),
-así que no se desgasta la flash.
+Solo se escriben **cuando el servidor confirma un lote**, así que no se
+desgasta la flash.
+
+El nodo avanza cuando `ok_total` es `true` **o** cuando el servidor atendió las
+6 lecturas de todas las filas del lote y alguna fue rechazada de forma
+definitiva. Así un dato inválido (por ejemplo, un sensor que ya no existe) no
+bloquea la telemetría futura.
+
+### 1.4 Acuse por lectura
+
+La respuesta de `api/ingest.php` incluye `resultados[]`, con el estado de cada
+lectura: `insertada`, `duplicada` o `rechazada`. El nodo puede así distinguir
+"ya estaba" de "no se pudo guardar" sin reenviar el lote completo.
 
 ### 1.4 Vía automática (el nodo sube solo)
 
@@ -71,8 +87,14 @@ powershell -ExecutionPolicy Bypass -File scripts\recoger-datalog.ps1 `
 Qué hace:
 1. Localiza los `log_*.csv` de la carpeta.
 2. Convierte cada línea en 6 lecturas con su `Epoch`.
-3. Sube **por lotes de 30 líneas** con la misma firma HMAC que el nodo.
+3. Sube **por lotes de 30 líneas** con la firma HMAC heredada.
 4. Renombra el fichero a `*.enviado.csv` cuando está todo subido.
+
+> **Camino legado.** El firmware actual firma con una clave ECDSA que vive
+> dentro del ESP32 y no se puede exportar, así que este script solo sirve para
+> nodos con firmware antiguo (HMAC). La vía recomendada es la cola automática
+> del nodo; este script se retirará cuando se elimine el esquema HMAC del
+> backend.
 
 ### 1.6 Trazabilidad
 

@@ -8,8 +8,14 @@
 #      Fecha_hora,Epoch,Temp,Hum,Presion,Peso,Sonido,Luz
 #
 #  Este script los lee, los convierte al formato de la API y los sube
-#  POR LOTES con la misma firma HMAC que usa el nodo. Los ficheros ya
-#  subidos se renombran a *.enviado.csv, de modo que no se repeten.
+#  POR LOTES con la firma HMAC heredada (el backend la sigue aceptando
+#  para nodos con firmware antiguo). Los ficheros ya subidos se renombran
+#  a *.enviado.csv, de modo que no se repiten.
+#
+#  NOTA: este camino es LEGADO. El firmware actual usa una identidad ECDSA
+#  cuya clave privada nunca sale del ESP32, asi que no se puede firmar
+#  como el nodo desde un PC. La via recomendada es la cola automatica del
+#  propio nodo.
 #
 #  Uso:
 #    powershell -ExecutionPolicy Bypass -File .\recoger-datalog.ps1 `
@@ -22,8 +28,10 @@
 param(
     [Parameter(Mandatory = $true)][string]$Carpeta,
     [string]$BaseUrl = "http://127.0.0.1/BeeStation_Sena",
-    [string]$Token   = "BS-NODO-887E-D9F3-C799-A9BF-5D5F-B14D-6A53-BDF7",
-    [string]$Mac     = "AA:BB:CC:11:22:33",
+    # Credencial HMAC heredada: sin valor por defecto. Se pasa por linea de
+    # comandos y NUNCA se escribe en el repositorio.
+    [Parameter(Mandatory = $true)][string]$Token,
+    [Parameter(Mandatory = $true)][string]$Mac,
     [int]$LineasPorLote = 30,
     [switch]$Simular
 )
@@ -31,15 +39,24 @@ param(
 $ErrorActionPreference = "Stop"
 $Token = $Token.ToUpper()
 
-# ── Firma HMAC-SHA256 (identica a la del ESP32) ────────────────────────
+# ── Firma HMAC-SHA256 (esquema heredado del backend) ───────────────────
 function Get-Sha256Hex([string]$texto) {
     $sha = [System.Security.Cryptography.SHA256]::Create()
     return -join ($sha.ComputeHash([System.Text.Encoding]::UTF8.GetBytes($texto)) |
                   ForEach-Object { $_.ToString("x2") })
 }
 
-function Get-Firma([string]$secreto, [string]$metodo, [string]$ruta, [string]$ts, [string]$cuerpo) {
-    $canonica = "$metodo`n$ruta`n$ts`n" + (Get-Sha256Hex $cuerpo)
+function New-Nonce {
+    $bytes = New-Object byte[] 16
+    [System.Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($bytes)
+    return -join ($bytes | ForEach-Object { $_.ToString("x2") })
+}
+
+# Cadena canonica del esquema HMAC heredado:
+#   METODO \n RUTA \n TS \n MAC \n NONCE \n sha256_hex(cuerpo)
+function Get-Firma([string]$secreto, [string]$metodo, [string]$ruta, [string]$ts,
+                   [string]$mac, [string]$nonce, [string]$cuerpo) {
+    $canonica = "$metodo`n$ruta`n$ts`n$mac`n$nonce`n" + (Get-Sha256Hex $cuerpo)
     $hmac = [System.Security.Cryptography.HMACSHA256]::new([System.Text.Encoding]::UTF8.GetBytes($secreto))
     return -join ($hmac.ComputeHash([System.Text.Encoding]::UTF8.GetBytes($canonica)) |
                   ForEach-Object { $_.ToString("x2") })
@@ -51,12 +68,14 @@ function Invoke-Lote([string]$cuerpo, [string]$lote) {
     $endpoint = "/api/ingest.php"
     $ruta  = $prefijoApp + $endpoint
     $ts    = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds().ToString()
-    $firma = Get-Firma $Token "POST" $ruta $ts $cuerpo
+    $nonce = New-Nonce
+    $firma = Get-Firma $Token "POST" $ruta $ts $Mac $nonce $cuerpo
     $cab = @{
-        "Content-Type"           = "application/json"
-        "X-BeeStation-Mac"       = $Mac
-        "X-BeeStation-Timestamp" = $ts
-        "X-BeeStation-Signature" = $firma
+        "Content-Type"            = "application/json"
+        "X-BeeStation-Mac"        = $Mac
+        "X-BeeStation-Timestamp"  = $ts
+        "X-BeeStation-Nonce"      = $nonce
+        "X-BeeStation-Signature"  = $firma
     }
     try {
         $r = Invoke-WebRequest -Uri ($BaseUrl + $endpoint) -Method Post -Headers $cab `
@@ -81,7 +100,7 @@ $ficheros = Get-ChildItem $Carpeta -Filter "log_*.csv" -File -ErrorAction Silent
 if (-not $ficheros) {
     Write-Host "[i] No hay ficheros de datalogger en $Carpeta"
     Write-Host "    Formato esperado: log_AAAA-MM-DD.csv con cabecera"
-    Write-Host "    Fecha_hora,Epoch,Temp,Hum,Presion,Peso,Sonido,Luz"
+    Write-Host "    Fecha_hora,Epoch,Id_medicion,Temp,Hum,Presion,Peso,Sonido,Luz"
     exit 0
 }
 
@@ -107,6 +126,10 @@ foreach ($f in $ficheros) {
         Write-Host "            Actualiza el firmware para registrar la fecha de medicion."
         continue
     }
+    # Formato nuevo (9 columnas): Fecha,Epoch,Id_medicion,Temp..Luz.
+    # Formato legado (8 columnas): Fecha,Epoch,Temp..Luz. Se aceptan ambos.
+    $tieneId = $cabecera -match "Id_medicion"
+    $base = if ($tieneId) { 3 } else { 2 }
 
     $datos = @()
     foreach ($l in $lineas) {
@@ -120,8 +143,9 @@ foreach ($f in $ficheros) {
         }
         $datos += ,@{
             epoch = $epoch
-            temp  = $c[2]; hum = $c[3]; pres = $c[4]
-            peso  = $c[5]; son  = $c[6]; luz = $c[7]
+            id    = if ($tieneId -and $c[2].Length -eq 32) { $c[2] } else { "" }
+            temp  = $c[$base]; hum = $c[$base+1]; pres = $c[$base+2]
+            peso  = $c[$base+3]; son = $c[$base+4]; luz = $c[$base+5]
         }
     }
     $totalLineas += $datos.Count
@@ -132,15 +156,23 @@ foreach ($f in $ficheros) {
     for ($i = 0; $i -lt $datos.Count; $i += $LineasPorLote) {
         $fin = [Math]::Min($i + $LineasPorLote, $datos.Count)
         $lecturas = @()
+        $sufijos = @("00", "01", "02", "03", "04", "05")
         for ($j = $i; $j -lt $fin; $j++) {
             $d = $datos[$j]
             $ts = $d.epoch; $sq = $d.epoch
-            $lecturas += @{ tipo = "temperatura_interna"; valor = [double]$d.temp; ts = $ts; seq = $sq }
-            $lecturas += @{ tipo = "humedad_relativa";    valor = [double]$d.hum;  ts = $ts; seq = $sq }
-            $lecturas += @{ tipo = "presion";            valor = [double]$d.pres; ts = $ts; seq = $sq }
-            $lecturas += @{ tipo = "peso";               valor = [double]$d.peso; ts = $ts; seq = $sq }
-            $lecturas += @{ tipo = "sonido";             valor = [double]$d.son;  ts = $ts; seq = $sq }
-            $lecturas += @{ tipo = "luminosidad";        valor = [double]$d.luz;  ts = $ts; seq = $sq }
+            $values = @([double]$d.temp, [double]$d.hum, [double]$d.pres,
+                        [double]$d.peso, [double]$d.son, [double]$d.luz)
+            $tipos  = @("temperatura_interna", "humedad_relativa", "presion",
+                        "peso", "sonido", "luminosidad")
+            for ($k = 0; $k -lt 6; $k++) {
+                $lec = @{ tipo = $tipos[$k]; valor = $values[$k]; ts = $ts; seq = $sq }
+                if ($d.id) {
+                    # Mismo id de medicion para los 6 sensores, con el ultimo
+                    # byte reservado al indice del sensor.
+                    $lec.id_medicion = $d.id.Substring(0, 30) + $sufijos[$k]
+                }
+                $lecturas += $lec
+            }
         }
         $cuerpo = @{ lote = $f.BaseName; lecturas = $lecturas } | ConvertTo-Json -Depth 6 -Compress
 

@@ -6,25 +6,26 @@
  * REALES de los sensores. No hay datos de ejemplo aquí: cada
  * lectura que llega se guarda tal cual en la tabla `lectura`.
  *
- * Headers requeridos:
+ * Headers requeridos (esquema actual, ECDSA):
  *   Content-Type: application/json
- *   X-BeeStation-Mac:        MAC del nodo (AA:BB:CC:DD:EE:FF)
- *   X-BeeStation-Timestamp:  epoch unix del nodo
- *   X-BeeStation-Signature:  HMAC-SHA256 de la peticion
+ *   X-BeeStation-Dispositivo: identificador del nodo (32 hex)
+ *   X-BeeStation-Mac:         MAC del nodo (AA:BB:CC:DD:EE:FF)
+ *   X-BeeStation-Timestamp:   epoch unix del nodo
+ *   X-BeeStation-Nonce:       128 bits aleatorios en hex
+ *   X-BeeStation-Firma:       firma ECDSA ASN.1 DER en hex
  *
- * La peticion se autentica con la FIRMA, no con una clave global:
- * el secreto es el token de vinculacion de la colmena y nunca viaja
- * por la red. Ver includes/firma.php y docs/AUTENTICACION-Y-PORTAL.md.
+ * La peticion se autentica con la FIRMA. La clave privada vive en el ESP32
+ * y nunca viaja por la red. Ver includes/dispositivo.php y
+ * docs/AUTENTICACION-Y-PORTAL.md.
+ *
+ * Se mantiene el esquema HMAC heredado (X-BeeStation-Signature) para los
+ * nodos con firmware antiguo.
  *
  * Formato esperado del body (JSON):
  * {
- *   "token": "BS-ALPHA01-1A2B3C",
  *   "lecturas": [
- *     { "tipo": "temperatura_interna", "valor": 35.2 },
- *     { "tipo": "humedad_relativa",    "valor": 65.3 },
- *     { "tipo": "peso",                "valor": 28.52 },
- *     { "tipo": "sonido",              "valor": 280 },
- *     { "tipo": "co2",                 "valor": 2100 }
+ *     { "tipo": "temperatura_interna", "valor": 35.2, "ts": 1792588800,
+ *       "seq": 1792588800, "id_medicion": "a1b2...f0" }
  *   ]
  * }
  * ----------------------------------------------------------------
