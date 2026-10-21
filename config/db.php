@@ -1,24 +1,36 @@
 <?php
 /**
  * config/db.php
- * Conexión real a MySQL/MariaDB mediante PDO.
- * Ajusta estas 4 constantes según tu entorno (XAMPP, servidor SENA, etc.)
+ * ----------------------------------------------------------------
+ * Configuración de la aplicación. Este archivo NO contiene secretos.
+ *
+ * La API ya no usa una clave global: cada nodo ESP32 firma sus
+ * peticiones con el secreto de SU colmena (ver includes/firma.php),
+ * de modo que no existe ninguna API Key que compilar en el firmware
+ * ni que rotear en bloque.
+ *
+ * Los valores reales (usuario y contraseña de MySQL) viven en
+ *   config/db.local.php   → fuera del control de versiones
+ * o en variables de entorno (DB_HOST, DB_NAME, DB_USER, DB_PASS).
+ *
+ * Instalación nueva:
+ *   1) copia config/db.example.php  →  config/db.local.php
+ *   2) ajusta los valores
+ * ----------------------------------------------------------------
  */
 
-// Zona horaria de la aplicación. DEBE coincidir con la del servidor MySQL
-// (America/Bogota, UTC-5) para que las comparaciones NOW() de SQL y las
-// marcas de tiempo de PHP (time(), strtotime(), date()) sean coherentes.
+// Zona horaria de la aplicación. Debe coincidir con la que fija la
+// conexión PDO (SET time_zone = '-05:00') para que las comparaciones
+// NOW() de SQL y las marcas de tiempo de PHP sean coherentes.
 date_default_timezone_set('America/Bogota');
 
-define('DB_HOST', '127.0.0.1');
-define('DB_NAME', 'beestation_sena');
-define('DB_USER', 'root');
-define('DB_PASS', '');   // pon aquí la clave real de tu MySQL/MariaDB
+$configLocal = __DIR__ . '/db.local.php';
+$config = is_file($configLocal) ? (array) require $configLocal : [];
 
-// ── SEGURIDAD API (ESP32 -> api/ingest.php) ──────────────────
-// Clave precompartida requerida en el header 'X-API-Key' de cada POST.
-// Cámbiala por una cadena segura y configúrala idéntica en el firmware del ESP32.
-define('BEESTATION_API_KEY', 'ba20858ed12a853bbcaafec2d9c753db0ad9f7e60022d6e1a3f94f978743808a');
+define('DB_HOST', $config['DB_HOST'] ?? (getenv('DB_HOST') ?: '127.0.0.1'));
+define('DB_NAME', $config['DB_NAME'] ?? (getenv('DB_NAME') ?: 'beestation_sena'));
+define('DB_USER', $config['DB_USER'] ?? (getenv('DB_USER') ?: 'root'));
+define('DB_PASS', $config['DB_PASS'] ?? (getenv('DB_PASS') ?: ''));
 
 function getPDO(): PDO {
     static $pdo = null;
@@ -30,6 +42,15 @@ function getPDO(): PDO {
             PDO::ATTR_EMULATE_PREPARES   => false,
         ];
         $pdo = new PDO($dsn, DB_USER, DB_PASS, $options);
+
+        // Modo estricto: un dato fuera de rango se rechaza con error en
+        // lugar de truncarse en silencio (p. ej. un token de 60 chars
+        // que antes se guardaba como de 50).
+        $pdo->exec("SET SESSION sql_mode = 'STRICT_TRANS_TABLES,NO_ENGINE_SUBSTITUTION,NO_ZERO_DATE,NO_ZERO_IN_DATE'");
+
+        // Zona horaria fija de la sesión: independiente de la del SO del
+        // servidor, para que las ventanas de 5 min / 24 h no se corran.
+        $pdo->exec("SET time_zone = '-05:00'");
     }
     return $pdo;
 }

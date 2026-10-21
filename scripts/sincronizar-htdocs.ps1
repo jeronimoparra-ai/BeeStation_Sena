@@ -1,0 +1,104 @@
+<#
+    scripts\sincronizar-htdocs.ps1
+    ----------------------------------------------------------------
+    Despliega el repositorio en el docroot de Apache (htdocs).
+
+    Antes el despliegue era una copia manual de archivos sueltos: el
+    docroot acababa con .git, con volcados de datos y con versiones
+    distintas del código, y nada avisaba de la divergencia.
+
+    Este script:
+      1. copia al docroot solo lo que debe servirse por HTTP;
+      2. elimina del docroot lo que no debe estar (.git, datos, docs);
+      3. comprueba al final que repo y docroot coinciden.
+
+    Uso:  powershell -ExecutionPolicy Bypass -File scripts\sincronizar-htdocs.ps1
+#>
+param(
+    [string]$Repo     = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path,
+    [string]$Docroot  = 'C:\xampp\htdocs\BeeStation_Sena',
+    [switch]$Simular
+)
+
+$ErrorActionPreference = 'Stop'
+
+if (-not (Test-Path $Docroot)) {
+    New-Item -ItemType Directory -Force -Path $Docroot | Out-Null
+}
+
+# Extensiones que forman parte de la aplicación servida
+$extensiones = @('.php', '.js', '.css', '.htm', '.html', '.sql', '.ino', '.h')
+
+Write-Host "Repositorio: $Repo"
+Write-Host "Docroot    : $Docroot"
+Write-Host ""
+
+# ── 1. Copiar ────────────────────────────────────────────────────────
+$copiados = 0
+Get-ChildItem $Repo -Recurse -File -Force | Where-Object {
+    $_.FullName -notmatch '\\\.git\\' -and
+    $_.FullName -notmatch '\\docs\\' -and
+    ($extensiones -contains $_.Extension.ToLower() -or $_.Name -eq '.htaccess')
+} | ForEach-Object {
+    $rel = $_.FullName.Substring($Repo.Length + 1)
+    if ($rel -eq 'config\db.local.php' -or $rel -like 'scripts\*') { return }
+    $dest = Join-Path $Docroot $rel
+    $destDir = Split-Path $dest -Parent
+    if (-not (Test-Path $destDir)) { New-Item -ItemType Directory -Force -Path $destDir | Out-Null }
+    if (-not (Test-Path $dest) -or (Get-FileHash $_.FullName).Hash -ne (Get-FileHash $dest).Hash) {
+        Copy-Item $_.FullName $dest -Force
+        Write-Host "  + $rel"
+        $copiados++
+    }
+}
+# La configuración local sí debe estar en el docroot (son las credenciales reales)
+$local = Join-Path $Repo 'config\db.local.php'
+if (Test-Path $local) {
+    $dest = Join-Path $Docroot 'config\db.local.php'
+    if (-not (Test-Path $dest) -or (Get-FileHash $local).Hash -ne (Get-FileHash $dest).Hash) {
+        Copy-Item $local $dest -Force
+        Write-Host "  + config\db.local.php"
+    }
+}
+Write-Host "  -> $copiados archivo(s) actualizado(s)"
+
+# ── 2. Limpiar el docroot ────────────────────────────────────────────
+$prohibidos = @('.git', '.svn', '.hg', 'repomix-output.xml', 'test_connection.php',
+                'guia-configuracion-beestation.docx', 'INFORME-FUNCIONAMIENTO.docx',
+                'INFORME-FUNCIONAMIENTO.md', 'README.md', 'README.txt', 'LICENSE')
+foreach ($p in $prohibidos) {
+    $dest = Join-Path $Docroot $p
+    if (Test-Path $dest) {
+        Remove-Item $dest -Recurse -Force
+        Write-Host "  - eliminado del docroot: $p"
+    }
+}
+# Directorios que ya no deben existir.
+# 'tools' NO se borra: sigue en el docroot pero .htaccess lo bloquea (404),
+# para poder diagnosing en local sin exponerlo por HTTP.
+foreach ($d in @('docs')) {
+    $dest = Join-Path $Docroot $d
+    if (Test-Path $dest) {
+        Remove-Item $dest -Recurse -Force
+        Write-Host "  - eliminado del docroot: $d\"
+    }
+}
+
+# ── 3. Verificar ─────────────────────────────────────────────────────
+Write-Host ""
+$dif = 0
+Get-ChildItem $Repo -Recurse -File -Force | Where-Object {
+    $_.FullName -notmatch '\\\.git\\' -and $_.FullName -notmatch '\\docs\\' -and
+    ($extensiones -contains $_.Extension.ToLower() -or $_.Name -eq '.htaccess')
+} | ForEach-Object {
+    $rel = $_.FullName.Substring($Repo.Length + 1)
+    if ($rel -eq 'config\db.local.php' -or $rel -like 'scripts\*') { return }
+    $t = Join-Path $Docroot $rel
+    if (-not (Test-Path $t)) { Write-Host "  FALTA: $rel"; $dif++ }
+    elseif ((Get-FileHash $_.FullName).Hash -ne (Get-FileHash $t).Hash) { Write-Host "  DIVERGE: $rel"; $dif++ }
+}
+if ($dif -eq 0) {
+    Write-Host "  Verificacion: repo y docroot coinciden."
+} else {
+    Write-Host "  Verificacion: $dif archivo(s) sin sincronizar."
+}

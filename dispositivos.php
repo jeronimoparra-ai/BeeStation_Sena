@@ -65,16 +65,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['crear_colmena'])) {
             $stmtCol->execute([$nombre, $especie, $token_seguro, $id_apiario]);
             $id_nueva_colmena = $pdo->lastInsertId();
 
-            // 3. Autoprovisionamiento: Registramos automáticamente sus 7 sensores oficiales
+            // 3. Autoprovisionamiento: Registramos automáticamente sus 9 sensores oficiales
             // Esto evita errores de bases de datos vacías para el usuario final.
+            // Los 9 tipos son los que el firmware ESP32 puede enviar: 6 los mide
+            // hoy (temperatura, humedad, presión, peso, sonido, luminosidad) y 3
+            // quedan listos para cuando se integren (CO2, temp. externa, energía).
             $sensores_por_defecto = [
-                ['tipo' => 'temperatura_interna', 'modelo' => 'DHT22', 'min' => -40, 'max' => 80, 'prec' => 0.5, 'var' => 1],
-                ['tipo' => 'temperatura_externa', 'modelo' => 'DHT22', 'min' => -40, 'max' => 80, 'prec' => 0.5, 'var' => 2],
-                ['tipo' => 'humedad_relativa',   'modelo' => 'DHT22', 'min' => 0,   'max' => 100, 'prec' => 3.0, 'var' => 3],
-                ['tipo' => 'peso',               'modelo' => 'HX711', 'min' => 0,   'max' => 50,  'prec' => 0.01, 'var' => 4],
-                ['tipo' => 'sonido',             'modelo' => 'MAX9814','min' => 20,  'max' => 20000,'prec' => null, 'var' => 5],
-                ['tipo' => 'co2',                'modelo' => 'MQ-135', 'min' => 10,  'max' => 300,  'prec' => null, 'var' => 6],
-                ['tipo' => 'energia',            'modelo' => 'INA219', 'min' => 0,   'max' => 5,   'prec' => 0.01, 'var' => 7]
+                ['tipo' => 'temperatura_interna', 'modelo' => 'DHT22',   'min' => -40, 'max' => 80,    'prec' => 0.5,  'var' => 1],
+                ['tipo' => 'temperatura_externa', 'modelo' => 'DHT22',   'min' => -40, 'max' => 80,    'prec' => 0.5,  'var' => 2],
+                ['tipo' => 'humedad_relativa',   'modelo' => 'DHT22',   'min' => 0,   'max' => 100,   'prec' => 3.0,  'var' => 3],
+                ['tipo' => 'peso',               'modelo' => 'HX711',   'min' => 0,   'max' => 50,    'prec' => 0.01, 'var' => 4],
+                ['tipo' => 'sonido',             'modelo' => 'MAX4466', 'min' => 0,   'max' => 20000, 'prec' => null, 'var' => 5],
+                ['tipo' => 'co2',                'modelo' => 'MQ-135',  'min' => 400, 'max' => 6000,  'prec' => null, 'var' => 6],
+                ['tipo' => 'energia',            'modelo' => 'INA219',  'min' => 0,   'max' => 5,    'prec' => 0.01, 'var' => 7],
+                ['tipo' => 'presion',            'modelo' => 'BME280',  'min' => 300, 'max' => 1100,  'prec' => 0.1,  'var' => 8],
+                ['tipo' => 'luminosidad',        'modelo' => 'BH1750',  'min' => 0,   'max' => 200000,'prec' => 0.1,  'var' => 9]
             ];
 
             $stmtSens = $pdo->prepare("
@@ -275,12 +280,24 @@ require_once __DIR__ . '/includes/header.php';
                                         <td style="font-style: italic; font-size: 0.82rem; color: var(--color-text-secondary);"><?= htmlspecialchars($colmena['especie']); ?></td>
                                         <td class="text-mono text-sm"><?= $colmena['fecha_instalacion']; ?></td>
                                         <td>
-                                            <div style="display: flex; align-items: center; gap: 8px;">
+                                            <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
                                                 <code style="font-size: 0.88rem; background: var(--color-bg-muted); color: var(--color-brand-dark); font-weight: 700; border-radius: 8px; padding: 4px 10px; border: 1px solid var(--color-border);"><?= htmlspecialchars($colmena['token_vinculacion']); ?></code>
                                                 <button class="btn btn-secondary btn-sm" onclick="copyToken('<?= htmlspecialchars($colmena['token_vinculacion']); ?>', this)" title="Copiar Token al portapapeles" style="min-height:32px; padding: 4px 10px;">
                                                     <i data-lucide="copy" style="width: 14px; height: 14px;"></i>
                                                 </button>
                                             </div>
+                                            <?php if (!empty($colmena['nodo_mac'])): ?>
+                                                <div class="text-mono" style="font-size: 0.72rem; color: var(--color-text-tertiary); margin-top: 6px;">
+                                                    Nodo: <?= htmlspecialchars($colmena['nodo_mac']); ?>
+                                                    <?php if (!empty($colmena['nodo_ultimo_contacto'])): ?>
+                                                        &middot; último contacto <?= htmlspecialchars(tiempoRelativo($colmena['nodo_ultimo_contacto'])); ?>
+                                                    <?php endif; ?>
+                                                </div>
+                                            <?php else: ?>
+                                                <div style="font-size: 0.72rem; color: var(--color-text-tertiary); margin-top: 6px;">
+                                                    Sin nodo vinculado: pega este token en el portal cautivo del ESP32.
+                                                </div>
+                                            <?php endif; ?>
                                         </td>
                                         <td style="text-align: center;">
                                             <?php if ($online): ?>

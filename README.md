@@ -44,7 +44,7 @@ Proyecto de formación — **SENA, Centro Minero Ambiental**, El Bagre (Antioqui
 
 ```mermaid
 flowchart LR
-    A["🐝 ESP32 + Sensores"] -->|"POST JSON · WiFi"| B["<b>api/ingest.php</b><br/>valida API Key + token"]
+    A["🐝 ESP32 + Sensores"] -->|"POST JSON · WiFi"| B["<b>api/ingest.php</b><br/>valida la firma HMAC del nodo"]
     B --> C["Calibración<br/>por sensor"]
     C --> D[(MySQL /<br/>MariaDB)]
     C --> E["Cálculo IBB<br/>+ indicadores"]
@@ -65,7 +65,7 @@ flowchart LR
 | Paso | Qué ocurre |
 |:--:|---|
 | **1** | El ESP32 despierta, lee todos los sensores y arma el JSON |
-| **2** | `POST` a `api/ingest.php` con `X-API-Key` + `token` de vinculación |
+| **2** | `POST` a `api/ingest.php` con la petición **firmada** (HMAC-SHA256) |
 | **3** | El backend valida la clave (`hash_equals`) y que el token no esté revocado |
 | **4** | Aplica el factor de calibración propio de cada sensor y guarda la lectura |
 | **5** | Recalcula el **IBB** y los indicadores derivados en la misma ingesta |
@@ -104,7 +104,7 @@ flowchart LR
 <td>
 
 ### 🔒 Seguridad
-- **API Key** obligatoria en toda petición (`hash_equals`, sin *timing attack*)
+- **Firma HMAC-SHA256** en toda petición: el secreto del nodo **nunca viaja por la red**
 - **Token de vinculación** único por colmena (`BS-XXXX-XXXX`)
 - Control de intentos fallidos + revocación de token
 - Credenciales fuera del código vía `config/db.php`
@@ -210,7 +210,8 @@ IBB = 100 − ( 0,45 · f_temp + 0,35 · f_hum + 0,20 · f_co2 )
 
 ## 🌐 API
 
-Tres endpoints, todos en `api/`. **Toda petición necesita el header `X-API-Key`.**
+Tres endpoints, todos en `api/`. **Toda petición va firmada con HMAC-SHA256** usando el
+token de vinculación de la colmena como secreto (ver `docs/AUTENTICACION-Y-PORTAL.md`).
 
 | Método | Ruta | Descripción |
 |:-:|---|---|
@@ -225,19 +226,27 @@ Tres endpoints, todos en `api/`. **Toda petición necesita el header `X-API-Key`
 <br>
 
 ```bash
-curl -X POST http://localhost/BeeStation_Sena/api/ingest.php \
+# La petición va FIRMADA: el token no viaja, solo su HMAC-SHA256.
+SECRETO="BS-NODO-887E-D9F3-C799-A9BF-5D5F-B14D-6A53-BDF7"
+RUTA="/BeeStation_Sena/api/ingest.php"
+TS=$(date +%s)
+CUERPO='{"lecturas":[
+  {"tipo":"temperatura_interna","valor":34.5},
+  {"tipo":"humedad_relativa",   "valor":62.0},
+  {"tipo":"co2",                "valor":2800},
+  {"tipo":"peso",               "valor":18.7},
+  {"tipo":"sonido",             "valor":312.0}
+]}'
+HASH=$(printf '%s' "$CUERPO" | sha256sum | cut -d' ' -f1)
+FIRMA=$(printf 'POST\n%s\n%s\n%s' "$RUTA" "$TS" "$HASH" \
+        | openssl dgst -sha256 -hmac "$SECRETO" -hex | sed 's/^.* //' | tr 'a-f' 'A-F')
+
+curl -X POST "http://localhost$RUTA" \
   -H 'Content-Type: application/json' \
-  -H 'X-API-Key: <BEESTATION_API_KEY>' \
-  -d '{
-    "token": "BS-ALPHA01-1A2B3C",
-    "lecturas": [
-      { "tipo": "temperatura_interna", "valor": 34.5 },
-      { "tipo": "humedad_relativa",    "valor": 62.0 },
-      { "tipo": "co2",                 "valor": 2800 },
-      { "tipo": "peso",                "valor": 18.7 },
-      { "tipo": "sonido",              "valor": 312.0 }
-    ]
-  }'
+  -H 'X-BeeStation-Mac: AA:BB:CC:DD:EE:FF' \
+  -H "X-BeeStation-Timestamp: $TS" \
+  -H "X-BeeStation-Signature: $FIRMA" \
+  -d "$CUERPO"
 ```
 
 ```json
@@ -264,7 +273,7 @@ curl -X POST http://localhost/BeeStation_Sena/api/ingest.php \
 | Código | Causa |
 |:-:|---|
 | `200` | Ingesta correcta |
-| `401` | API Key inválida o ausente |
+| `401` | Firma ausente, inválida o con marca de tiempo fuera de ventana |
 | `400` | Token desconocido / revocado, o JSON malformado |
 | `405` | Método distinto de `POST` |
 
@@ -332,7 +341,7 @@ git clone https://github.com/jeronimoparra-ai/BeeStation_Sena.git
 | 2 | Importa `database/schema.sql` en phpMyAdmin — crea la BD, las tablas y la colmena de ejemplo |
 | 3 | Ajusta `DB_HOST`, `DB_NAME`, `DB_USER`, `DB_PASS` en `config/db.php` |
 | 4 | Genera un hash real con `password_hash()` y reemplázalo en la tabla `usuario` *(el que trae `schema.sql` es un placeholder)* |
-| 5 | Pon tu `BEESTATION_API_KEY` en `config/db.php` |
+| 5 | Copia `config/db.example.php` a `config/db.local.php` y ajusta las credenciales |
 | 6 | Inicia Apache + MySQL y entra a `http://localhost/BeeStation` |
 
 <details>
@@ -351,7 +360,7 @@ git clone https://github.com/jeronimoparra-ai/BeeStation_Sena.git
 | # | Paso |
 |:-:|---|
 | 1 | Abre `beestation_node/beestation_node.ino` en **Arduino IDE** |
-| 2 | Verifica la **API Key** — debe ser idéntica a la de `config/db.php` |
+| 2 | Verifica la **firma** — el nodo debe registrar "último contacto" en el panel |
 | 3 | Board: **ESP32 Dev Module** · selecciona el puerto COM/USB |
 | 4 | ✔ Verificar → ⬆ Subir *(mantén BOOT si no avanza)* |
 | 5 | Registra la colmena en `dispositivos.php` y copia el **token** |
@@ -381,7 +390,7 @@ BeeStation_Sena/
 │   ├── validate_token.php      # Pre-validación del token de vinculación
 │   └── ping.php                # Salud del servicio
 ├── ⚙️ config/
-│   └── db.php                  # Conexión PDO + BEESTATION_API_KEY
+│   └── db.php                  # Conexión PDO (las credenciales reales están en db.local.php)
 ├── 🗄️ database/
 │   ├── schema.sql              # Esquema limpio (recomendado para empezar)
 │   └── beestation_sena.sql     # Dump completo del entorno de desarrollo
@@ -406,7 +415,7 @@ BeeStation_Sena/
 - [x] Prototipo físico impreso en 3D (carcasa hexagonal)
 - [x] Backend PHP + MySQL con dashboard sobre **datos reales** — sin valores de relleno
 - [x] `api/ingest.php`: valida, calibra, guarda y recalcula el IBB en cada ingesta
-- [x] **Autenticación por API Key** con `hash_equals` en los 3 endpoints
+- [x] **Autenticación por firma HMAC-SHA256** con `hash_equals` y ventana anti-replay
 - [x] **Token de vinculación único por colmena** + control de intentos y revocación
 - [x] Indicadores **ΔT**, **EV**, **H_miel** y flujo de néctar implementados
 - [x] Alertas automáticas persistidas en la tabla `alerta`
@@ -443,7 +452,7 @@ El repositorio incluye **`guia-configuracion-beestation.docx`**: manual de insta
 |---|---|---|
 | `fatal error: Adafruit_Sensor.h: No such file` | Falta la librería base | Instala **Adafruit Unified Sensor** |
 | Puerto COM gris o inhabilitado | Cable de solo carga o driver faltante | Usa cable de datos e instala CP210x / CH340 |
-| `HTTP 401 Unauthorized` en ingesta | La API Key del firmware no coincide con la del servidor | Sincroniza `apiKey` en el `.ino` con `BEESTATION_API_KEY` |
+| `HTTP 401 Unauthorized` en ingesta | El token de vinculación no es el de esa colmena | Copia de nuevo el token del panel y re-vincula el nodo |
 | Error SQL 500 al procesar el token | Faltan columnas de seguridad en `colmena` | Ejecuta el `ALTER TABLE` de la guía en phpMyAdmin |
 
 </details>

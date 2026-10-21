@@ -1,0 +1,66 @@
+# ============================================================
+#  BeeStation — protección del docroot
+#  Instalado en la raíz web (htdocs/BeeStation_Sena/.htaccess)
+#
+#  Motivo: sin este archivo, Apache servía el directorio .git
+#  completo (historial con la API Key, hashes de usuario y tokens)
+#  y el dump SQL con los datos de producción.
+# ============================================================
+
+# --- Sin listados de directorio ---
+Options -Indexes
+
+DirectoryIndex index.php
+
+# --- Rutas que nunca deben servirse por HTTP ---
+#  .git/.svn/.hg  -> historial del repositorio
+#  config/        -> credenciales de base de datos
+#  database/      -> esquema y volcados de datos
+#  beestation_node/ -> firmware (contiene secretos del nodo)
+#  tools/         -> utilidades de diagnostico
+#  docs/          -> documentacion interna
+#  scripts/       -> lanzadores
+#
+#  En .htaccess las reglas de reescritura se evalúan sobre la ruta
+#  RELATIVA al directorio, a diferencia de RedirectMatch (que usa la
+#  ruta completa y por eso no alcanzaba con el prefijo /BeeStation_Sena).
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    RewriteBase /
+    RewriteRule ^(?:config|database|beestation_node|tools|docs|scripts|\.git|\.svn|\.hg)(?:/|$) - [F,L]
+</IfModule>
+<IfModule !mod_rewrite.c>
+    # Sin mod_rewrite se recurre a bloquear los archivos por nombre.
+    RedirectMatch 404 "(?:^|/)(?:\.git|\.svn|\.hg)/"
+</IfModule>
+
+# --- Archivos sueltos que nunca deben servirse ---
+<FilesMatch "(^\.|^(?:repomix-output|README|INFORME|guia-configuracion)|\.(?:sql|md|log|ini|env|bak|orig|old|swp|dist|example|local|bak1|log1)$)">
+    Require all denied
+</FilesMatch>
+
+# --- Cabeceras de seguridad ---
+<IfModule mod_headers.c>
+    Header always set X-Content-Type-Options "nosniff"
+    Header always set X-Frame-Options "SAMEORIGIN"
+    Header always set Referrer-Policy "strict-origin-when-cross-origin"
+    Header always set Permissions-Policy "geolocation=(), microphone=(), camera=()"
+    Header always set X-Permitted-Cross-Domain-Policies "none"
+    # El panel nunca debe quedar cacheado en proxies intermedios
+    <FilesMatch "\.php$">
+        Header always set Cache-Control "no-store, no-cache, must-revalidate"
+    </FilesMatch>
+</IfModule>
+
+# --- No indexar el panel ---
+<IfModule mod_headers.c>
+    <FilesMatch "\.php$">
+        Header always set X-Robots-Tag "noindex, nofollow"
+    </FilesMatch>
+</IfModule>
+
+# --- Limitar el tamaño de las peticiones (la API recibe lotes de lecturas) ---
+<IfModule mod_php.c>
+    php_value post_max_size 4M
+    php_value upload_max_filesize 2M
+</IfModule>

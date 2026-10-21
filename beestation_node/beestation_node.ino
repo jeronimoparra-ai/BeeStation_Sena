@@ -5,6 +5,8 @@
 #include <HTTPClient.h>
 #include <ESPmDNS.h>
 #include <time.h>            // NTP + hora real para los registros de la microSD
+  #include <mbedtls/md.h>      // HMAC-SHA256: firma de las peticiones al backend
+  #include <mbedtls/sha256.h>  // SHA-256: hash del cuerpo de la petición
 
 // ── LIBRERÍAS DE HARDWARE REAL (Diseño de tu Placa) ──────────
 #include <Wire.h>
@@ -63,14 +65,188 @@ String hostGuardado  = ""; // IP de tu PC o dominio web dinámico
 // ── Flag de modo de operación ─────────────────────────────────
 bool modoPortalCautivo = false;
 
+// ── Token anti-CSRF del portal (se regenera en cada arranque) ──
+String tokenCsrf = "";
+
+// ── Caché del escaneo de redes WiFi (evita congelar el nodo) ──
+unsigned long ultimoEscaneoWifi = 0;
+int redesCacheadas = 0;
+String listaRedesCache = "";
+
 // ── Configuración de red local para el Portal Cautivo ─────────
 const byte DNS_PORT = 53;
 IPAddress apIP(192, 168, 4, 1);
 
-// ── SEGURIDAD: API Key sincronizada con config/db.php ─────────
-// IMPORTANTE: Esta clave DEBE ser idéntica a BEESTATION_API_KEY
-// definida en config/db.php del servidor PHP.
-const char* apiKey = "ba20858ed12a853bbcaafec2d9c753db0ad9f7e60022d6e1a3f94f978743808a";
+// ── SEGURIDAD: firma HMAC-SHA256 por colmena (sustituye a la API Key) ──
+//
+// El nodo NO envía su token: firma cada petición con el secreto de SU
+// colmena (el token de vinculación que el usuario pega en este portal).
+// Ventajas frente a la antigua API Key global:
+//   · el secreto NUNCA viaja por la red (no se puede capturar con un
+//     sniffer en la LAN del apiario);
+//   · no hay ninguna clave compilada en el binario del firmware;
+//   · cada nodo se revoca por separado, sin reflashear el resto;
+//   · la marca de tiempo dentro de la firma impide reutilizar una
+//     petición capturada (anti-replay).
+//
+// El servidor verifica la firma en includes/firma.php (PHP).
+#define FIRMA_VENTANA_SEGUNDOS 300
+
+// ── Utilidades de firma ───────────────────────────────────────────
+String hexMayusculas(const uint8_t* datos, size_t longitud) {
+  String r = "";
+  r.reserve(longitud * 2);
+  for (size_t i = 0; i < longitud; i++) {
+    char par[3];
+    snprintf(par, sizeof(par), "%02X", datos[i]);
+    r += par;
+  }
+  return r;
+}
+
+String sha256Hex(const String& texto) {
+  uint8_t hash[32];
+  mbedtls_sha256_context ctx;
+  mbedtls_sha256_init(&ctx);
+  mbedtls_sha256_starts(&ctx, 0);
+  mbedtls_sha256_update(&ctx, (const unsigned char*)texto.c_str(), texto.length());
+  mbedtls_sha256_finish(&ctx, hash);
+  mbedtls_sha256_free(&ctx);
+  return hexMayusculas(hash, 32);
+}
+
+String firmaHmac(const String& clave, const String& canonica) {
+  if (clave.length() == 0) return "";
+
+  // HMAC(RFC 2104) con SHA-256, construido sobre mbedtls_sha256 para no
+  // depender de la variante de mbedtls_md_hmac del core.
+  uint8_t claveBytes[64];
+  memset(claveBytes, 0, sizeof(claveBytes));
+  if (clave.length() > 64) {
+    // RFC 2104: si la clave es mas larga que el bloque (64 bytes) se
+    // resume con SHA-256 antes de usarla. Asi coincide exactamente con
+    // hash_hmac() de PHP, que es el que verifica el servidor.
+    uint8_t resumen[32];
+    mbedtls_sha256_context ctxClave;
+    mbedtls_sha256_init(&ctxClave);
+    mbedtls_sha256_starts(&ctxClave, 0);
+    mbedtls_sha256_update(&ctxClave, (const unsigned char*)clave.c_str(), clave.length());
+    mbedtls_sha256_finish(&ctxClave, resumen);
+    mbedtls_sha256_free(&ctxClave);
+    memcpy(claveBytes, resumen, 32);
+  } else {
+    memcpy(claveBytes, clave.c_str(), clave.length());
+  }
+
+  uint8_t ipad[64], opad[64];
+  for (int i = 0; i < 64; i++) {
+    ipad[i] = claveBytes[i] ^ 0x36;
+    opad[i] = claveBytes[i] ^ 0x5C;
+  }
+
+  uint8_t hashInterno[32];
+  mbedtls_sha256_context ctx;
+  mbedtls_sha256_init(&ctx);
+  mbedtls_sha256_starts(&ctx, 0);
+  mbedtls_sha256_update(&ctx, ipad, 64);
+  mbedtls_sha256_update(&ctx, (const unsigned char*)canonica.c_str(), canonica.length());
+  mbedtls_sha256_finish(&ctx, hashInterno);
+  mbedtls_sha256_free(&ctx);
+
+  uint8_t resultado[32];
+  mbedtls_sha256_init(&ctx);
+  mbedtls_sha256_starts(&ctx, 0);
+  mbedtls_sha256_update(&ctx, opad, 64);
+  mbedtls_sha256_update(&ctx, hashInterno, 32);
+  mbedtls_sha256_finish(&ctx, resultado);
+  mbedtls_sha256_free(&ctx);
+
+  return hexMayusculas(resultado, 32);
+}
+
+// Cadena canónica firmada. DEBE ser idéntica a la del servidor:
+//   METODO \n RUTA \n TIMESTAMP \n sha256_hex(cuerpo)
+String cadenaFirma(const String& metodo, const String& ruta, const String& ts, const String& cuerpo) {
+  return metodo + "\n" + ruta + "\n" + ts + "\n" + sha256Hex(cuerpo);
+}
+
+// Ruta que se firma: la parte de la URL que va tras el host.
+String rutaDeUrl(const String& url) {
+  int posHost = url.indexOf("//");
+  if (posHost < 0) return "/";
+  int posRuta = url.indexOf("/", posHost + 2);
+  if (posRuta < 0) return "/";
+  return url.substring(posRuta);
+}
+
+// MAC del nodo: identifica al dispositivo ante el servidor.
+String macNodo() {
+  return WiFi.macAddress();
+}
+
+// ── Seguridad del portal cautivo ─────────────────────────────────
+//  · El AP tiene contraseña (derivada de la MAC) para que no quede
+//    abierto a cualquiera que pase por el apiario.
+//  · Las peticiones de guardado exigen un token anti-CSRF, de modo que
+//    una web cualquiera no pueda reconfigurar el nodo con un formulario
+//    automático.
+//  · El texto de las redes WiFi se escapa antes de inyectarlo en el HTML.
+String nombreAP() {
+  return "BeeStation_Config";
+}
+
+// Nombre mDNS propio de cada nodo: con dos o más nodos en la misma
+// LAN, un nombre compartido hace que el segundo no se registre.
+String nombreMdns() {
+  String mac = macNodo();
+  mac.replace(":", "");
+  if (mac.length() < 6) return "beestation";
+  return "beestation-" + mac.substring(mac.length() - 6);
+}
+
+String clavePortal() {
+  String mac = macNodo();
+  mac.replace(":", "");
+  if (mac.length() < 5) return "beestation";
+  return "bee" + mac.substring(mac.length() - 5);
+}
+
+String generarTokenCsrf() {
+  uint8_t aleatorio[16];
+  for (int i = 0; i < 16; i++) {
+    aleatorio[i] = (uint8_t)esp_random();
+  }
+  return hexMayusculas(aleatorio, sizeof(aleatorio));
+}
+
+String escaparHtml(const String& texto) {
+  String r = "";
+  r.reserve(texto.length() + 16);
+  for (size_t i = 0; i < texto.length(); i++) {
+    char c = texto[i];
+    if      (c == '&')  r += "&amp;";
+    else if (c == '<')  r += "&lt;";
+    else if (c == '>')  r += "&gt;";
+    else if (c == '"')  r += "&quot;";
+    else if (c == '\'') r += "&#39;";
+    else                r += c;
+  }
+  return r;
+}
+
+// Una lectura del payload: tipo, valor y, si el reloj está sincronizado,
+// la marca de tiempo de la medición (ts) y un número de secuencia (seq).
+// ts/seq los usa el backend para fechar la medición real y para no
+// duplicar un reenvío posterior (idempotencia).
+String lecturaJson(const String& tipo, float valor, long epoch, bool conReloj) {
+  String s = "{\"tipo\":\"" + tipo + "\",\"valor\":" + String(valor, 2);
+  if (conReloj) {
+    s += ",\"ts\":" + String(epoch);
+    s += ",\"seq\":" + String(epoch);
+  }
+  s += "}";
+  return s;
+}
 
 // ── Intervalo de RECOPILACIÓN de datos ────────────────────────
 // Una lectura cada 5 minutos. La lectura se registra SIEMPRE en
@@ -120,6 +296,10 @@ String horaLocal(time_t ep) {
 void setup() {
   Serial.begin(115200);
   delay(300);
+
+  // Token anti-CSRF del portal: se genera en cada arranque y caduca con
+  // el reinicio. Sin él, cualquier web podría reconfigurar el nodo.
+  tokenCsrf = generarTokenCsrf();
 
   Serial.println("INICIANDO SISTEMA...");
 
@@ -298,7 +478,7 @@ void setup() {
   if (ssidGuardado != "" && tokenGuardado != "") {
     Serial.printf("\n[WiFi] Conectando a '%s'...\n", ssidGuardado.c_str());
     WiFi.mode(WIFI_STA);
-    WiFi.setHostname("BeeStation-Node");
+    WiFi.setHostname(nombreMdns().c_str());
     WiFi.begin(ssidGuardado.c_str(), passGuardado.c_str());
 
     int intentos = 0;
@@ -340,7 +520,7 @@ void setup() {
       }
 
       // Iniciar mDNS para que el dispositivo sea accesible como beestation.local
-      if (MDNS.begin("beestation")) {
+      if (MDNS.begin(nombreMdns().c_str())) {
         Serial.println("[mDNS] Accesible como → http://beestation.local");
       }
 
@@ -447,13 +627,20 @@ void loop() {
   // ── Construcción del JSON de telemetría ─────────────────────
   // CORRECCIÓN: El BH1750 mide luminosidad (luxes), NO CO2.
   // Se añade presión barométrica del BME280.
-  String jsonPayload = "{\"token\":\"" + tokenGuardado + "\",\"lecturas\":[";
-  jsonPayload += "{\"tipo\":\"temperatura_interna\",\"valor\":" + String(tempInterna, 2) + "},";
-  jsonPayload += "{\"tipo\":\"humedad_relativa\",\"valor\":" + String(humRelativa, 2) + "},";
-  jsonPayload += "{\"tipo\":\"presion\",\"valor\":" + String(presionAtm, 2) + "},";
-  jsonPayload += "{\"tipo\":\"peso\",\"valor\":" + String(pesoColmena, 2) + "},";
-  jsonPayload += "{\"tipo\":\"sonido\",\"valor\":" + String(nivelSonido, 2) + "},";
-  jsonPayload += "{\"tipo\":\"luminosidad\",\"valor\":" + String(luzAmbiente, 2) + "}";
+  //
+  // El token NO viaja en el cuerpo: el nodo se identifica con su MAC y
+  // la petición va FIRMADA. El servidor sabe a qué colmena pertenece
+  // cada lectura porque verifica la firma contra su secreto.
+  long epochLectura = (long)time(nullptr);
+  bool hayReloj     = (epochLectura > 1000000);
+
+  String jsonPayload = "{\"lecturas\":[";
+  jsonPayload += lecturaJson("temperatura_interna", tempInterna,  epochLectura, hayReloj) + ",";
+  jsonPayload += lecturaJson("humedad_relativa",    humRelativa,  epochLectura, hayReloj) + ",";
+  jsonPayload += lecturaJson("presion",            presionAtm,   epochLectura, hayReloj) + ",";
+  jsonPayload += lecturaJson("peso",               pesoColmena,  epochLectura, hayReloj) + ",";
+  jsonPayload += lecturaJson("sonido",             nivelSonido,  epochLectura, hayReloj) + ",";
+  jsonPayload += lecturaJson("luminosidad",        luzAmbiente,  epochLectura, hayReloj);
   jsonPayload += "]}";
 
   Serial.printf("[ENVÍO] → %s | Temp %.1f°C · Hum %.1f%% · Peso %.2f kg · Luz %.1f lux\n",
@@ -476,19 +663,43 @@ void loop() {
   String serverUrl = "http://" + ipServidor + "/BeeStation_Sena/api/ingest.php";
   Serial.println("[HTTP] Destino: " + serverUrl);
 
-  // ── Envío de Petición HTTP POST ─────────────────────────────
+  // ── Envío de Petición HTTP POST (FIRMADA) ───────────────────
   HTTPClient http;
+  http.setReuse(false);
   http.begin(serverUrl);
-  http.addHeader("Content-Type", "application/json");
-  http.addHeader("X-API-Key", apiKey);
+  http.setConnectTimeout(3000);
   http.setTimeout(8000); // Timeout de 8 segundos
+  http.addHeader("Content-Type", "application/json");
+
+  // Firma de la petición: el servidor la valida contra el secreto de
+  // cada colmena. El token nunca sale del ESP32.
+  String tsFirma   = String((long)time(nullptr));
+  String rutaFirma = rutaDeUrl(serverUrl);
+  String firma     = firmaHmac(tokenGuardado, cadenaFirma("POST", rutaFirma, tsFirma, jsonPayload));
+
+  if (firma.length() != 64) {
+    Serial.println("[HTTP] ✗ No se puede firmar: falta el token de vinculación.");
+    Serial.println("[HTTP]   Vuelve al portal cautivo y pega el token de la colmena.");
+    digitalWrite(LED_STATUS, HIGH);
+    delay(200);
+    digitalWrite(LED_STATUS, LOW);
+    return;
+  }
+
+  http.addHeader("X-BeeStation-Mac", macNodo());
+  http.addHeader("X-BeeStation-Timestamp", tsFirma);
+  http.addHeader("X-BeeStation-Signature", firma);
 
   int httpResponseCode = http.POST(jsonPayload);
 
-  if (httpResponseCode > 0) {
+  if (httpResponseCode == 200) {
     String response = http.getString();
-    Serial.printf("[HTTP] Respuesta [%d]: %s\n", httpResponseCode, response.c_str());
-    
+    Serial.printf("[HTTP] Respuesta [200]: %s\n", response.c_str());
+
+    // El backend puede aceptar el envío y aun así descartar parte de los
+    // datos: ok_total = false avisa de que hubo rechazos.
+    bool okTotal = (response.indexOf("\"ok_total\":true") >= 0);
+
     // Parpadeo de éxito: 2 destellos rápidos
     digitalWrite(LED_STATUS, LOW);
     delay(100);
@@ -504,29 +715,59 @@ void loop() {
     ultimaSubidaEpoch = time(nullptr);
     ultimaSubidaMs = millis();
     if (ultimaSubidaEpoch > 1000000) {
-      Serial.printf("[ENV] ✓ Subido a las %s (hora local)\n",
-                    horaLocal(ultimaSubidaEpoch).c_str());
+      Serial.printf("[ENV] ✓ Subido a las %s (hora local)%s\n",
+                    horaLocal(ultimaSubidaEpoch).c_str(),
+                    okTotal ? "" : "  [PARCIAL: el backend rechazó alguna lectura]");
     }
 
     // Reset del contador de reconexión tras envío exitoso
     intentosReconexionConsecutivos = 0;
+
+  } else if (httpResponseCode >= 400) {
+    // ── ERROR DE APLICACIÓN: NO es un envío correcto ──
+    // Antes cualquier código > 0 se contaba como éxito, de modo que un
+    // 401 (firma o token incorrectos) o un 404 (token revocado) se
+    // mosttaban como "datos subidos" mientras no se guardaba NADA.
+    String response = http.getString();
+    Serial.printf("[HTTP] ✗ Rechazado por el servidor [%d]: %s\n",
+                  httpResponseCode, response.c_str());
+
+    if (httpResponseCode == 401) {
+      Serial.println("[HTTP]   El token de vinculación no es válido o está revocado.");
+      Serial.println("[HTTP]   Copia de nuevo el token en el panel y reinicia el nodo.");
+    } else if (httpResponseCode == 404) {
+      Serial.println("[HTTP]   La colmena ya no existe en la plataforma.");
+    } else if (httpResponseCode == 413) {
+      Serial.println("[HTTP]   Lote demasiado grande: el backend lo ha limitado.");
+    }
+
+    // Parpadeo de error: 5 destellos muy rápidos
+    for (int i = 0; i < 5; i++) {
+      digitalWrite(LED_STATUS, HIGH);
+      delay(50);
+      digitalWrite(LED_STATUS, LOW);
+      delay(50);
+    }
+    intentosReconexionConsecutivos++;
+
   } else {
+    // ── ERROR DE TRANSPORTE (sin respuesta del servidor) ──
     Serial.printf("[HTTP] ✗ Error de transmisión: %s\n", http.errorToString(httpResponseCode).c_str());
     Serial.println("[HTTP] Verifica que Apache/XAMPP esté corriendo y que la IP sea correcta.");
-    
+
     intentosReconexionConsecutivos++;
-    
+
     // Si falla 2 veces consecutivas, podría ser porque la IP del servidor cambió por DHCP.
     // Lanzar un nuevo escaneo de red.
     if (intentosReconexionConsecutivos >= 2 && intentosReconexionConsecutivos < MAX_INTENTOS_ANTES_PORTAL) {
       Serial.println("[AUTO] Múltiples fallos detectados. Probable cambio de IP del servidor por DHCP.");
       if (descubrirServidor()) {
-        // Si el descubrimiento encuentra una IP nueva, resetear el contador 
+        // Si el descubrimiento encuentra una IP nueva, resetear el contador
         // para darle tiempo a probar la nueva IP sin forzar el portal cautivo inmediatamente.
-        intentosReconexionConsecutivos = 0; 
+        intentosReconexionConsecutivos = 0;
       }
     }
-    
+
     // Parpadeo de error: 5 destellos muy rápidos
     for (int i = 0; i < 5; i++) {
       digitalWrite(LED_STATUS, HIGH);
@@ -1007,9 +1248,12 @@ void comandoConfig() {
   Serial.printf("  Contraseña : %s\n", p.length() > 0 ? "••••••••" : "(vacía)");
   Serial.printf("  Token      : %s\n", t.c_str());
   Serial.printf("  Host       : %s\n", h.length() > 0 ? h.c_str() : "(auto-detect vía gateway)");
-  Serial.printf("  API Key    : %s...%s\n", 
-    String(apiKey).substring(0, 6).c_str(), 
-    String(apiKey).substring(max(0, (int)strlen(apiKey) - 4)).c_str());
+  // El token es la credencial del nodo: solo se muestran 6 caracteres.
+  Serial.printf("  Token      : %s...%s  (credencial de firma)\n",
+    t.length() > 8 ? t.substring(0, 8).c_str() : t.c_str(),
+    t.length() > 6 ? t.substring(t.length() - 4).c_str() : "");
+  Serial.println(String("  MAC        : ") + macNodo().c_str());
+  Serial.println(String("  mDNS       : ") + nombreMdns().c_str() + ".local");
   Serial.println();
 }
 
@@ -1042,7 +1286,7 @@ void comandoScan() {
 
 void comandoTest() {
   if (WiFi.status() != WL_CONNECTED) {
-    Serial.println("[TEST] ✗ No hay conexión WiFi activa. Conecta primero a una red.");
+    Serial.println("[TEST] ? No hay conexion WiFi activa. Conecta primero a una red.");
     return;
   }
 
@@ -1051,80 +1295,92 @@ void comandoTest() {
     ipServidor = WiFi.gatewayIP().toString();
   }
 
-  // Test 1: Ping básico (HTTP GET a la raíz)
-  Serial.println("[TEST] 1/3 — Verificando acceso al servidor...");
+  // ── Test 1: el servidor responde ──
+  Serial.println("[TEST] 1/3 - Verificando acceso al servidor...");
   String urlBase = "http://" + ipServidor + "/BeeStation_Sena/";
   HTTPClient http;
+  http.setReuse(false);
   http.begin(urlBase);
   http.setTimeout(5000);
   int code = http.GET();
   if (code > 0) {
-    Serial.printf("[TEST]   ✓ Servidor accesible en %s [HTTP %d]\n", urlBase.c_str(), code);
+    Serial.printf("[TEST]   V Servidor accesible en %s [HTTP %d]\n", urlBase.c_str(), code);
   } else {
-    Serial.printf("[TEST]   ✗ Servidor NO accesible: %s\n", http.errorToString(code).c_str());
-    Serial.println("[TEST]   Verifica que Apache/XAMPP esté ejecutándose.");
+    Serial.printf("[TEST]   ? Servidor NO accesible: %s\n", http.errorToString(code).c_str());
+    Serial.println("[TEST]   Verifica que Apache/XAMPP este ejecutandose.");
     Serial.printf("[TEST]   IP probada: %s\n", ipServidor.c_str());
     http.end();
     return;
   }
   http.end();
 
-  // Test 2: Validar API Key
-  Serial.println("[TEST] 2/3 — Validando API Key...");
+  // ── Test 2: la credencial del nodo es valida (peticion firmada) ──
+  Serial.println("[TEST] 2/3 - Validando la credencial del nodo...");
   String urlValidate = "http://" + ipServidor + "/BeeStation_Sena/api/validate_token.php";
+  String payloadVal = "{}";
+  String tsVal = String((long)time(nullptr));
   http.begin(urlValidate);
   http.addHeader("Content-Type", "application/json");
-  http.addHeader("X-API-Key", apiKey);
+  http.addHeader("X-BeeStation-Mac", macNodo());
+  http.addHeader("X-BeeStation-Timestamp", tsVal);
+  http.addHeader("X-BeeStation-Signature",
+    firmaHmac(tokenGuardado, cadenaFirma("POST", rutaDeUrl(urlValidate), tsVal, payloadVal)));
   http.setTimeout(5000);
 
-  String tokenPayload = "{\"token\":\"" + tokenGuardado + "\"}";
-  code = http.POST(tokenPayload);
+  code = http.POST(payloadVal);
   if (code == 200) {
     String resp = http.getString();
-    Serial.printf("[TEST]   ✓ Token validado [%d]: %s\n", code, resp.c_str());
+    Serial.printf("[TEST]   V Credencial validada [%d]: %s\n", code, resp.c_str());
   } else if (code == 401) {
-    Serial.println("[TEST]   ✗ API Key rechazada. Verifica que coincida con config/db.php.");
+    Serial.println("[TEST]   x Firma rechazada: el token no corresponde o esta revocado.");
   } else if (code == 404) {
-    Serial.println("[TEST]   ✗ Token no encontrado en la base de datos.");
+    Serial.println("[TEST]   x La colmena ya no existe en la plataforma.");
   } else {
-    Serial.printf("[TEST]   ✗ Error inesperado [%d]: %s\n", code, http.errorToString(code).c_str());
+    Serial.printf("[TEST]   ? Error inesperado [%d]: %s\n", code, http.errorToString(code).c_str());
   }
   http.end();
 
-  // Test 3: Enviar datos de prueba
-  Serial.println("[TEST] 3/3 — Enviando telemetría de prueba...");
+  // ── Test 3: envio de telemetria real (tambien firmado) ──
+  Serial.println("[TEST] 3/3 - Enviando telemetria de prueba...");
   String urlIngest = "http://" + ipServidor + "/BeeStation_Sena/api/ingest.php";
   http.begin(urlIngest);
   http.addHeader("Content-Type", "application/json");
-  http.addHeader("X-API-Key", apiKey);
   http.setTimeout(8000);
 
-  // Leer sensores reales para el test
   float t = bmeActivo ? bme.readTemperature() : 25.0;
   float h = bmeActivo ? bme.readHumidity() : 50.0;
   float p = bmeActivo ? (bme.readPressure() / 100.0F) : 1013.25;
   float l = bh1750Activo ? lightMeter.readLightLevel() : 100.0;
   float s = leerNivelAcustico(50);
 
-  String testPayload = "{\"token\":\"" + tokenGuardado + "\",\"lecturas\":[";
-  testPayload += "{\"tipo\":\"temperatura_interna\",\"valor\":" + String(t, 2) + "},";
-  testPayload += "{\"tipo\":\"humedad_relativa\",\"valor\":" + String(h, 2) + "},";
-  testPayload += "{\"tipo\":\"presion\",\"valor\":" + String(p, 2) + "},";
-  testPayload += "{\"tipo\":\"peso\",\"valor\":0.00},";
-  testPayload += "{\"tipo\":\"sonido\",\"valor\":" + String(s, 2) + "},";
-  testPayload += "{\"tipo\":\"luminosidad\",\"valor\":" + String(l, 2) + "}";
+  long epochTest = (long)time(nullptr);
+  bool conReloj   = (epochTest > 1000000);
+  String testPayload = "{\"lecturas\":[";
+  testPayload += lecturaJson("temperatura_interna", t, epochTest, conReloj) + ",";
+  testPayload += lecturaJson("humedad_relativa",    h, epochTest, conReloj) + ",";
+  testPayload += lecturaJson("presion",            p, epochTest, conReloj) + ",";
+  testPayload += lecturaJson("peso",               0.00, epochTest, conReloj) + ",";
+  testPayload += lecturaJson("sonido",             s, epochTest, conReloj) + ",";
+  testPayload += lecturaJson("luminosidad",        l, epochTest, conReloj);
   testPayload += "]}";
+
+  // La firma se calcula sobre el payload final (el servidor la recomputa).
+  String tsIng = String((long)time(nullptr));
+  http.addHeader("X-BeeStation-Mac", macNodo());
+  http.addHeader("X-BeeStation-Timestamp", tsIng);
+  http.addHeader("X-BeeStation-Signature",
+    firmaHmac(tokenGuardado, cadenaFirma("POST", rutaDeUrl(urlIngest), tsIng, testPayload)));
 
   Serial.println("[TEST]   Payload: " + testPayload);
   code = http.POST(testPayload);
-  if (code > 0) {
+  if (code == 200) {
     String resp = http.getString();
     Serial.printf("[TEST]   Respuesta [%d]: %s\n", code, resp.c_str());
   } else {
-    Serial.printf("[TEST]   ✗ Fallo de envío: %s\n", http.errorToString(code).c_str());
+    Serial.printf("[TEST]   x Fallo de envio [%d]: %s\n", code, http.errorToString(code).c_str());
   }
   http.end();
-  Serial.println("[TEST] Diagnóstico completo.\n");
+  Serial.println("[TEST] Diagnostico completo.\n");
 }
 
 void comandoReset() {
@@ -1152,13 +1408,26 @@ bool validarTokenConServidor() {
   String url = "http://" + ipServidor + "/BeeStation_Sena/api/validate_token.php";
   Serial.println("[AUTH] Validando token con: " + url);
 
+  if (tokenGuardado.length() == 0) {
+    Serial.println("[AUTH] No hay token de vinculacion guardado.");
+    return false;
+  }
+
+  // La peticion va FIRMADA: el token nunca viaja por la red.
+  String payload = "{}";
+  String ts = String((long)time(nullptr));
+  String firma = firmaHmac(tokenGuardado, cadenaFirma("POST", rutaDeUrl(url), ts, payload));
+
   HTTPClient http;
+  http.setReuse(false);
   http.begin(url);
   http.addHeader("Content-Type", "application/json");
-  http.addHeader("X-API-Key", apiKey);
+  http.addHeader("X-BeeStation-Mac", macNodo());
+  http.addHeader("X-BeeStation-Timestamp", ts);
+  http.addHeader("X-BeeStation-Signature", firma);
+  http.setConnectTimeout(3000);
   http.setTimeout(8000);
 
-  String payload = "{\"token\":\"" + tokenGuardado + "\"}";
   int code = http.POST(payload);
 
   bool valido = false;
@@ -1166,6 +1435,14 @@ bool validarTokenConServidor() {
     String resp = http.getString();
     Serial.println("[AUTH] Respuesta: " + resp);
     valido = resp.indexOf("\"ok\":true") >= 0;
+  } else if (code == 401 || code == 404) {
+    // El servidor ha contestado y ha rechazado la credencial. Antes se
+    // asumia "token valido" en cualquier error, y la rama de
+    // reprovisionamiento quedaba muerta: un token mal pegado se
+    // aceptaba en silencio y el nodo no subia nunca nada.
+    Serial.printf("[AUTH] Credencial rechazada por el servidor [%d].\n", code);
+    Serial.println("[AUTH]   Copia de nuevo el token desde la plataforma BeeStation.");
+    valido = false;
   } else {
     // Si no hay red o el servidor no responde, asumimos token válido
     // para permitir operación offline con respaldo en SD
@@ -1222,14 +1499,18 @@ void reconectarWiFi() {
     intentosReconexionConsecutivos = 0;
 
     // Re-iniciar mDNS
-    MDNS.begin("beestation");
+    MDNS.begin(nombreMdns().c_str());
   } else {
     Serial.println();
     if (intentosReconexionConsecutivos >= MAX_INTENTOS_ANTES_PORTAL) {
       Serial.println("[WiFi] ✗ Máximo de intentos alcanzado. Activando Portal Cautivo...");
-      modoPortalCautivo = true;
-      intentosReconexionConsecutivos = 0;
-      iniciarPortalCautivo();
+      // ANTES: al agotar los intentos se abria el portal cautivo, lo que
+      // dejaba al nodo sin red PARA SIEMPRE (el portal no tenia salida).
+      // Ahora el nodo sigue reintentando: una caida del router en campo
+      // ya no mata al dispositivo. El portal se abre solo al arrancar,
+      // cuando falta la configuracion.
+      Serial.println("[WiFi] Se mantienen los reintentos: el nodo no abre el portal por una caida de red.");
+      if (intentosReconexionConsecutivos > 100000) intentosReconexionConsecutivos = 0;
     } else {
       Serial.printf("[WiFi] ✗ Fallo. Próximo intento en %.1f segundos.\n", 
         (1000 * pow(2, min(intentosReconexionConsecutivos, 3))) / 1000.0);
@@ -1282,7 +1563,11 @@ void guardarRespaldoSD(float temp, float hum, float pres, float peso, float s, f
     snprintf(nombreFichero, sizeof(nombreFichero), "/log_%s.csv", dia);
   }
 
-  File dataFile = SD.open(nombreFichero, FILE_WRITE);
+  // IMPORTANTE: FILE_APPEND, nunca FILE_WRITE.
+  // FILE_WRITE abre el fichero en modo "w" (equivalente a O_TRUNC) y lo
+  // BORRABA en cada ciclo: el CSV quedaba siempre con cabecera + 1 fila,
+  // es decir, el "respaldo local" no guardaba nada.
+  File dataFile = SD.open(nombreFichero, FILE_APPEND);
   if (!dataFile) {
     Serial.println("[SD] ✗ Error de acceso a tarjeta.");
     return;
@@ -1397,10 +1682,17 @@ void atenderMonitoreo() {
 }
 
 void iniciarPortalCautivo() {
-  Serial.println("\n[AP] Levantando señal inalámbrica 'BeeStation_Config'...");
-  WiFi.mode(WIFI_AP);
+  Serial.println("\n[AP] Levantando señal inalambrica '" + nombreAP() + "'...");
+
+  // AP_STA y no AP: el nodo conserva la interfaz del router, de modo que
+  // abrir el portal no lo deja sin red y puede volver solo a estacion.
+  WiFi.mode(WIFI_AP_STA);
   WiFi.softAPConfig(apIP, apIP, IPAddress(255, 255, 255, 0));
-  WiFi.softAP("BeeStation_Config");
+
+  // El AP lleva contrasena: antes era una red abierta y cualquiera a
+  // 100 m podia ver el panel y reconfigurar el nodo.
+  String clave = clavePortal();
+  WiFi.softAP(nombreAP().c_str(), clave.c_str());
 
   dnsServer.start(DNS_PORT, "*", apIP);
 
@@ -1418,14 +1710,28 @@ void iniciarPortalCautivo() {
 }
 
 void atenderPortal() {
-  int n = WiFi.scanNetworks();
+  // El escaneo de redes WiFi se cachea 30 s: antes se hacía un
+  // scanNetworks() completo en cada carga de la página (2-4 s de
+  // congelación del nodo) y cambiaba el modo de radio.
+  int n = 0;
   String opcionesWifi = "";
-  if (n == 0) {
-    opcionesWifi = "<option value='' disabled>No se encontraron redes WiFi</option>";
-  } else {
+  unsigned long ahora = millis();
+  if (ahora - ultimoEscaneoWifi > 30000UL || redesCacheadas == 0) {
+    n = WiFi.scanNetworks();
+    redesCacheadas = n;
+    ultimoEscaneoWifi = ahora;
+    listaRedesCache = "";
     for (int i = 0; i < n; ++i) {
-      opcionesWifi += "<option value='" + WiFi.SSID(i) + "'>" + WiFi.SSID(i) + " (" + String(WiFi.RSSI(i)) + " dBm)</option>";
+      // El SSID se escapa: una red con nombre malicioso podría inyectar
+      // JavaScript en el navegador de quien configura el nodo.
+      String ssidSeguro = escaparHtml(WiFi.SSID(i));
+      listaRedesCache += "<option value='" + ssidSeguro + "'>" + ssidSeguro
+                      + " (" + String(WiFi.RSSI(i)) + " dBm)</option>";
     }
+  }
+  opcionesWifi = listaRedesCache;
+  if (redesCacheadas == 0) {
+    opcionesWifi = "<option value='' disabled>No se encontraron redes WiFi</option>";
   }
 
   // Construir indicadores de sensores para inyectar en el HTML
@@ -1440,7 +1746,9 @@ void atenderPortal() {
   htmlFinal.replace("%WIFI_NETWORKS%", opcionesWifi);
   htmlFinal.replace("%SENSOR_STATUS%", sensorStatus);
   htmlFinal.replace("%FIRMWARE_VERSION%", FIRMWARE_VERSION);
-  htmlFinal.replace("%MAC_ADDRESS%", WiFi.macAddress());
+  htmlFinal.replace("%MAC_ADDRESS%", escaparHtml(macNodo()));
+  htmlFinal.replace("%AP_PASSWORD%", escaparHtml(clavePortal()));
+  htmlFinal.replace("%CSRF_TOKEN%", escaparHtml(tokenCsrf));
   server.send(200, "text/html; charset=utf-8", htmlFinal);
 }
 
@@ -1551,10 +1859,46 @@ void atenderStatusJSON() {
 }
 
 void procesarGuardado() {
+  // El guardado SOLO es posible en modo portal. Antes la ruta /save
+  // seguía activa en modo estación: cualquiera de la LAN podía
+  // reconfigurar el nodo (secuestro) con un simple POST.
+  if (!modoPortalCautivo) {
+    server.send(403, "text/plain", "El guardado solo esta disponible en el portal cautivo.");
+    return;
+  }
+
+  // Token anti-CSRF: impide que una web cualquiera reconfigure el nodo
+  // mediante un formulario automático.
+  String csrfRecibido = server.arg("csrf");
+  if (tokenCsrf.length() == 0 || csrfRecibido != tokenCsrf) {
+    Serial.println("[PORTAL] x Peticion sin token anti-CSRF valido: rechazada.");
+    server.send(403, "text/plain", "Peticion no valida. Recarga la pagina del portal.");
+    return;
+  }
+
   String nuevoSsid  = server.arg("ssid");
   String nuevoPass  = server.arg("password");
   String nuevoToken = server.arg("token_vinculacion");
-  String nuevoHost  = server.arg("host_servidor"); 
+  String nuevoHost  = server.arg("host_servidor");
+
+  // Validación de longitudes: un campo enorme satura la NVS y un host
+  // con saltos de línea permitiría inyectar cabeceras HTTP.
+  if (nuevoSsid.length() == 0 || nuevoSsid.length() > 32) {
+    server.send(400, "text/plain", "El nombre de la red debe tener entre 1 y 32 caracteres.");
+    return;
+  }
+  if (nuevoPass.length() > 64) {
+    server.send(400, "text/plain", "La contrasena de la red es demasiado larga.");
+    return;
+  }
+  if (nuevoToken.length() == 0 || nuevoToken.length() > 64) {
+    server.send(400, "text/plain", "El token de vinculacion debe tener entre 1 y 64 caracteres.");
+    return;
+  }
+  if (nuevoHost.length() > 64) {
+    server.send(400, "text/plain", "La direccion del servidor es demasiado larga.");
+    return;
+  }
 
   if (nuevoSsid != "" && nuevoToken != "") {
     preferences.begin("beestation", false);

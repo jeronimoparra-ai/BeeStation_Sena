@@ -100,16 +100,23 @@ function obtenerColmenasDelUsuario(int $id_usuario): array {
 }
 
 /**
- * Genera un token de vinculación alfanumérico único para una nueva colmena.
+ * Genera un token de vinculación único para una nueva colmena.
+ *
+ * El token es el SECRETO del nodo: con él firma cada petición al
+ * backend (ver includes/firma.php). Por eso debe ser impredecible.
+ * Antes se usaban 3 bytes (24 bits = 16,7 millones de combinaciones,
+ * agotables en horas); ahora son 16 bytes (128 bits).
+ *
+ * Formato: BS-<SLUG4>-<8 grupos de 4 hex>, copiable y verificable a ojo.
  */
 function generarTokenVinculacion(string $nombre = 'COL'): string {
-    $sufijo = strtoupper(bin2hex(random_bytes(3)));
+    $grupos = implode('-', str_split(bin2hex(random_bytes(16)), 4));
     $slug = strtoupper(preg_replace('/[^a-zA-Z0-9]/', '', $nombre));
-    $slug = substr($slug, 0, 8);
+    $slug = substr($slug, 0, 4);
     if (empty($slug)) {
         $slug = 'COL';
     }
-    return "BS-{$slug}-{$sufijo}";
+    return "BS-{$slug}-{$grupos}";
 }
 
 /**
@@ -134,16 +141,26 @@ function resolverColmenaPorToken(string $token): ?array {
 }
 
 /**
- * Registra en la tabla intento_vinculacion cada intento de autenticación
- * por token, exitoso o fallido, para diagnóstico y trazabilidad.
+ * Registra en la tabla intento_vinculacion los intentos de acceso
+ * FALLIDOS, para diagnóstico y trazabilidad.
+ *
+ * Los envíos correctos NO se anotan: el último contacto se guarda en
+ * `colmena.nodo_ultimo_contacto`. Anotar cada 'ok' multiplicaba la
+ * tabla por diez en cada despliegue (2.880 filas/día por colmena)
+ * sin aportar información: el 100 % de las filas era ruido.
+ *
+ * @param string|null $identificador MAC del nodo o token recibido
  */
-function registrarIntentoVinculacion(?string $token, ?string $ip, string $resultado): void {
+function registrarIntentoVinculacion(?string $identificador, ?string $ip, string $resultado): void {
+    if ($resultado === 'ok') {
+        return;
+    }
     $pdo = getPDO();
     $stmt = $pdo->prepare("
         INSERT INTO intento_vinculacion (token_recibido, ip_origen, resultado) 
         VALUES (?, ?, ?)
     ");
-    $stmt->execute([$token ?? '', $ip, $resultado]);
+    $stmt->execute([$identificador ?? '', $ip, $resultado]);
 }
 
 /**

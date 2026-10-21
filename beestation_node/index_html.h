@@ -356,6 +356,10 @@ const char PORTAL_HTML[] PROGMEM = R"rawhtml(
       </div>
 
       <form action="/save" method="POST">
+        <!-- Token anti-CSRF: caduca en cada reinicio del nodo. Sin él,
+             una web cualquiera podría reconfigurar el dispositivo. -->
+        <input type="hidden" name="csrf" value="%CSRF_TOKEN%">
+
         <!-- 1. SELECCIÓN DE RED WI-FI -->
         <div class="form-group">
           <label class="form-label" for="ssid">Red WiFi del Apiario</label>
@@ -383,9 +387,14 @@ const char PORTAL_HTML[] PROGMEM = R"rawhtml(
         <!-- 4. TOKEN DE VINCULACIÓN ÚNICO -->
         <div class="form-group">
           <label class="form-label" for="token_vinculacion">Token de Vinculación Único</label>
-          <input type="text" name="token_vinculacion" id="token_vinculacion" class="form-control" placeholder="Ej: BS-ALPHA01-9F2D" required>
+          <input type="text" name="token_vinculacion" id="token_vinculacion" class="form-control" placeholder="Ej: BS-ALPH-A1B2-C3D4-E5F6-0718" required>
           <span class="helper-text">
             Copia el token exacto desde la plataforma web BeeStation.
+            <br>
+            <b>Es la credencial del nodo:</b> se queda guardado en la memoria del
+            ESP32 y <b>no vuelve a enviarse</b>. Cada petición al servidor va
+            <b>firmada</b> (HMAC-SHA256), así que el token no puede capturarse
+            por la red. Puedes revocar el acceso desde la plataforma.
           </span>
         </div>
 
@@ -397,6 +406,16 @@ const char PORTAL_HTML[] PROGMEM = R"rawhtml(
           Vincular Colmena
         </button>
       </form>
+
+      <!-- Datos de conexión de este nodo -->
+      <div class="form-group" style="margin-top:18px;padding:14px;border:1px solid rgba(255,255,255,.10);border-radius:12px;">
+        <div class="form-label" style="margin-bottom:6px;">Este dispositivo</div>
+        <div style="font-size:.8rem;line-height:1.7;color:var(--color-text-secondary);">
+          MAC: <b>%MAC_ADDRESS%</b><br>
+          Contraseña de esta red WiFi: <b>%AP_PASSWORD%</b><br>
+          Firmware: <b>%FIRMWARE_VERSION%</b>
+        </div>
+      </div>
     </div>
     <div class="footer-note">ApiTechnology SENA</div>
     <div class="mac-text">MAC: %MAC_ADDRESS%</div>

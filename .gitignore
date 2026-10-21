@@ -1,0 +1,23 @@
+# ── Credenciales locales: NUNCA versionar ──
+config/db.local.php
+
+# ── Artefactos generados ──
+repomix-output.xml
+*.bak
+*.bak1
+*.log
+*.log1
+*.old
+*.orig
+*.swp
+*~
+
+# ── Datos sensibles generados ──
+database/dumps/
+*.sql.gz
+
+# ── Sistema operativo / editores ──
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
