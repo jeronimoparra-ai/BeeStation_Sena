@@ -45,6 +45,21 @@ body.login-page {
   box-shadow:
     0 48px 120px rgba(0,0,0,.30),
     0  8px  32px rgba(0,0,0,.18);
+
+  /* Fondo global: foto de apicultor (Unsplash, licencia libre)
+     cubriendo TODO el cuadro del login, con velo semitransparente
+     para mantener legibilidad en ambos paneles. */
+  background:
+    linear-gradient(180deg,
+      rgba(11,11,11,.55) 0%,
+      rgba(11,11,11,.38) 30%,
+      rgba(11,11,11,.32) 45%,
+      rgba(11,11,11,.42) 65%,
+      rgba(11,11,11,.65) 85%,
+      rgba(11,11,11,.80) 100%),
+    radial-gradient(ellipse 80% 60% at 78% 18%, rgba(246,179,27,.10) 0%, transparent 65%),
+    url("../assets/login-bg.jpg") center left / cover no-repeat,
+    #0B0B0B;
 }
 
 /* ═══════════════════════════════════════════════════
@@ -54,7 +69,8 @@ body.login-page {
   position: relative;
   width: 43%;
   flex-shrink: 0;
-  background: #0B0B0B;
+  /* El fondo se movió a .ls-shell para cubrir ambos paneles.
+     Aquí solo mantenemos los pseudo-elementos ::before (glows) y ::after (panal). */
   overflow: hidden;
   display: flex;
   flex-direction: column;
@@ -230,7 +246,9 @@ body.login-page {
    ═══════════════════════════════════════════════════ */
 .ls-right {
   flex: 1;
-  background: #FFFFFF;
+  background: rgba(255,255,255,.65);  /* semi-transparente para ver el fondo */
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
   position: relative;
   display: flex;
   align-items: center;
