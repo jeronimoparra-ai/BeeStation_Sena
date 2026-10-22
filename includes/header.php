@@ -39,8 +39,8 @@ else $saludo = 'Buenas noches';
         }
     </script>
 
-    <link rel="stylesheet" href="css/style-premium.css">
-    <link rel="stylesheet" href="css/redesign.css">
+    <link rel="stylesheet" href="css/style-premium.css?v=<?= filemtime(__DIR__ . '/../css/style-premium.css') ?>">
+    <link rel="stylesheet" href="css/redesign.css?v=<?= filemtime(__DIR__ . '/../css/redesign.css') ?>">
     <!-- Recursos locales: el panel debe funcionar en la LAN del apiario, sin internet. -->
     <script src="assets/vendor/lucide.min.js"></script>
     <script src="assets/vendor/chart.umd.min.js"></script>
