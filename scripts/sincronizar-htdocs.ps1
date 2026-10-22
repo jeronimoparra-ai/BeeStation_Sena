@@ -74,9 +74,10 @@ if (Test-Path $local) {
 Write-Host "  -> $copiados archivo(s) actualizado(s)"
 
 # ── 2. Limpiar el docroot ────────────────────────────────────────────
-$prohibidos = @('.git', '.svn', '.hg', 'repomix-output.xml', 'test_connection.php',
+$prohibidos = @('.git', '.svn', '.hg', '.rnd', 'repomix-output.xml', 'test_connection.php',
                 'guia-configuracion-beestation.docx', 'INFORME-FUNCIONAMIENTO.docx',
-                'INFORME-FUNCIONAMIENTO.md', 'README.md', 'README.txt', 'LICENSE')
+                'INFORME-FUNCIONAMIENTO.md', 'README.md', 'README.txt', 'CHANGELOG.md',
+                'LICENSE', 'tasks')
 foreach ($p in $prohibidos) {
     $dest = Join-Path $Docroot $p
     if (Test-Path $dest) {
@@ -86,7 +87,7 @@ foreach ($p in $prohibidos) {
 }
 # Directorios que no deben permanecer en el docroot, aunque una sincronizacion
 # anterior los haya copiado.
-foreach ($d in @('tools', 'tests', 'database', 'docs', 'beestation_node', 'scripts')) {
+foreach ($d in @('tools', 'tests', 'database', 'docs', 'beestation_node', 'scripts', 'tasks')) {
     $dest = Join-Path $Docroot $d
     if (Test-Path $dest) {
         if ($Simular) { Write-Host "  - eliminaria del docroot: $d\" }
@@ -95,7 +96,7 @@ foreach ($d in @('tools', 'tests', 'database', 'docs', 'beestation_node', 'scrip
 }
 
 Get-ChildItem $Docroot -Recurse -File -Force | Where-Object {
-    $_.Extension.ToLower() -in @('.sql', '.ino', '.h')
+    $_.Extension.ToLower() -in @('.sql', '.ino', '.h', '.md')
 } | ForEach-Object {
     $rel = $_.FullName.Substring($Docroot.Length + 1)
     if ($Simular) { Write-Host "  - eliminaria del docroot: $rel" }
