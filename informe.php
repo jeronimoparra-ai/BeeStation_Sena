@@ -270,6 +270,7 @@ $valoresSonid = array_map(fn($r) => (float) $r['valor'], $serieSonid);
                 foreach ($sensores as $s):
                     $estadoReal = (string) $s['estado_real'];
                     $nombreSensor = $etiquetasSensor[$s['tipo']] ?? ucfirst(str_replace('_', ' ', (string) $s['tipo']));
+                    $modeloSensor = modeloFisicoNodoBasico((string) $s['tipo']) ?? $s['modelo'];
                     $estadoTexto = [
                         'en_linea'    => 'En línea',
                         'advertencia' => 'Advertencia',
@@ -278,7 +279,7 @@ $valoresSonid = array_map(fn($r) => (float) $r['valor'], $serieSonid);
                     ?>
                     <tr>
                         <td><?= htmlspecialchars($nombreSensor) ?></td>
-                        <td><?= htmlspecialchars($s['modelo']) ?></td>
+                        <td><?= htmlspecialchars($modeloSensor) ?></td>
                         <td><span class="informe-estado <?= htmlspecialchars($estadoReal) ?>"><?= htmlspecialchars($estadoTexto) ?></span></td>
                         <td><?= $s['ultima_lectura'] !== null ? number_format((float) $s['ultima_lectura'], 2) . ' ' . htmlspecialchars($s['unidad_medida'] ?? '') : '—' ?></td>
                         <td class="informe-td-fecha"><?= $s['ultima_fecha'] ? htmlspecialchars(date('d/m/Y H:i', strtotime($s['ultima_fecha']))) : '—' ?></td>

@@ -100,6 +100,7 @@
                     $icon = $iconMap[$s['tipo']] ?? 'cpu';
                     $label = $labelMap[$s['tipo']] ?? ucfirst(str_replace('_', ' ', $s['tipo']));
                     $unidad = $s['unidad_medida'] ?? '';
+                    $modelo = modeloFisicoNodoBasico((string) $s['tipo']) ?? $s['modelo'];
                 ?>
                 <tr>
                     <td>
@@ -108,7 +109,7 @@
                             <span><?= htmlspecialchars($label) ?></span>
                         </div>
                     </td>
-                    <td class="text-mono text-sm u-muted"><?= htmlspecialchars($s['modelo']) ?></td>
+                    <td class="text-mono text-sm u-muted"><?= htmlspecialchars($modelo) ?></td>
                     <td>
                         <?php if ($s['estado_real'] === 'en_linea'): ?>
                             <span class="badge badge-success">En línea</span>

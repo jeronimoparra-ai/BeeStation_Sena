@@ -392,6 +392,23 @@ function esTipoSensorNodoBasico(string $tipo): bool {
 }
 
 /**
+ * Modelo que corresponde al firmware del nodo básico. La base puede tener
+ * filas antiguas con "DHT22" para temperatura/humedad; el firmware actual usa
+ * BME280, así que la presentación no debe repetir ese dato obsoleto.
+ */
+function modeloFisicoNodoBasico(string $tipo): ?string {
+    $modelos = [
+        'temperatura_interna' => 'BME280',
+        'humedad_relativa'    => 'BME280',
+        'presion'             => 'BME280',
+        'peso'                => 'HX711',
+        'sonido'              => 'MAX4466',
+        'luminosidad'         => 'BH1750',
+    ];
+    return $modelos[$tipo] ?? null;
+}
+
+/**
  * Obtiene la lista completa de sensores de una colmena, incluyendo unidad de medida
  * y separando los que tienen datos (operativos) de los fantasma.
  */
