@@ -27,8 +27,8 @@ confirma.
 Ruta en la tarjeta: `/log_AAAA-MM-DD.csv` (un fichero por día).
 
 ```
-Fecha_hora,Epoch,Id_medicion,Temp,Hum,Presion,Peso,Sonido,Luz
-2026-10-21 00:37:45,1792561065,a1b2c3d4e5f60718293a4b5c6d7e8f00,35.20,58.30,1013.42,28.34,0.180,412.70
+Fecha_hora,Epoch,Id_medicion,Temp,Hum,Presion,Peso,Sonido_Hz,Luz
+2026-10-21 00:37:45,1792561065,a1b2c3d4e5f60718293a4b5c6d7e8f00,35.20,58.30,1013.42,28.34,494.1,412.70
 ```
 
 | Columna | Significado |
@@ -37,6 +37,7 @@ Fecha_hora,Epoch,Id_medicion,Temp,Hum,Presion,Peso,Sonido,Luz
 | `Epoch` | **Epoch UTC de la medición** → fecha real del dato y clave de idempotencia |
 | `Id_medicion` | 128 bits hex generados **al tomar** la lectura; los 6 sensores derivan de él cambiando los 2 últimos dígitos |
 | `Temp`…`Luz` | Los 6 valores medidos en ese ciclo |
+| `Sonido_Hz` | Frecuencia dominante **estimada** por cruces por cero (ver `docs/SENSORES-Y-UNIDADES.md`) |
 
 > El `Epoch` es lo que permite que un dato recogido **a días vista** se guarde
 > con su fecha de medición y no con la de subida. El `Id_medicion` hace que

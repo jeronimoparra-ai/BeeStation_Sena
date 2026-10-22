@@ -20,10 +20,11 @@
 #include <HX711.h>           // Requiere "HX711 Arduino Library" de Bogdan Necula
 #include "index_html.h"      // Importa tu interfaz de la pestaña contigua
 #include "monitoreo_html.h"  // Página de monitoreo en vivo (STA)
+#include "acustica.h"        // Frecuencia dominante del micrófono (Hz)
 
 // ── VERSIÓN DEL FIRMWARE ──────────────────────────────────────
-#define FIRMWARE_VERSION "3.1.0"
-#define FIRMWARE_DATE    "2026-09-29"
+#define FIRMWARE_VERSION "3.2.0"
+#define FIRMWARE_DATE    "2026-10-21"
 
 // ── DEFINICIÓN DE PINES FÍSICOS (Según tu Plano Eléctrico) ────
 // Bus I2C (compartido por BME280 y BH1750)
@@ -380,7 +381,7 @@ String lecturaJson(const String& tipo, float valor, long epoch, bool conReloj,
 }
 
 // ── Intervalo de RECOPILACIÓN de datos ────────────────────────
-// Una lectura cada 5 minutos. La lectura se registra SIEMPRE en
+// Una lectura cada 30 segundos. La lectura se registra SIEMPRE en
 // la microSD (con o sin WiFi) y, sólo si hay red, se sube al
 // servidor. Así el nodo funciona igual de bien offline.
 const unsigned long INTERVALO_LECTURA = 30000;  // 30 segundos
@@ -404,7 +405,8 @@ float ultimaHum      = 0.0;
 float ultimaPresion  = 0.0;
 float ultimoPeso     = 0.0;
 float ultimaLuz      = 0.0;
-float ultimoSonido   = 0.0;
+float ultimoSonido   = 0.0;   // frecuencia dominante estimada (Hz)
+float ultimoSonidoV  = 0.0;   // amplitud pico a pico (V), solo diagnóstico
 unsigned long ultimaLecturaMs = 0;
 
 // ── Último dato SUBIDO al servidor (hora local exacta) ─────────
@@ -1021,7 +1023,8 @@ void leerSensores() {
   ultimaHum     = bmeActivo  ? bme.readHumidity()    : 0.0;
   ultimaPresion = bmeActivo  ? (bme.readPressure() / 100.0F) : 0.0;
   ultimaLuz     = bh1750Activo ? lightMeter.readLightLevel() : 0.0;
-  ultimoSonido  = leerNivelAcustico(50); // muestreo de 50 ms del MAX4466
+  // Frecuencia dominante (Hz) + amplitud (V) del micrófono.
+  medirAcustica(50, ultimoSonidoV, ultimoSonido); // 50 ms de muestreo
 
   ultimoPeso = 0.0;
   if (hx711Activo && scale.wait_ready_timeout(500)) {
@@ -1118,8 +1121,8 @@ void imprimirPanelSensores() {
     Serial.println(lineaCaja("  HX711         ✗ NO DETECTADO  (Peso de la colmena)", "║", "║"));
   }
 
-  snprintf(tmp, sizeof(tmp), "  MAX4466 Son   ✓ ANALÓGICO %8.3f V (GPIO%d)",
-           ultimoSonido, MIC_ANALOG);
+  snprintf(tmp, sizeof(tmp), "  MAX4466 Son   ✓ %6.0f Hz  %5.3f V (GPIO%d)",
+           ultimoSonido, ultimoSonidoV, MIC_ANALOG);
   Serial.println(lineaCaja(String(tmp), "║", "║"));
 
   snprintf(tmp, sizeof(tmp), "  microSD       %s Respaldo local",
@@ -1363,7 +1366,7 @@ void comandoStatus() {
     Serial.printf("  Presión     : %.1f hPa\n", ultimaPresion);
     Serial.printf("  Peso        : %.2f\n", ultimoPeso);
     Serial.printf("  Luz         : %.1f lux\n", ultimaLuz);
-    Serial.printf("  Sonido      : %.3f V\n", ultimoSonido);
+    Serial.printf("  Sonido      : %.0f Hz (amplitud %.3f V)\n", ultimoSonido, ultimoSonidoV);
   }
 
   // Lecturas en tiempo real
@@ -1516,7 +1519,9 @@ void comandoTest() {
   float h = bmeActivo ? bme.readHumidity() : 50.0;
   float p = bmeActivo ? (bme.readPressure() / 100.0F) : 1013.25;
   float l = bh1750Activo ? lightMeter.readLightLevel() : 100.0;
-  float s = leerNivelAcustico(50);
+  float s = 0.0f;
+  float sVoltios = 0.0f;
+  medirAcustica(50, sVoltios, s);
 
   long epochTest = (long)time(nullptr);
   if (!horaSincronizada(epochTest)) {
@@ -1629,25 +1634,45 @@ void reconectarWiFi() {
 }
 
 // ══════════════════════════════════════════════════════════════
-//        CÁLCULO ACÚSTICO DE ENJAMBRAZÓN (MAX4466)
+//      ANÁLISIS ACÚSTICO: FRECUENCIA DOMINANTE (MAX4466)
 // ══════════════════════════════════════════════════════════════
-float leerNivelAcustico(unsigned int milliseconds) {
-  unsigned long startMillis = millis();
-  unsigned int signalMax = 0;
-  unsigned int signalMin = 4095; // Resolución de 12 bits
+// Muestrea el micrófono a ~4 kHz y estima la frecuencia dominante
+// por cruces por cero (ver acustica.h). El backend interpreta
+// `sonido` en Hz, no en voltios: enviar la amplitud impedía que la
+// alerta de enjambrazón (400–600 Hz) se disparara nunca.
+//
+// Devuelve por referencia:
+//   voltios = amplitud pico a pico (solo diagnóstico)
+//   hz      = frecuencia dominante estimada (0 si hay silencio)
+void medirAcustica(unsigned int milliseconds, float &voltios, float &hz) {
+  static int16_t muestras[256];
+  const unsigned long intervaloUs = 250;  // 4 kHz
+  const int maxMuestras = (int)(sizeof(muestras) / sizeof(muestras[0]));
 
-  // Muestreo continuo durante el periodo especificado
-  while (millis() - startMillis < milliseconds) {
-    int sample = analogRead(MIC_ANALOG);
-    if (sample < 4095) { // Descartar lecturas saturadas
-      if (sample > (int)signalMax) signalMax = sample;
-      if (sample < (int)signalMin) signalMin = sample;
+  unsigned long t0 = micros();
+  int n = 0;
+  unsigned long siguiente = t0;
+
+  while (n < maxMuestras &&
+         (micros() - t0) < (unsigned long)milliseconds * 1000UL) {
+    unsigned long ahora = micros();
+    if ((long)(ahora - siguiente) >= 0) {
+      muestras[n++] = (int16_t)analogRead(MIC_ANALOG);
+      siguiente += intervaloUs;
     }
   }
+  unsigned long t1 = micros();
 
-  unsigned int peakToPeak = signalMax - signalMin;
-  float volts = (peakToPeak * 3.3) / 4095.0;
-  return volts;
+  if (n < ACUSTICA_MIN_MUESTRAS) {
+    voltios = 0.0f;
+    hz = 0.0f;
+    return;
+  }
+
+  // La duración real (no la nominal) absorbe las pausas del WiFi.
+  const float duracion = (t1 - t0) / 1000000.0f;
+  voltios = acusticaAmplitudV(muestras, n, 3.3f);
+  hz = acusticaFrecuenciaHz(muestras, n, duracion);
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -1697,7 +1722,7 @@ void guardarRespaldoSD(float temp, float hum, float pres, float peso, float s, f
 
   bool ficheroNuevo = (dataFile.size() == 0);
   if (ficheroNuevo) {
-    dataFile.println("Fecha_hora,Epoch,Id_medicion,Temp,Hum,Presion,Peso,Sonido,Luz");
+    dataFile.println("Fecha_hora,Epoch,Id_medicion,Temp,Hum,Presion,Peso,Sonido_Hz,Luz");
     if (archivoSDActivo != nombreFichero) {
       archivoSDActivo = nombreFichero;
       registrosSD = 0;
@@ -2157,7 +2182,8 @@ void atenderStatusJSON() {
 
   json += ",\"lux\":" + String(ultimaLuz, 1);
   json += ",\"peso\":" + String(ultimoPeso, 2);
-  json += ",\"sonido\":" + String(ultimoSonido, 3);
+  json += ",\"sonido\":" + String(ultimoSonido, 1);
+  json += ",\"sonido_v\":" + String(ultimoSonidoV, 3);
   json += ",\"mic_raw\":" + String(analogRead(MIC_ANALOG));
 
   // Estado de red (informativo en ambos modos)

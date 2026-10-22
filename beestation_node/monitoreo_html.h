@@ -107,10 +107,10 @@ td.empty{text-align:center;color:var(--muted);padding:22px 12px}
       <div class="range">Sensor BH1750</div>
     </div>
     <div class="card">
-      <div class="label">Nivel acústico</div>
+      <div class="label">Frecuencia acústica</div>
       <div class="value" id="sonido">—</div>
-      <div class="unit">V</div>
-      <div class="range">Micrófono MAX4466</div>
+      <div class="unit">Hz</div>
+      <div class="range">MAX4466 · estimada</div>
     </div>
   </div>
 
@@ -141,7 +141,7 @@ td.empty{text-align:center;color:var(--muted);padding:22px 12px}
         <thead>
           <tr>
             <th>Fecha y hora</th><th>Millis</th><th>Temp °C</th><th>Humedad %</th>
-            <th>Presión hPa</th><th>Peso kg</th><th>Sonido V</th><th>Luz lux</th>
+            <th>Presión hPa</th><th>Peso kg</th><th>Sonido Hz</th><th>Luz lux</th>
           </tr>
         </thead>
         <tbody id="sdbody">
@@ -176,7 +176,7 @@ function pintar(d){
     $('pres').textContent=num(d.bme280_data.pres,1);
   }
   if('peso' in d) $('peso').textContent=num(d.peso,2);
-  if('sonido' in d) $('sonido').textContent=num(d.sonido,3);
+  if('sonido' in d) $('sonido').textContent=num(d.sonido,0);
   if('lux' in d) $('lux').textContent=num(d.lux,1);
 
   if(d.red){

@@ -5,7 +5,7 @@
 #
 #  El ESP32 escribe un CSV por dia en la raiz de la tarjeta:
 #      log_AAAA-MM-DD.csv
-#      Fecha_hora,Epoch,Temp,Hum,Presion,Peso,Sonido,Luz
+#      Fecha_hora,Epoch,Temp,Hum,Presion,Peso,Sonido_Hz,Luz
 #
 #  Este script los lee, los convierte al formato de la API y los sube
 #  POR LOTES con la firma HMAC heredada (el backend la sigue aceptando
@@ -100,7 +100,7 @@ $ficheros = Get-ChildItem $Carpeta -Filter "log_*.csv" -File -ErrorAction Silent
 if (-not $ficheros) {
     Write-Host "[i] No hay ficheros de datalogger en $Carpeta"
     Write-Host "    Formato esperado: log_AAAA-MM-DD.csv con cabecera"
-    Write-Host "    Fecha_hora,Epoch,Id_medicion,Temp,Hum,Presion,Peso,Sonido,Luz"
+    Write-Host "    Fecha_hora,Epoch,Id_medicion,Temp,Hum,Presion,Peso,Sonido_Hz,Luz"
     exit 0
 }
 
