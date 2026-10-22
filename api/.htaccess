@@ -1,0 +1,19 @@
+# ────────────────────────────────────────────────────────────────
+#  api/.htaccess
+#  Superficie máquina-a-máquina: nunca debe devolver HTML de error
+#  ni rutas internas. Los fallos se registran en el log de Apache y
+#  el cliente recibe un 500 sin detalles.
+# ────────────────────────────────────────────────────────────────
+<IfModule mod_php7.c>
+    php_flag display_errors off
+    php_flag display_startup_errors off
+    php_flag log_errors on
+</IfModule>
+<IfModule mod_php.c>
+    php_flag display_errors off
+    php_flag display_startup_errors off
+    php_flag log_errors on
+</IfModule>
+
+# Sin listados de directorio.
+Options -Indexes

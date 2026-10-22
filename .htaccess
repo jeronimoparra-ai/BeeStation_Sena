@@ -27,7 +27,7 @@ DirectoryIndex index.php
 <IfModule mod_rewrite.c>
     RewriteEngine On
     RewriteBase /
-    RewriteRule ^(?:config|database|beestation_node|tools|docs|scripts|\.git|\.svn|\.hg)(?:/|$) - [F,L]
+    RewriteRule ^(?:config|database|beestation_node|tools|docs|scripts|tests|\.git|\.svn|\.hg)(?:/|$) - [F,L]
 </IfModule>
 <IfModule !mod_rewrite.c>
     # Sin mod_rewrite se recurre a bloquear los archivos por nombre.
@@ -49,6 +49,9 @@ DirectoryIndex index.php
     Header always set Referrer-Policy "strict-origin-when-cross-origin"
     Header always set Permissions-Policy "geolocation=(), microphone=(), camera=()"
     Header always set X-Permitted-Cross-Domain-Policies "none"
+    # No revelar la version de PHP en las respuestas.
+    Header always unset X-Powered-By
+    Header unset X-Powered-By
     # El panel nunca debe quedar cacheado en proxies intermedios
     <FilesMatch "\.php$">
         Header always set Cache-Control "no-store, no-cache, must-revalidate"

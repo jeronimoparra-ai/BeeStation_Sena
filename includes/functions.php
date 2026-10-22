@@ -21,6 +21,28 @@ if (!defined('BEESTATION_API_CONTEXT')) {
     $current_page = basename($_SERVER['PHP_SELF']);
 }
 
+// ── RESPUESTA SEGURA ANTE ERRORES EN LA API ──────────────────
+// La API es una superficie máquina-a-máquina: no debe devolver HTML,
+// stack traces ni rutas internas. Cualquier excepción no controlada se
+// registra en el log y el cliente recibe un 500 JSON genérico.
+if (defined('BEESTATION_API_CONTEXT') && BEESTATION_API_CONTEXT) {
+    ini_set('display_errors', '0');
+    ini_set('display_startup_errors', '0');
+    ini_set('log_errors', '1');
+    set_exception_handler(function (Throwable $e): void {
+        error_log('BeeStation API: ' . get_class($e) . ': ' . $e->getMessage()
+            . ' en ' . $e->getFile() . ':' . $e->getLine());
+        if (!headers_sent()) {
+            http_response_code(500);
+            header('Content-Type: application/json; charset=utf-8');
+        }
+        echo json_encode([
+            'ok'    => false,
+            'error' => 'Error interno del servidor',
+        ], JSON_UNESCAPED_UNICODE);
+    });
+}
+
 /**
  * Devuelve la clase 'active' si la página coincide con la actual.
  */

@@ -40,6 +40,7 @@ $copiados = 0
 Get-ChildItem $Repo -Recurse -File -Force | Where-Object {
     $_.FullName -notmatch '\\\.git\\' -and
     $_.FullName -notmatch '\\docs\\' -and
+    $_.FullName -notmatch '\\tests\\' -and
     ($extensiones -contains $_.Extension.ToLower() -or $_.Name -eq '.htaccess')
 } | ForEach-Object {
     $rel = $_.FullName.Substring($Repo.Length + 1)
@@ -48,8 +49,12 @@ Get-ChildItem $Repo -Recurse -File -Force | Where-Object {
     $destDir = Split-Path $dest -Parent
     if (-not (Test-Path $destDir)) { New-Item -ItemType Directory -Force -Path $destDir | Out-Null }
     if (-not (Test-Path $dest) -or (Get-FileHash $_.FullName).Hash -ne (Get-FileHash $dest).Hash) {
-        Copy-Item $_.FullName $dest -Force
-        Write-Host "  + $rel"
+        if ($Simular) {
+            Write-Host "  ~ $rel (simulado)"
+        } else {
+            Copy-Item $_.FullName $dest -Force
+            Write-Host "  + $rel"
+        }
         $copiados++
     }
 }
@@ -58,8 +63,8 @@ $local = Join-Path $Repo 'config\db.local.php'
 if (Test-Path $local) {
     $dest = Join-Path $Docroot 'config\db.local.php'
     if (-not (Test-Path $dest) -or (Get-FileHash $local).Hash -ne (Get-FileHash $dest).Hash) {
-        Copy-Item $local $dest -Force
-        Write-Host "  + config\db.local.php"
+        if ($Simular) { Write-Host "  ~ config\db.local.php (simulado)" }
+        else { Copy-Item $local $dest -Force; Write-Host "  + config\db.local.php" }
     }
 }
 Write-Host "  -> $copiados archivo(s) actualizado(s)"
@@ -71,18 +76,19 @@ $prohibidos = @('.git', '.svn', '.hg', 'repomix-output.xml', 'test_connection.ph
 foreach ($p in $prohibidos) {
     $dest = Join-Path $Docroot $p
     if (Test-Path $dest) {
-        Remove-Item $dest -Recurse -Force
-        Write-Host "  - eliminado del docroot: $p"
+        if ($Simular) { Write-Host "  - eliminaria del docroot: $p" }
+        else { Remove-Item $dest -Recurse -Force; Write-Host "  - eliminado del docroot: $p" }
     }
 }
 # Directorios que ya no deben existir.
 # 'tools' NO se borra: sigue en el docroot pero .htaccess lo bloquea (404),
-# para poder diagnosing en local sin exponerlo por HTTP.
-foreach ($d in @('docs')) {
+# para poder diagnosticar en local sin exponerlo por HTTP.
+# 'tests' tampoco debe servirse: son scripts PHP ejecutables por HTTP.
+foreach ($d in @('docs', 'tests')) {
     $dest = Join-Path $Docroot $d
     if (Test-Path $dest) {
-        Remove-Item $dest -Recurse -Force
-        Write-Host "  - eliminado del docroot: $d\"
+        if ($Simular) { Write-Host "  - eliminaria del docroot: $d\" }
+        else { Remove-Item $dest -Recurse -Force; Write-Host "  - eliminado del docroot: $d\" }
     }
 }
 
@@ -91,6 +97,7 @@ Write-Host ""
 $dif = 0
 Get-ChildItem $Repo -Recurse -File -Force | Where-Object {
     $_.FullName -notmatch '\\\.git\\' -and $_.FullName -notmatch '\\docs\\' -and
+    $_.FullName -notmatch '\\tests\\' -and
     ($extensiones -contains $_.Extension.ToLower() -or $_.Name -eq '.htaccess')
 } | ForEach-Object {
     $rel = $_.FullName.Substring($Repo.Length + 1)
