@@ -9,7 +9,9 @@
 - Fase 0 (verdad y limpieza): implementada, commiteada y sincronizada al
   docroot; verificada en Apache. Pendiente la prueba de alta/`test`/`/status`
   en hardware real.
-- Fase 1 (hardware y datos): bloqueada por placa ESP32, RTC y sensores de energía.
+- Fase 1 (hardware y datos): contrato y matriz de pruebas documentados en
+  `docs/FASE1-CONTRATO-HARDWARE.md`; la implementación en hardware sigue
+  bloqueada por placa ESP32, RTC y sensores de energía.
 - Fases 2–5: planificadas; no empezar hasta cerrar la Fase 0.
 
 ## Fase 0 — cerrar ahora

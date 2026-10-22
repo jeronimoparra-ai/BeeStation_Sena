@@ -8,8 +8,10 @@
 - [ ] Probar alta/`test`/`/status` en hardware real.
 - [x] Revisar worktrees Orca e integrar selectivamente seguridad y documentos.
 - [x] Commit y sync al docroot (Apache verificado; rutas privadas 403).
+- [x] Fase 1: contrato de hardware/datos y matriz de pruebas documentados
+      (`docs/FASE1-CONTRATO-HARDWARE.md`).
 - [ ] Fase 1: perfil de hardware, hora local, arranque sin router, calibración,
-      `seq` y cola SD.
+      `seq` y cola SD (requiere hardware).
 - [ ] Fase 2: métricas condicionadas y alertas con histéresis.
 - [ ] Fase 3: UX de campo.
 - [ ] Fase 4: operación y seguridad.
