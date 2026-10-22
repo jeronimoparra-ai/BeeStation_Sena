@@ -12,6 +12,10 @@ repomix-output.xml
 *.swp
 *~
 
+# ── Artefactos de verificación visual ──
+.playwright-mcp/
+dashboard-phase0*.png
+
 # ── Datos sensibles generados ──
 # El dump completo del entorno de desarrollo contiene hashes de contraseñas,
 # tokens de vinculación e intentos con tokens en claro: NO se versiona.

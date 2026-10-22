@@ -253,6 +253,35 @@ function ultimaLectura(int $id_colmena, string $tipo_sensor): ?array {
 }
 
 /**
+ * Una lectura solo puede considerarse "actual" si tiene una fecha válida y
+ * no supera la ventana de frescura. Evita pintar en verde un dato de hace días.
+ */
+function lecturaReciente(?array $lectura, int $minutos = 5): bool {
+    if (!$lectura || empty($lectura['fecha_hora'])) {
+        return false;
+    }
+    $ts = strtotime((string) $lectura['fecha_hora']);
+    if ($ts === false) {
+        return false;
+    }
+    return (time() - $ts) <= ($minutos * 60);
+}
+
+/**
+ * Devuelve la edad de una lectura en minutos, o null si no se puede calcular.
+ */
+function edadLecturaMinutos(?array $lectura): ?int {
+    if (!$lectura || empty($lectura['fecha_hora'])) {
+        return null;
+    }
+    $ts = strtotime((string) $lectura['fecha_hora']);
+    if ($ts === false) {
+        return null;
+    }
+    return max(0, (int) floor((time() - $ts) / 60));
+}
+
+/**
  * Obtiene el histórico de datos en serie temporal de un sensor en las últimas N horas.
  */
 function serieHistorica(int $id_colmena, string $tipo_sensor, int $horas = 24): array {
@@ -343,6 +372,26 @@ function sensoresConEstado(int $id_colmena): array {
 }
 
 /**
+ * Tipos que el nodo básico puede medir de verdad. La lista se usa para no
+ * presentar como diagnóstico filas antiguas de CO₂, temperatura exterior o
+ * energía que quedaron en la base durante pruebas.
+ */
+function tiposSensorNodoBasico(): array {
+    return [
+        'temperatura_interna',
+        'humedad_relativa',
+        'presion',
+        'peso',
+        'sonido',
+        'luminosidad',
+    ];
+}
+
+function esTipoSensorNodoBasico(string $tipo): bool {
+    return in_array($tipo, tiposSensorNodoBasico(), true);
+}
+
+/**
  * Obtiene la lista completa de sensores de una colmena, incluyendo unidad de medida
  * y separando los que tienen datos (operativos) de los fantasma.
  */
@@ -398,6 +447,22 @@ function alertasActivas(int $id_colmena, int $limite = 10): array {
     $stmt->bindValue(2, $limite, PDO::PARAM_INT);
     $stmt->execute();
     return $stmt->fetchAll();
+}
+
+/**
+ * Cuenta todas las alertas activas, no solo las que caben en la lista.
+ */
+function contarAlertasActivas(int $id_colmena): int {
+    $pdo = getPDO();
+    $stmt = $pdo->prepare("
+        SELECT COUNT(*)
+        FROM alerta al
+        INNER JOIN indicador i ON al.id_indicador = i.id_indicador
+        WHERE i.id_colmena = ?
+          AND al.estado = 'activa'
+    ");
+    $stmt->execute([$id_colmena]);
+    return (int) $stmt->fetchColumn();
 }
 
 /**

@@ -16,10 +16,8 @@
     const RANGOS = {
         temp:   [34, 36, 'Rango óptimo', 'Fuera de rango', 1],
         hum:    [50, 70, 'Normal', 'Atención', 0],
-        sonido: [400, 600, 'Zona de alerta', 'Normal', 0]
+        sonido: [400, 600, 'Banda 400–600 Hz', 'Fuera de banda', 0]
     };
-
-    const num = (v, d) => (v === null || v === undefined || isNaN(v)) ? '—' : Number(v).toFixed(d);
 
     function pintarLecturas(d) {
         ['temp', 'hum', 'peso', 'sonido'].forEach((clave) => {
@@ -29,6 +27,9 @@
 
             const valorNumerico = Number(l.valor);
             const valorValido = l.valor !== null && l.valor !== undefined && Number.isFinite(valorNumerico);
+            // Si el servidor no manda el campo, no se asume fresco: mejor
+            // mostrar "dato antiguo" que pintar en verde una lectura dudosa.
+            const fresca = l.fresca === true;
 
             const valor = card.querySelector('[data-countup]');
             if (valor && valorValido) {
@@ -40,71 +41,50 @@
             const tiempo = card.querySelector('.metric-time');
             if (tiempo) tiempo.textContent = l.subida + ' · ' + l.relativo;
 
+            card.classList.remove('success', 'warning', 'critical', 'stale', 'brand');
+            if (!fresca) card.classList.add('stale');
+
             const badge = card.querySelector('.metric-footer .badge');
-            if (badge && clave === 'sonido') {
+            if (!badge) return;
+
+            if (!fresca) {
+                badge.className = 'badge badge-neutral';
+                badge.textContent = 'Dato antiguo';
+                return;
+            }
+
+            if (clave === 'sonido') {
+                // La acústica es experimental: la banda 400–600 Hz es contexto,
+                // no un diagnóstico de enjambrazón ni una alerta crítica.
                 if (!valorValido || valorNumerico <= 0) {
                     badge.className = 'badge badge-neutral';
+                    badge.textContent = 'Sin actividad';
                     return;
                 }
-                const enAlerta = valorNumerico >= RANGOS.sonido[0] && valorNumerico <= RANGOS.sonido[1];
-                badge.textContent = enAlerta ? 'Zona de alerta' : 'Normal';
-                badge.className = 'badge ' + (enAlerta ? 'badge-critical' : 'badge-success');
-            } else if (badge && RANGOS[clave] && valorValido) {
+                const enBanda = valorNumerico >= RANGOS.sonido[0] && valorNumerico <= RANGOS.sonido[1];
+                badge.textContent = enBanda ? 'Banda 400–600 Hz' : 'Fuera de banda';
+                badge.className = 'badge ' + (enBanda ? 'badge-warning' : 'badge-neutral');
+                if (enBanda) card.classList.add('warning');
+            } else if (clave === 'peso' && valorValido) {
+                badge.className = 'badge badge-brand';
+                badge.textContent = 'Balance 24 h';
+                card.classList.add('brand');
+            } else if (RANGOS[clave] && valorValido) {
                 const r = RANGOS[clave];
                 const ok = valorNumerico >= r[0] && valorNumerico <= r[1];
                 badge.textContent = ok ? r[2] : r[3];
                 badge.className = 'badge ' + (ok ? 'badge-success' : 'badge-warning');
+                card.classList.add(ok ? 'success' : 'warning');
             }
         });
 
         const flujo = $('#f-flujo');
-        if (flujo && d.flujo !== null && d.flujo !== undefined) {
-            flujo.textContent = (d.flujo >= 0 ? '+' : '') + d.flujo + ' kg/día';
-        }
-    }
-
-    function pintarIndicadores(d) {
-        const pintar = (valor, badge, datos, dec) => {
-            if (!datos) return;
-            const v = $(valor);
-            if (v) v.textContent = num(datos.valor, dec);
-            const b = $(badge);
-            if (b && datos.estado) b.textContent = datos.estado;
-        };
-
-        pintar('#v-deltat', '#b-deltat', d.delta_t, 1);
-        pintar('#v-hmiel', '#b-hmiel', d.h_miel, 1);
-
-        const fDelta = $('#f-deltat');
-        if (fDelta) fDelta.textContent = 'Actual · ' + d.hora;
-        const fHmiel = $('#f-hmiel');
-        if (fHmiel) fHmiel.textContent = 'Actual · ' + d.hora;
-
-        if (d.ibb) {
-            const ibb = $('#ibbValue');
-            if (ibb) ibb.textContent = d.ibb.valor;
-            const fill = $('#ibbBar');
-            if (fill) fill.setAttribute('data-progress', d.ibb.valor);
-            const badge = $('#ibbBadge');
-            if (badge && d.ibb.estado) {
-                badge.textContent = d.ibb.estado;
-                badge.className = 'badge ' + (d.ibb.valor >= 85 ? 'badge-success' : (d.ibb.valor >= 50 ? 'badge-warning' : 'badge-critical'));
-            }
-            const hero = $('#heroIbb');
-            if (hero) hero.textContent = num(d.ibb.valor, 1);
-            const heroLbl = $('#heroIbbLabel');
-            if (heroLbl && d.ibb.estado) heroLbl.textContent = d.ibb.estado;
-        }
-
-        if (d.ev) {
-            const ev = $('#evValue');
-            if (ev) ev.textContent = d.ev.valor;
-            const fill = $('#evBar');
-            if (fill) fill.setAttribute('data-progress', d.ev.valor);
-            const badge = $('#evBadge');
-            if (badge && d.ev.estado) {
-                badge.textContent = d.ev.estado;
-                badge.className = 'badge ' + (d.ev.valor >= 50 ? 'badge-success' : 'badge-warning');
+        if (flujo) {
+            const pesoFresco = d.lecturas && d.lecturas.peso && d.lecturas.peso.fresca;
+            if (!pesoFresco) {
+                flujo.textContent = 'Sin datos recientes';
+            } else if (d.flujo !== null && d.flujo !== undefined) {
+                flujo.textContent = (d.flujo >= 0 ? '+' : '') + d.flujo + ' kg/24 h';
             }
         }
     }
@@ -141,21 +121,55 @@
     }
 
     function pintarEstado(d) {
-        const esp = $('#heroEsp');
-        if (esp) esp.textContent = d.online ? 'ESP32 sincronizado' : 'Reconectando…';
-        const chipAlertas = $('#heroAlertas');
-        if (chipAlertas) chipAlertas.textContent = (d.alertas_total || 0) + ' alertas activas';
+        const lecturas = d.lecturas || {};
+        const valores = ['temp', 'hum', 'peso', 'sonido']
+            .map((k) => lecturas[k])
+            .filter(Boolean);
+        const frescas = valores.filter((l) => l.fresca);
+        const masReciente = valores
+            .filter((l) => l.fecha)
+            .sort((a, b) => String(b.fecha).localeCompare(String(a.fecha)))[0] || null;
+
+        const titulo = $('#statusTitle');
+        const sub = $('#statusSub');
+        const dot = $('#statusDot');
+        const ultimo = $('#statusLast');
+        const alertas = $('#statusAlerts');
+        const sensores = $('#statusSensors');
+
+        if (titulo) {
+            if (d.online) titulo.textContent = 'Nodo en línea';
+            else if (valores.length) titulo.textContent = 'Nodo sin reportar';
+            else titulo.textContent = 'Nodo sin configurar';
+        }
+        if (dot) {
+            dot.className = 'status-dot ' + (d.online ? 'online' : (valores.length ? 'warning' : 'offline'));
+        }
+        if (sub) {
+            if (d.online) sub.textContent = 'Recibiendo telemetría. Última lectura: ' + (masReciente ? masReciente.relativo : 'sin lecturas') + '.';
+            else if (valores.length) sub.textContent = 'Última lectura: ' + (masReciente ? masReciente.relativo : 'sin lecturas') + '. Revisa energía y WiFi.';
+            else sub.textContent = 'Aún no llega telemetría de esta colmena.';
+        }
+        if (ultimo) {
+            if (!masReciente || !masReciente.fecha) {
+                ultimo.textContent = 'Sin datos';
+            } else {
+                const f = String(masReciente.fecha);
+                ultimo.textContent = f.slice(8, 10) + '/' + f.slice(5, 7) + ' ' + f.slice(11, 16);
+            }
+        }
+        if (alertas) alertas.textContent = String(d.alertas_total || 0);
+        if (sensores) sensores.textContent = frescas.length + ' de 4';
+
         const pie = $('#lastUpdate');
         if (pie) pie.textContent = 'Actualizado ' + d.hora;
     }
 
     function pintarGrafico(d) {
-        const chart = window.tempWeightChart;
+        const chart = window.tempChart;
         if (!chart || !d.serie_temp) return;
-        const labels = d.serie_temp.labels.length ? d.serie_temp.labels : d.serie_peso.labels;
-        chart.data.labels = labels;
+        chart.data.labels = d.serie_temp.labels;
         chart.data.datasets[0].data = d.serie_temp.data;
-        chart.data.datasets[1].data = d.serie_peso.data;
         chart.update('none');
     }
 
@@ -176,7 +190,6 @@
             const d = await r.json();
             if (!d.ok) return;
             pintarLecturas(d);
-            pintarIndicadores(d);
             pintarAlertas(d);
             pintarEstado(d);
             pintarGrafico(d);

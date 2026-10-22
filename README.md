@@ -5,12 +5,12 @@
 # 🐝 BeeStation
 
 **Monitoreo apícola no invasivo con IoT**
-*Un ESP32 escucha la colmena sin abrirla: temperatura, humedad, peso, acústica y calidad del aire en tiempo real.*
+*Un nodo ESP32 registra temperatura, humedad, peso y actividad acústica de la colmena. Sin nube y sin abrir la colmena para leer.*
 
 <br>
 
 ![estado](https://img.shields.io/badge/estado-en_desarrollo-F5A623?style=for-the-badge&labelColor=1a1a1a)
-![firmware](https://img.shields.io/badge/firmware-v3.0.0-1a1a1a?style=for-the-badge&labelColor=F5A623)
+![firmware](https://img.shields.io/badge/firmware-v3.2.0-1a1a1a?style=for-the-badge&labelColor=F5A623)
 ![php](https://img.shields.io/badge/PHP-8.2-1a1a1a?style=for-the-badge&logo=php&logoColor=F5A623)
 ![mariadb](https://img.shields.io/badge/MariaDB-10.4-1a1a1a?style=for-the-badge&logo=mariadb&logoColor=F5A623)
 ![esp32](https://img.shields.io/badge/ESP32-DevKit-000000?style=for-the-badge&logo=espressif&logoColor=F5A623)
@@ -32,7 +32,7 @@
 
 ## 📖 Qué es
 
-BeeStation es un sistema de vigilancia de colmenas que **no requiere abrir el panal**. Un módulo ESP32 con sensores montados sobre la colmena mide las condiciones del interior y las envía por WiFi a un backend propio en PHP, que las almacena, las evalúa contra umbrales bioclimáticos y dispara alertas.
+BeeStation registra variables de una colmena mediante un nodo ESP32 y un backend PHP. Los indicadores tienen requisitos de entrada y limites descritos en Estado real.
 
 > **Sin nube, sin cuentas, sin intermediarios.** Todo el flujo corre en tu propio servidor: el ESP32 hace `HTTP POST` directo a `api/ingest.php`. No hay MQTT, ni ThingSpeak, ni servicios de terceros.
 
@@ -44,19 +44,14 @@ Proyecto de formación — **SENA, Centro Minero Ambiental**, El Bagre (Antioqui
 
 ```mermaid
 flowchart LR
-    A["🐝 ESP32 + Sensores"] -->|"POST JSON · WiFi"| B["<b>api/ingest.php</b><br/>valida la firma HMAC del nodo"]
+    A["🐝 ESP32 + Sensores"] -->|"POST JSON · WiFi"| B["<b>api/ingest.php</b><br/>valida la firma ECDSA del nodo"]
     B --> C["Calibración<br/>por sensor"]
     C --> D[(MySQL /<br/>MariaDB)]
-    C --> E["Cálculo IBB<br/>+ indicadores"]
-    E --> F{"IBB < 50?"}
-    F -->|"sí"| G[("🔔 Alerta")]
-    F -->|"no"| H["✅ Óptimo"]
     D --> I["Backend PHP"]
-    I --> J["📊 Dashboard Web"]
+    I --> J["Dashboard web<br/>según las entradas disponibles"]
 
     style A fill:#1a1a1a,stroke:#F5A623,color:#F5A623,stroke-width:2px
     style B fill:#F5A623,stroke:#1a1a1a,color:#1a1a1a,stroke-width:2px
-    style G fill:#e74c3c,stroke:#1a1a1a,color:#fff
     style J fill:#1a1a1a,stroke:#F5A623,color:#F5A623,stroke-width:2px
 ```
 
@@ -68,9 +63,9 @@ flowchart LR
 | **2** | `POST` a `api/ingest.php` con la petición **firmada** (ECDSA P-256) |
 | **3** | El backend verifica la firma con la clave pública del nodo y que siga autorizado |
 | **4** | Aplica el factor de calibración propio de cada sensor y guarda la lectura |
-| **5** | Recalcula el **IBB** y los indicadores derivados en la misma ingesta |
-| **6** | Evalúa los disparadores: **IBB < 50** y **enjambrazón acústico** (400–600 Hz) — si saltan, inserta la alerta (con ventana de supresión para no duplicar) |
-| **7** | El dashboard refleja todo con datos reales — cero valores de relleno |
+| **5** | Guarda las lecturas aceptadas; los indicadores requieren variables que el nodo no envía |
+| **6** | La frecuencia acústica es experimental y no confirma enjambrazón |
+| **7** | El dashboard muestra datos disponibles o estados explícitos de “sin datos” |
 
 ---
 
@@ -80,23 +75,23 @@ flowchart LR
 <tr>
 <td width="50%">
 
-### 🔴 Monitoreo en vivo
+### 🔴 Monitoreo periódico
 - Temperatura y humedad internas — **BME280**
 - Presión barométrica — **BME280**
-- Peso de la colmena — **HX711** (celda de carga)
-- Acústica — **MAX4466**, banda **400–600 Hz** (señal de pre-enjambrazón)
+- Peso de la colmena — **HX711** (celda de carga; calibración pendiente)
+- Acústica — **MAX4466**, frecuencia estimada en Hz; experimental, no confirma enjambrazón
 - Luminosidad ambiente — **BH1750**
 - Respaldo local en **microSD** antes de cada transmisión
 
 </td>
 <td width="50%">
 
-### 🧠 Decisiones automáticas
-- **IBB** recalculado en cada ingesta (45 % temp · 35 % humedad · 20 % CO₂)
-- Umbrales por variable: **óptimo / alerta / crítico**
-- **Dos alertas automáticas**: `IBB_BAJO` al bajar de 50 y `ENJAMBRAZON` en la banda 400–600 Hz
-- Índices derivados: **ΔT**, **EV**, **H_miel**, flujo de néctar
-- **Cero datos ficticios**: sin lecturas, la vista muestra estado vacío explícito
+### 🧠 Indicadores y límites
+- La fórmula del IBB está documentada; no se calcula en campo porque el nodo no envía CO₂.
+- Umbrales por variable: **óptimo / atención / crítico**, con frescura obligatoria.
+- La acústica es experimental y no confirma enjambrazón.
+- ΔT, EV y H_miel están documentados, pero requieren sensores o mediciones que el nodo actual no tiene.
+- **Cero datos ficticios**: sin lecturas, la vista muestra un estado vacío explícito.
 
 </td>
 </tr>
@@ -106,13 +101,14 @@ flowchart LR
 ### 🔒 Seguridad
 - **Identidad ECDSA P-256 por nodo**: la clave privada se genera en el ESP32 y **nunca sale del dispositivo**
 - Firma de cada petición + anti-replay por `nonce` y ventana de tiempo
-- **Autorización explícita** del nodo desde el panel mediante un código de un solo uso
+- **Autorización explícita** del nodo desde el panel mediante un código de un solo uso, formato `4-4`
 - Revocación individual sin reflashear el resto de nodos
+- El alta ECDSA está corregida en código, pero **aún no se probó en hardware con NVS limpia**
 
 </td>
 <td>
 
-### 📡 Firmware autónomo
+### 📡 Firmware del nodo
 - **Portal cautivo** para aprovisionar WiFi desde el celular (`BeeStation_Config`)
 - Persistencia en **NVS**: guarda credenciales y no vuelve a pedirlas
 - **Reset de fábrica** sosteniendo el botón BOOT 3 s (borra la NVS)
@@ -126,7 +122,7 @@ flowchart LR
 
 ## 🔧 Hardware
 
-**Placa:** ESP32 Dev Module · **Firmware:** `beestation_node/` v3.0.0
+**Placa:** ESP32 Dev Module | **Firmware:** `beestation_node/` v3.2.0
 
 | Módulo | Modelo | Interfaz | Pines GPIO | Función |
 |---|:-:|:-:|:-:|---|
@@ -137,6 +133,9 @@ flowchart LR
 | 💾 Almacenamiento | **microSD** | VSPI | `CS 5` · `MOSI 23` · `MISO 19` · `SCK 18` | Log local de respaldo |
 | 🔘 Reset | Botón BOOT | Digital | `GPIO 0` | Formatea la NVS a los 3 s |
 | 💡 Estado | LED integrado | Digital | `GPIO 2` | Indicador de estado |
+
+> El HX711 no tiene calibración de campo validada y el micrófono entrega una
+> frecuencia estimada experimental. No son balanza ni diagnóstico acústico certificados.
 
 <details>
 <summary><b>Requisitos del entorno de desarrollo</b></summary>
@@ -163,25 +162,21 @@ arduino-cli compile --fqbn esp32:esp32:esp32 beestation_node
 
 ---
 
-## 📡 Sensores y umbrales
+## Sensores y disponibilidad
 
-Cada colmena se crea con **7 sensores** precargados. Los umbrales viven en `variable_bioclimatica`:
+El nodo físico con firmware **3.2.0** envía `temperatura_interna` (°C), `humedad_relativa` (%HR), `presion` (hPa), `peso` (kg), `sonido` (Hz estimados) y `luminosidad` (lux). No envía CO₂, `temperatura_externa` ni `energia`.
 
-| Variable | Unidad | ✅ Óptimo | ⚠️ Alerta | 🔴 Crítico |
-|---|:-:|:-:|:-:|:-:|
-| `temperatura_interna` | °C | 34 – 36 | 32 – 38 | 30 – 40 |
-| `humedad_relativa` | %HR | 50 – 70 | 45 – 80 | 35 – 85 |
-| `sonido` | Hz | 200 – 380 | 400 – 600 | 600 – 900 |
-| `co2` | ppm | 2 000 – 4 000 | 1 000 – 6 000 | 500 – 10 000 |
-| `presion` | hPa | 1 000 – 1 025 | 980 – 1 040 | 960 – 1 060 |
-| `energia` | V | 3,7 – 4,2 | 3,0 – 4,2 | 2,8 – 4,2 |
-| `peso` / `luz` | kg / lux | *sin umbral* | *monitoreo puro* | *monitoreo puro* |
+| Estado | Variables y funciones |
+|---|---|
+| Disponible | Las seis variables emitidas por el nodo. El peso del HX711 se recibe, pero su calibración de campo sigue pendiente. Chart.js y Lucide se cargan desde archivos locales; la interfaz no depende de CDN. |
+| Experimental | Acústica en Hz: no confirma enjambrazón. `H_miel` es una estimación indirecta de HR y no mide miel. El alta ECDSA ya genera el código `4-4` en firmware, pero no se probó en hardware. |
+| No disponible | IBB y EV (falta CO₂), ΔT (falta temperatura exterior) y medición de energía. `energia.php` es un placeholder. |
 
----
+El sistema no se declara listo para campo. Consulta [Sensores y unidades](docs/SENSORES-Y-UNIDADES.md) para el contrato de telemetría.
 
 ## 🧮 Índice de Bienestar Bioclimático
 
-Se recalcula en **cada ingesta**, a partir de tres factores normalizados:
+La fórmula definida para IBB requiere tres variables; como el nodo no envía CO₂, no se calcula en campo.
 
 ```
 IBB = 100 − ( 0,45 · f_temp + 0,35 · f_hum + 0,20 · f_co2 )
@@ -189,36 +184,35 @@ IBB = 100 − ( 0,45 · f_temp + 0,35 · f_hum + 0,20 · f_co2 )
 
 > ⚠️ **Nota:** la fórmula exige las tres variables. El backend calcula el IBB solo cuando existen lecturas de temperatura, humedad **y CO₂**; mientras el firmware no emita `co2`, el indicador queda en `null` *(ver [Roadmap](#-roadmap))*.
 
-| IBB | Estado | Acción |
+| IBB | Umbral de referencia | Disponibilidad |
 |:-:|---|---|
 | **≥ 85** | 🟢 Óptimo | Sin alerta |
-| **70 – 84** | 🔵 Bueno | Sin alerta |
-| **50 – 69** | 🟡 Regular | Vigilancia |
-| **30 – 49** | 🟠 Deficiente | **Alerta automática** |
-| **< 30** | 🔴 Crítico | **Alerta automática** |
+| 70-84 | Bueno | Solo cuando exista IBB calculado |
+| 50-69 | Regular | Solo cuando exista IBB calculado |
+| 30-49 | Deficiente | Solo cuando exista IBB calculado |
+| Menor que 30 | Crítico | Solo cuando exista IBB calculado |
 
-**Indicadores derivados también implementados:**
+**Indicadores documentados y disponibilidad en campo:**
 
 | Sigla | Nombre | Qué mide |
 |:-:|---|---|
 | **ΔT** | Diferencial térmico | Interior vs. exterior — si sube, la colmena se está ventilando |
-| **EV** | Eficiencia de ventilación | Capacidad de la colonia de regular su clima |
-| **H_miel** | Humedad de la miel | Estimada a partir de la HR interna (`12 + (HR − 40) · 0,35`) |
-| **FN** | Flujo de néctar | Variación diaria de peso |
+| EV | Eficiencia de ventilación | Requiere CO₂; no se calcula en campo |
+| H_miel | Estimación indirecta basada en HR | No mide la humedad real de la miel |
+| Flujo de peso | Variación de peso | No confirma por sí sola flujo de néctar |
 
 ---
 
 ## 🌐 API
 
-Cinco endpoints, todos en `api/`. **Toda petición va firmada con ECDSA P-256**
-usando la clave privada del nodo (ver `docs/AUTENTICACION-Y-PORTAL.md`).
+Cinco endpoints, todos en `api/`. La ingesta usa firma; el alta ECDSA está corregida en código, pero aún requiere prueba en hardware con NVS limpia.
 
 | Método | Ruta | Descripción |
 |:-:|---|---|
 | `GET` | `api/ping.php` | Salud del servicio |
 | `POST` | `api/enroll.php` | Alta del nodo con su clave pública y prueba de posesión |
 | `POST` | `api/enroll_estado.php` | Estado de autorización del nodo |
-| `POST` | `api/ingest.php` | Recibe lecturas, calibra, guarda y recalcula el IBB |
+| `POST` | `api/ingest.php` | Recibe, valida y guarda lecturas; indicadores requieren entradas disponibles |
 | `POST` | `api/validate_token.php` | **Heredado**: valida el token de un nodo con firmware antiguo |
 
 <br>
@@ -254,6 +248,7 @@ curl -X POST "http://localhost$RUTA" \
   -d "$CUERPO"
 ```
 
+Ejemplo ilustrativo de respuesta; no representa telemetría del nodo físico. El IBB no se calcula mientras falte CO₂.
 ```json
 {
   "ok": true,
@@ -266,7 +261,7 @@ curl -X POST "http://localhost$RUTA" \
   ],
   "insertados": 3,
   "rechazadas": 0,
-  "ibb_calculado": { "valor": 87.7, "estado": "Óptimo" }
+  "ibb_calculado": null
 }
 ```
 
@@ -296,12 +291,12 @@ duplicada y cuál fue rechazada, sin tener que reenviar el lote completo.
 
 | Vista | Ruta | Qué muestra |
 |---|---|---|
-| 📊 Resumen | `dashboard.php` | IBB actual, estado de la colonia y alertas recientes |
+| 📊 Resumen | `dashboard.php` | Estado del nodo, cuatro métricas reales, alertas y “qué revisar” |
 | 📱 Dispositivos | `dispositivos.php` | Registro de colmenas, autorización/revocación de nodos y estado de conexión |
-| 🌡️ Sensores | `sensores.php` | Todas las variables en vivo con su rango y estado |
-| 🎵 Acústica | `acustica.php` | Análisis de banda y detección de enjambrazón |
-| ⚖️ Peso | `peso.php` | Evolución del peso y flujo de néctar |
-| 🔋 Energía | `energia.php` | Voltaje de la batería / fuente |
+| 🌡️ Sensores | `sensores.php` | Variables con unidad, estado real y frescura |
+| Acústica | `acustica.php` | Frecuencia estimada experimental; no confirma enjambrazón |
+| ⚖️ Peso | `peso.php` | Evolución del peso; no confirma por sí sola flujo de néctar |
+| Energía | `energia.php` | Placeholder; el nodo no envía energía |
 | 📡 Radar | `conectar_dispositivo.php` | Pantalla de espera que detecta la primera ingesta y redirige al dashboard |
 | 🔑 Login | `login.php` | Autenticación de usuarios |
 
@@ -374,7 +369,7 @@ git clone https://github.com/jeronimoparra-ai/BeeStation_Sena.git
 | 3 | Selecciona el puerto COM/USB |
 | 4 | ✔ Verificar → ⬆ Subir *(mantén BOOT si no avanza)* |
 | 5 | Enciende el nodo, conéctate a `BeeStation_Config` y guarda tu red (no hay token) |
-| 6 | En `dispositivos.php` → *Nodos IoT*, introduce el **código `XXXX-XXXX`** del monitor serie y elige la colmena |
+| 6 | En `dispositivos.php` > *Nodos IoT*, usa el código de alta de formato `4-4`; el firmware ya lo genera, pero el flujo completo aún requiere prueba en hardware |
 
 <details>
 <summary><b>▸ Comprobación sin hardware</b></summary>
@@ -414,12 +409,12 @@ BeeStation_Sena/
 │   └── db.php                  # Conexión PDO (las credenciales reales están en db.local.php)
 ├── 🗄️ database/
 │   ├── schema.sql              # Esquema limpio (recomendado para empezar)
-│   └── migrations/             # Migraciones incrementales (001–006)
+│   └── migrations/             # Migraciones incrementales (001–008)
 ├── ♾️ includes/
-│   ├── functions.php           # Cálculo de IBB, indicadores y alertas
+│   ├── functions.php           # Consultas, frescura e indicadores (no todos disponibles en campo)
 │   ├── auth.php / header.php / sidebar.php / footer.php
 ├── 🐝 beestation_node/
-│   ├── beestation_node.ino     # Firmware ESP32 v3.0.0
+│   ├── beestation_node.ino     # Firmware ESP32 v3.2.0
 │   ├── identidad_ecdsa.h       # Identidad ECDSA P-256 + firma de peticiones
 │   ├── util_hex.h              # Hexadecimal (mayúsculas/minúsculas)
 │   └── index_html.h            # HTML del portal cautivo
@@ -437,15 +432,16 @@ BeeStation_Sena/
 - [x] Modelo entidad-relación (notación Chen, 12 entidades) y esquema SQL
 - [x] Prototipo físico impreso en 3D (carcasa hexagonal)
 - [x] Backend PHP + MySQL con dashboard sobre **datos reales** — sin valores de relleno
-- [x] `api/ingest.php`: valida, calibra, guarda y recalcula el IBB en cada ingesta
-- [x] **Identidad ECDSA P-256 por nodo** (sin token permanente) con prueba de posesión
+- [x] `api/ingest.php`: recibe, valida y guarda las lecturas compatibles
+- [x] Alta ECDSA: el firmware ya genera y persiste el código `4-4`
+- [ ] Alta ECDSA: validar el flujo completo en hardware con NVS limpia
 - [x] Autorización y revocación individual de nodos desde el panel
 - [x] Acuse por lectura (`id_medicion`) y cola offline que no se bloquea
-- [x] Indicadores **ΔT**, **EV**, **H_miel** y flujo de néctar implementados
-- [x] Alertas automáticas persistidas en la tabla `alerta`
-- [x] Sensor de energía (`energia`, INA219) registrado en el esquema
+- [x] Formulas documentadas; IBB, EV y DeltaT no disponibles en campo; H_miel es indirecta y no mide miel
+- [x] Estructura de alertas persistidas en la tabla `alerta`; la alerta acústica está desactivada
+- [x] Esquema preparado para energía (`energia`, INA219); hardware no instalado
 - [x] Sistema de roles eliminado del esquema (ya no quedan restos)
-- [x] **Firmware ESP32 v3.0.0** completo: portal cautivo, NVS, reset de fábrica, backoff
+- [x] **Firmware ESP32 v3.2.0** completo: portal cautivo, NVS, reset de fábrica, backoff
 - [x] Compilación verificada con `esp32:esp32@3.3.12` y las 4 bibliotecas de la guía
 - [x] Zona horaria sincronizada entre PHP y MySQL (`America/Bogota`)
 
@@ -457,9 +453,9 @@ BeeStation_Sena/
 
 ### 📌 Pendiente
 
-- [ ] **Alinear sensores entre firmware y backend** — el ESP32 envía `presion` y `luminosidad`, que el backend **rechaza** (`api/ingest.php:110`) porque no hay fila de sensor para ellas; a la inversa **no** envía `co2`, `energia` ni `temperatura_externa`. **Mientras no llegue `co2`, el IBB no se calcula** y `delta_t` queda en `null`
-- [ ] **IRE** — Índice de Riesgo de Enjambrazón (fórmula definida, sin implementar)
-- [ ] Detección de enjambrazón con IA
+- [ ] Agregar CO₂ para IBB y temperatura exterior para ΔT; energía tampoco se transmite. El nodo sí envía presión y luminosidad.
+- [ ] **Investigación:** IRE (fórmula no validada; no es una función del producto)
+- [ ] **Investigación:** análisis acústico con grabaciones etiquetadas; no se promete detección de enjambrazón
 - [ ] Conectividad **LoRa** para apiarios sin cobertura WiFi
 - [ ] Ruta OTA para actualizar firmware sin cable
 - [ ] Reporte académico completo
@@ -477,7 +473,7 @@ El repositorio incluye **`guia-configuracion-beestation.docx`**: manual de insta
 | `fatal error: Adafruit_Sensor.h: No such file` | Falta la librería base | Instala **Adafruit Unified Sensor** |
 | Puerto COM gris o inhabilitado | Cable de solo carga o driver faltante | Usa cable de datos e instala CP210x / CH340 |
 | `HTTP 401 Unauthorized` en ingesta | Firma inválida, nodo revocado/pendiente o reloj desincronizado | Revisa el `motivo` de la respuesta y el estado del nodo en *Dispositivos → Nodos IoT* |
-| El nodo no envía nada y el panel lo muestra pendiente | Falta autorizarlo con su código de alta | Introduce el código `XXXX-XXXX` en *Dispositivos → Nodos IoT* |
+| El nodo no envía nada y el panel lo muestra pendiente | Falta autorizarlo con su código de alta | Introduce el código `4-4` en *Dispositivos → Nodos IoT* |
 | `Sketch too big` al compilar | Tabla de particiones por defecto | Compila con `PartitionScheme=min_spiffs` y reflashea la tabla por USB |
 
 </details>

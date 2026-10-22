@@ -1,62 +1,80 @@
-# Plan de trabajo: auditoría y modernización de BeeStation
+# Plan de trabajo — BeeStation
 
-## Estado inicial y límites del entorno
+> Plan completo: `docs/PLAN-REESTRUCTURACION-2026-10-21.md`
+> Auditoría: `docs/AUDITORIA-CAMPO-2026-10-21.md`
+> Última actualización: 2026-10-21
 
-La carpeta contiene el código fuente, pero no contiene metadatos Git (`.git`) ni hay un repositorio Git en sus directorios superiores. No se pueden confirmar remoto, rama, historial, cambios previos ni crear una rama de forma segura. No se ejecutarán scripts SQL, ni se manipularán `config/db.local.php`, servicios o datos de la base local.
+## Estado
 
-Hallazgos iniciales verificados:
+- Fase 0 (verdad y limpieza): implementada en código, pendiente de prueba en
+  hardware y de commit.
+- Fase 1 (hardware y datos): bloqueada por placa ESP32, RTC y sensores de energía.
+- Fases 2–5: planificadas; no empezar hasta cerrar la Fase 0.
 
-- `includes/firma.php` autentica comparando HMAC con `colmena.token_vinculacion`, usa MAC como identidad indicativa y permite `timestamp=0` sin ventana temporal.
-- `api/ingest.php` acepta `seq` opcional, devuelve aceptación parcial sin identificadores por lectura, y los valores inválidos se omiten mientras la respuesta puede ser HTTP 200.
-- `beestation_node/beestation_node.ino` persiste el token en NVS, imprime sus fragmentos en serie y construye `seq` desde epoch; la cola SD avanza según respuesta parcial global.
-- `config/db.php` cae a `root`/contraseña vacía cuando no hay configuración explícita. Existe `config/db.local.php`; sus contenidos se consideran sensibles y no se inspeccionaron.
-- Hay tres migraciones SQL y dos esquemas; no existe historial Git disponible para establecer sus bases anteriores.
+## Fase 0 — cerrar ahora
 
-## Decisiones y restricciones
+- [x] Recursos locales (Chart.js, Lucide), sin CDN.
+- [x] Menú y UI sin módulos vacíos ni controles falsos.
+- [x] Dashboard de estado + 4 métricas reales.
+- [x] Frescura de datos y “dato antiguo” en dashboard, peso y acústica.
+- [x] Acústica experimental sin alerta de enjambrazón.
+- [x] Sensores con unidades y estado real.
+- [x] Informe sin IBB/EV/ΔT/H_miel.
+- [x] Firmware: alta 4-4, `test` sin telemetría falsa, `/status` sin código.
+- [x] `php -l`, compilación ESP32 y render autenticado con Playwright.
+- [ ] Prueba de alta, `test` y `/status` en hardware real.
+- [x] Revisar worktrees Orca e integrar selectivamente seguridad y documentos.
+- [ ] Commit y sync al docroot.
 
-- Priorizar seguridad y conservación de datos; mantener el HMAC existente solo como compatibilidad temporal hasta que el enrolamiento por dispositivo esté completo.
-- Ninguna clave privada de ESP32 se transmite. El camino preferido es clave asimétrica por nodo, pero requiere verificar capacidades del core y la interoperabilidad real antes de implementarlo.
-- No ejecutar SQL contra la instancia de XAMPP; cualquier migración será revisada estáticamente y documentada para una base aislada.
-- No crear historia Git artificial ni reemplazar el directorio por un clon mientras el estado local no pueda compararse.
-- Trabajar en cortes compatibles, cada uno con validación reproducible, y dejar explícito lo que depende de hardware o herramientas ausentes.
+## Fase 1 — contrato de hardware y datos
 
-## Fases
+- [ ] Perfil de hardware por nodo y sensores creados solo si están instalados.
+- [ ] Contrato único de unidades/rangos/frecuencia.
+- [ ] RTC o endpoint de hora local; firma sin internet.
+- [ ] Arranque sin router y reconexión con backoff.
+- [ ] Calibración HX711 persistida en NVS.
+- [ ] `seq` monótono, no epoch.
+- [ ] Cola SD robusta y acuse por lectura.
 
-### Fase 1: Auditoría y base segura
-- [ ] Mapear autenticación, sesiones, CSRF, ownership, configuración, contratos de sensores y colas SD.
-- [ ] Comparar esquemas y migraciones de forma estática, sin ejecutarlos.
-- [ ] Establecer comprobaciones locales disponibles (PHP, MySQL/MariaDB, Arduino CLI, bibliotecas).
-- [ ] Crear reporte de auditoría y changelog con hallazgos demostrables.
+## Fase 2 — métricas y alertas
 
-### Fase 2: Contrato y seguridad de telemetría
-- [ ] Diseñar y documentar identidad/enrolamiento/revocación de cada dispositivo, con compatibilidad transitoria.
-- [ ] Implementar autenticación fresca con nonce atómico y rechazar reloj no sincronizado en subida online.
-- [ ] Hacer ingestión idempotente por identidad de dispositivo y medición, con acuse por registro.
-- [ ] Actualizar reenvío SD para conservar filas sin hora y avanzar solo sobre filas confirmadas.
-- [ ] Agregar pruebas automatizadas de validación, idempotencia, replay y acuse parcial.
+- [ ] Métricas núcleo y avanzadas condicionadas.
+- [ ] Retirar H_miel y recomendación de cosecha.
+- [ ] Flujo de peso con lectura nocturna y bitácora.
+- [ ] Alertas con histéresis, persistencia, auto-resolución y cooldown.
+- [ ] Calidad del dato visible.
 
-### Fase 3: Esquema, instalación y coherencia de sensores
-- [ ] Definir migraciones no destructivas verificables para dispositivos, nonces, lotes y lecturas.
-- [ ] Alinear esquema limpio con migraciones y requerimientos leídos por PHP.
-- [ ] Alinear sensores físicos, rangos/unidades, variables derivadas y estados de mediciones inválidas/no disponibles.
-- [ ] Documentar instalación nueva, migración, recuperación y compatibilidad de firmware.
+## Fase 3 — UX de campo
 
-### Fase 4: Acceso web y refinamiento visual
-- [ ] Corregir sesión, CSRF, control de propiedad, escape y errores públicos.
-- [ ] Revisar y corregir errores de estructura detectados en las vistas implicadas.
-- [ ] Aplicar ajustes visuales pequeños, accesibles, responsive y compatibles con reduced motion.
+- [ ] Resumen / Colmenas / Histórico / Informe.
+- [ ] Estado primero; 3 acciones máximo.
+- [ ] Tipografía 16 px, botones 44 px, contraste AA, foco visible.
+- [ ] Móvil/tablet y `prefers-reduced-motion`.
+- [ ] Integrar onboarding de nodo en el alta.
 
-### Checkpoints
-- [ ] Cada fase deja contratos documentados y verificaciones ejecutables.
-- [ ] No afirmar pruebas de integración/hardware/DB que no puedan ejecutarse en este entorno.
-- [ ] Revisión final del diff no está disponible hasta recuperar metadatos Git; inventariar los archivos tocados.
+## Fase 4 — operación y seguridad
 
-## Riesgos
+- [ ] Docroot sin `tools/`, `tests/`, `database/`, `docs/`, firmware ni `.sql`.
+- [ ] Apache: denegar rutas sensibles, HTTPS, cabeceras.
+- [ ] `conectar_dispositivo.php` con `auth.php`, CSRF e IDOR.
+- [ ] Servidor del nodo apagado o autenticado.
+- [ ] Backups, retención y monitoreo del servidor.
+- [ ] Checklist `docs/SEGURIDAD-DESPLIEGUE.md`.
 
-| Riesgo | Impacto | Mitigación |
-|---|---|---|
-| El checkout carece de Git | No se pueden preservar/cotejar cambios previos ni revisar diff | No crear commits ni historia; mantener cambios localizados y listar rutas |
-| Versión real de MariaDB desconocida | Sintaxis de migración podría no aplicar | Diseñar scripts compatibles y documentar preflight de versión/base aislada |
-| Core ESP32 y librerías no verificadas | Firma asimétrica puede no compilar/interoperar | Detectar herramientas disponibles antes de elegir implementación |
-| Firmware viejo en campo | Corte de compatibilidad impediría ingesta | Mantener ruta heredada temporal con revocación y plan de migración explícito |
-| Sensor/calibración no verificados | Métricas podrían ser engañosas | Marcar como no disponible/experimental; no inventar ceros ni precisión |
+## Fase 5 — piloto 30 días
+
+- [ ] 2 colmenas, 2 nodos, bitácora y revisión semanal.
+- [ ] ≥ 99 % de filas recuperadas.
+- [ ] 0 alertas de enjambrazón no verificadas.
+- [ ] Deriva de peso < ±50 g/día.
+- [ ] ≥ 7 días sin sol y ≥ 20 % de reserva.
+- [ ] Nodo vivo tras 2 cortes y 1 semana sin internet.
+- [ ] Resultado en `docs/PILOTO-2026.md`.
+
+## Bloqueos
+
+- ESP32 físico, NVS limpia y portal: prueba pendiente.
+- RTC/energía: hardware no disponible.
+- `ecdsa_flujo_test.php`: requiere MySQL aislado en el puerto 3399, no disponible.
+- `ecdsa_openssl_test.php`: OpenSSL local sin configuración válida.
+- Antigravity/Claude Code: cuota/saldo agotados; se usa Orca/Codex.

@@ -10,6 +10,16 @@
   padding: 0 0 48px;
 }
 
+/* En móvil la tabla se desplaza dentro de su bloque, sin arrastrar la página. */
+.informe-bloque .table-wrap {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+@media print {
+  .informe-bloque .table-wrap { overflow: visible; }
+}
+
 /* ── Barra de herramientas (no se imprime) ───────────────────────── */
 .informe-toolbar {
   display: flex;

@@ -37,8 +37,8 @@
  */
 
 if (PHP_SAPI !== 'cli') {
-    fwrite(STDERR, "Solo por linea de comandos.\n");
-    exit(1);
+    http_response_code(403);
+    exit;
 }
 
 $raiz = dirname(__DIR__, 2);

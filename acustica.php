@@ -4,82 +4,58 @@
     <div class="card empty-state">
         <div class="empty-icon-circle"><i data-lucide="activity" class="u-icon-lg"></i></div>
         <h2 class="empty-title">No hay colmena registrada</h2>
-        <p class="empty-desc">Registra una colmena para ver su análisis acústico.</p>
+        <p class="empty-desc">Registra una colmena para ver su actividad acústica.</p>
     </div>
 <?php else:
-    $idColmena   = $colmenaActiva['id_colmena'];
+    $idColmena   = (int) $colmenaActiva['id_colmena'];
     $sonido      = ultimaLectura($idColmena, 'sonido');
-    $serieSonido = serieHistorica($idColmena, 'sonido', 6); // últimas 6 horas
+    $serieSonido = serieHistoricaAgregada($idColmena, 'sonido', 6, 5);
 
-    $enAlerta = $sonido && $sonido['valor_calibrado'] > 0
-        && $sonido['valor_calibrado'] >= 400 && $sonido['valor_calibrado'] <= 600;
-    $activo = $sonido && $sonido['valor_calibrado'] > 0;
+    $sonidoFresco = lecturaReciente($sonido, 5);
+    $activo       = $sonidoFresco && (float) $sonido['valor_calibrado'] > 0;
+    $enBanda      = $activo
+        && (float) $sonido['valor_calibrado'] >= 400
+        && (float) $sonido['valor_calibrado'] <= 600;
 ?>
 
 <div class="page-header">
     <div>
-        <h1 class="page-title">Análisis Acústico</h1>
-        <p class="page-subtitle"><?= htmlspecialchars($colmenaActiva['nombre']) ?> · Sensor MAX4466 · Datos reales</p>
-    </div>
-    <?php if ($enAlerta): ?>
-    <div class="alert-banner critical">
-        <div class="status-dot offline"></div>
-        Posible enjambrazón detectada
-    </div>
-    <?php endif; ?>
-</div>
-
-<div class="card page-hero animate-fadeUp stagger-1">
-    <div class="page-hero-copy">
-        <span class="hero-eyebrow">Señal acústica</span>
-        <h2>Patrón sonoro de la colonia con foco en comportamiento y alerta.</h2>
-        <p class="page-subtitle">La lectura acústica se interpreta como una señal operacional: actividad normal, zona crítica y contexto histórico presentados con una jerarquía más clara.</p>
-        <div class="page-hero-grid">
-            <div class="page-kpi-card">
-                <span>Frecuencia actual</span>
-                <strong><?= $sonido ? number_format($sonido['valor_calibrado'], 0) . ' Hz' : 'Sin datos' ?></strong>
-            </div>
-            <div class="page-kpi-card">
-                <span>Lecturas</span>
-                <strong><?= count($serieSonido) ?> eventos</strong>
-            </div>
-        </div>
-    </div>
-    <div class="page-hero-aside">
-        <div class="premium-banner">
-            <div>
-                <div class="subtle-note u-mb-1">Estado de riesgo</div>
-                <div class="card-title"><?= $enAlerta ? 'Alerta activa' : ($activo ? 'Monitoreo estable' : 'Sin datos') ?></div>
-            </div>
-            <span class="badge <?= $enAlerta ? 'badge-critical' : ($activo ? 'badge-success' : 'badge-neutral') ?>"><?= $enAlerta ? 'Crítico' : ($activo ? 'Normal' : 'Sin datos') ?></span>
-        </div>
-        <div class="hero-chip"><i data-lucide="waves"></i><span>MAX4466 · frecuencia estimada</span></div>
-        <div class="hero-chip"><i data-lucide="shield-alert"></i><span>Umbral 400–600 Hz para enjambrazón</span></div>
-        <div class="hero-chip"><i data-lucide="mic"></i><span>Histórico real de 6 horas</span></div>
+        <h1 class="page-title">Actividad acústica</h1>
+        <p class="page-subtitle"><?= htmlspecialchars($colmenaActiva['nombre']) ?> · MAX4466 · frecuencia estimada</p>
     </div>
 </div>
 
-<!-- Metric Cards -->
+<div class="scope-note u-mb-4">
+    <strong>Experimental.</strong> La frecuencia se estima por cruces por cero y no distingue enjambrazón,
+    canto de reina ni estados de ánimo. Sirve para observar tendencia, silencio o saturación.
+    <strong>No abras la colmena solo por este dato.</strong>
+</div>
+
 <div class="grid-2x2 two-column-metrics">
-    <div class="card metric-card animate-fadeUp stagger-1 <?= $enAlerta ? 'critical' : ($activo ? 'success' : '') ?>">
-        <div class="metric-icon <?= $enAlerta ? 'critical' : ($activo ? 'success' : 'neutral') ?>">
+    <div class="card metric-card animate-fadeUp stagger-1 <?= $sonido ? (!$sonidoFresco ? 'stale' : ($enBanda ? 'warning' : ($activo ? 'success' : ''))) : '' ?>">
+        <div class="metric-icon <?= $enBanda ? 'warning' : ($activo ? 'success' : 'neutral') ?>">
             <i data-lucide="waves"></i>
         </div>
-        <div class="metric-header"><i data-lucide="waves"></i> Frecuencia Actual</div>
+        <div class="metric-header">
+            <i data-lucide="waves"></i> Frecuencia actual
+            <span class="badge badge-experimental u-ml-1">experimental</span>
+        </div>
         <?php if ($sonido): ?>
             <div class="metric-value">
-                <span data-countup="<?= number_format($sonido['valor_calibrado'], 0, '.', '') ?>" data-decimals="0"><?= number_format($sonido['valor_calibrado'], 0) ?></span>
+                <span data-countup="<?= number_format((float) $sonido['valor_calibrado'], 0, '.', '') ?>" data-decimals="0"><?= number_format((float) $sonido['valor_calibrado'], 0) ?></span>
                 <span class="metric-unit">Hz</span>
             </div>
             <div class="metric-footer">
-                <?php if ($enAlerta): ?>
-                    <span class="badge badge-critical">Alerta</span>
-                <?php elseif ($activo): ?>
-                    <span class="badge badge-success">Normal</span>
-                <?php else: ?>
+                <?php if (!$sonidoFresco): ?>
+                    <span class="badge badge-neutral">Dato antiguo</span>
+                <?php elseif (!$activo): ?>
                     <span class="badge badge-neutral">Sin actividad</span>
+                <?php elseif ($enBanda): ?>
+                    <span class="badge badge-warning">Banda de referencia 400–600 Hz</span>
+                <?php else: ?>
+                    <span class="badge badge-neutral">Fuera de la banda de referencia</span>
                 <?php endif; ?>
-                <span class="text-tertiary text-xs"><?= tiempoRelativo($sonido['fecha_hora']) ?></span>
+                <span class="text-tertiary text-xs"><?= horaSubida($sonido['fecha_hora']) ?> · <?= tiempoRelativo($sonido['fecha_hora']) ?></span>
             </div>
         <?php else: ?>
             <div class="metric-value metric-empty">—<span class="metric-unit">Hz</span></div>
@@ -91,86 +67,95 @@
         <div class="metric-icon neutral">
             <i data-lucide="bar-chart-3"></i>
         </div>
-        <div class="metric-header"><i data-lucide="bar-chart-3"></i> Lecturas Registradas</div>
+        <div class="metric-header"><i data-lucide="bar-chart-3"></i> Muestras agregadas</div>
         <div class="metric-value">
             <span data-countup="<?= count($serieSonido) ?>" data-decimals="0"><?= count($serieSonido) ?></span>
         </div>
         <div class="metric-footer">
-            <span class="badge badge-neutral">Últimas 6 horas</span>
+            <span class="badge badge-neutral">Últimas 6 horas · promedio cada 5 min</span>
         </div>
     </div>
 </div>
 
-<!-- Acoustic Chart -->
 <div class="card chart-frame animate-fadeUp stagger-3 u-mb-4">
     <div class="card-header">
-        <div class="card-title">Frecuencia en el Tiempo — Últimas 6 horas</div>
+        <div>
+            <div class="card-title">Frecuencia estimada · 6 h</div>
+            <div class="page-subtitle chart-note">Serie real agregada · la banda 400–600 Hz es solo una referencia</div>
+        </div>
     </div>
     <?php if (count($serieSonido) > 0): ?>
-        <div class="chart-shell-sm"><canvas id="acousticChart"></canvas></div>
+        <div class="chart-shell-sm"><canvas id="acousticChart" aria-label="Serie de frecuencia acústica de las últimas 6 horas"></canvas></div>
+        <details class="chart-table">
+            <summary>Ver tabla de datos</summary>
+            <div class="table-wrap">
+                <table class="data-table">
+                    <thead><tr><th>Hora</th><th>Frecuencia (Hz)</th><th>Muestras</th></tr></thead>
+                    <tbody>
+                    <?php foreach ($serieSonido as $p): ?>
+                        <tr>
+                            <td><?= date('d/m H:i', strtotime($p['fecha_hora'])) ?></td>
+                            <td><?= number_format((float) $p['valor'], 0) ?></td>
+                            <td><?= (int) $p['muestras'] ?></td>
+                        </tr>
+                    <?php endforeach; ?>
+                    </tbody>
+                </table>
+            </div>
+        </details>
     <?php else: ?>
-        <div class="premium-empty compact">
+        <div class="empty-state compact">
             <div class="empty-icon-circle"><i data-lucide="mic-off" class="u-icon-lg"></i></div>
-            <p class="empty-desc">Todavía no hay lecturas del sensor de sonido. Cuando el MAX4466 empiece a transmitir, este gráfico se llenará con datos reales.</p>
+            <p class="empty-desc">No hay lecturas de sonido en las últimas 6 horas. El gráfico aparecerá cuando el nodo envíe datos.</p>
         </div>
     <?php endif; ?>
 </div>
 
-<!-- Frequency Zones -->
-<div class="grid-3-cols">
-    <div class="card frequency-card zone-normal animate-fadeUp stagger-4">
-        <div class="frequency-zone-head">
-            <div class="zone-dot success"></div>
-            <div class="zone-range">200–380 Hz</div>
-        </div>
-        <div class="zone-title success">Zumbido Normal</div>
-        <div class="text-secondary text-sm">Actividad de vuelo y ventilación estándar de la colonia.</div>
-    </div>
-    <div class="card frequency-card animate-fadeUp stagger-5 <?= $enAlerta ? 'zone-alert-active' : 'zone-alert' ?>">
-        <div class="frequency-zone-head">
-            <div class="zone-dot critical <?= $enAlerta ? 'is-pulsing' : '' ?>"></div>
-            <div class="zone-range <?= $enAlerta ? 'critical' : '' ?>">400–600 Hz</div>
-            <?= $enAlerta ? '<span class="badge badge-critical">Activo</span>' : '' ?>
-        </div>
-        <div class="zone-title critical">Pre-Enjambrazón</div>
-        <div class="text-secondary text-sm">Comunicación de enjambre <?= $enAlerta ? '· <strong>DETECTADO AHORA</strong>' : '' ?>.</div>
-    </div>
-    <div class="card frequency-card zone-queen animate-fadeUp stagger-6">
-        <div class="frequency-zone-head">
-            <div class="zone-dot brand"></div>
-            <div class="zone-range">600–900 Hz</div>
-        </div>
-        <div class="zone-title brand">Canto de Reinas</div>
-        <div class="text-secondary text-sm">Piping y quacking de celdas reales de la reina.</div>
-    </div>
-</div>
-
-<button class="btn-floating" title="Ayuda"><i data-lucide="help-circle"></i></button>
-
 <?php if (count($serieSonido) > 0): ?>
 <script>
 document.addEventListener('DOMContentLoaded', () => {
-    const ctx = document.getElementById('acousticChart').getContext('2d');
+    const canvas = document.getElementById('acousticChart');
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
     const theme = window.BeeStationTheme.chartColors();
 
-    // Datos REALES desde PHP
     const labels = <?= json_encode(array_map(fn($r) => date('H:i', strtotime($r['fecha_hora'])), $serieSonido)) ?>;
-    const data   = <?= json_encode(array_map(fn($r) => (float) $r['valor_calibrado'], $serieSonido)) ?>;
-    const colors = data.map(v => (v >= 400 && v <= 600) ? theme.critical : theme.success);
+    const data   = <?= json_encode(array_map(fn($r) => (float) $r['valor'], $serieSonido)) ?>;
 
     new Chart(ctx, {
         type: 'line',
-        data: { labels: labels, datasets: [{
-            label: 'Frecuencia (Hz)', data: data,
-            borderColor: theme.muted, pointBackgroundColor: colors, pointRadius: 3,
-            borderWidth: 2, tension: 0.3
-        }]},
+        data: {
+            labels: labels,
+            datasets: [{
+                label: 'Frecuencia (Hz)',
+                data: data,
+                borderColor: theme.brand,
+                backgroundColor: theme.brandAreaSoft,
+                borderWidth: 2,
+                tension: 0.3,
+                fill: true,
+                pointRadius: 0,
+                pointHoverRadius: 4
+            }]
+        },
         options: {
-            responsive: true, maintainAspectRatio: false,
-            plugins: { legend: { display: false } },
+            responsive: true,
+            maintainAspectRatio: false,
+            animation: false,
+            plugins: {
+                legend: { display: false },
+                tooltip: { callbacks: { label: (item) => item.parsed.y.toFixed(0) + ' Hz' } }
+            },
             scales: {
-                x: { grid: { display: false }, ticks: { color: theme.textSecondary, font: { family: 'IBM Plex Mono', size: 11 }, autoSkip: false, callback: function (v) { const l = this.getLabelForValue(v); return (typeof l === 'string' && l.slice(-3) === ':00') ? l : ''; } } },
-                y: { title: { display: true, text: 'Frecuencia (Hz)', color: theme.textSecondary, font: { family: 'Inter', size: 11 } }, ticks: { color: theme.textSecondary }, grid: { color: theme.grid } }
+                x: {
+                    grid: { display: false },
+                    ticks: { color: theme.textSecondary, font: { family: 'Inter', size: 11 }, maxTicksLimit: 8 }
+                },
+                y: {
+                    title: { display: true, text: 'Hz', color: theme.textSecondary, font: { family: 'Inter', size: 11 } },
+                    ticks: { color: theme.textSecondary },
+                    grid: { color: theme.grid }
+                }
             }
         }
     });

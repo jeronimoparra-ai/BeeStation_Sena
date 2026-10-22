@@ -1,9 +1,49 @@
 # Changelog
 
+## 2026-10-21 — Fase 0: verdad y limpieza del panel
+
+### Changed
+- Dashboard reescrito alrededor del estado del nodo y de cuatro métricas reales
+  (temperatura, humedad, peso y actividad acústica). Se retiraron IBB, EV, ΔT y
+  H_miel de la primera pantalla y del informe.
+- Frescura explícita: `fresca`, `edad_min`, “Dato antiguo” y “Nodo sin reportar”.
+  Una lectura de hace días nunca se pinta en verde. El umbral es de 5 minutos,
+  coherente con el envío cada 30 segundos y con el estado “en línea”.
+- Serie de temperatura agregada cada 15 minutos; hasta ~96 puntos en 24 h.
+- Acústica renombrada a **Actividad acústica (experimental)**. Se eliminaron
+  “Pre-Enjambrazón”, “Canto de Reinas” y la alerta automática de enjambrazón.
+- Sensores con unidad, `estado_real` y distinción entre “sin datos recientes” y
+  “no instalado”.
+- Peso: la página advierte que el HX711 no tiene calibración de campo validada;
+  se muestra como tendencia, no como flujo de néctar confirmado.
+- Menú sin Energía, sin rol ficticio, sin “Hive OS”, “Live”, “premium”,
+  buscador, campana ni ayuda flotante.
+- Chart.js y Lucide servidos desde `assets/vendor/`; el panel funciona en LAN
+  sin internet.
+
+### Fixed
+- Alta ECDSA: el firmware genera y persiste el código `4-4` (`identidad_ecdsa.h`).
+  Pendiente de prueba en hardware con NVS limpia.
+- Comando `test`: ya no inserta telemetría falsa (25 °C, 50 %, 1013,25 hPa,
+  0 kg). Solo diagnostica sensores locales.
+- `/status`: ya no publica el código de alta.
+- `api/estado.php`: dejó de devolver IBB/EV/ΔT/H_miel y la serie de peso
+  duplicada; el JS ya no pinta indicadores inexistentes.
+- `informe.php`: sin KPIs imposibles; muestra las variables medidas y advierte
+  que la acústica es experimental.
+
+### Security
+- Tests PHP y `tools/diagnostico-bd.php` rechazan ejecución por HTTP.
+- El sincronizador excluye `tools`, `tests`, `database`, `docs`,
+  `beestation_node` y `scripts`, y elimina `.sql`, `.ino` y `.h` del docroot.
+- `.htaccess` bloquea rutas privadas también sin `mod_rewrite`.
+- `conectar_dispositivo.php` usa `includes/auth.php` en lugar de una sesión
+  aislada.
+
 ## 2026-10-21 — Firmware 3.2.0 y puesta en marcha local
 
 ### Added
-- `beestation_node/acustica.h`: estimación de la **frecuencia dominante** del micrófono por cruces por cero con histéresis. El backend ya recibe Hz reales y la alerta de enjambrazón puede dispararse.
+- `beestation_node/acustica.h`: estimación de la **frecuencia dominante** del micrófono por cruces por cero con histéresis. El backend recibe Hz reales; la acústica sigue siendo experimental y no se usa para alertar enjambrazón.
 - `tests/host/acustica_test.c`: prueba del mismo encabezado que usa el ESP32 (11/11), con tonos de 250–900 Hz, silencio, ruido, onda cuadrada y amplitud.
 - `docs/SENSORES-Y-UNIDADES.md`: contrato de unidades y matriz de disponibilidad real (qué mide el ESP32 y qué solo el simulador).
 
@@ -14,7 +54,7 @@
 - El ícono de ΔT es neutro cuando faltan datos, no crítico.
 
 ### Fixed
-- **Unidades del sonido**: el firmware enviaba voltios pico a pico a una variable declarada en Hz; la alerta de 400–600 Hz era inalcanzable. Ahora envía frecuencia estimada y conserva la amplitud en `sonido_v` (solo diagnóstico).
+- **Unidades del sonido**: el firmware enviaba voltios pico a pico a una variable declarada en Hz. Ahora envía frecuencia estimada y conserva la amplitud en `sonido_v` (solo diagnóstico); la alerta automática de enjambrazón permanece desactivada.
 - El API devolvía **HTTP 200 con stack trace y rutas internas** ante un fallo: ahora responde `500` JSON genérico y registra el detalle en el log (`api/.htaccess` + manejador en `includes/functions.php`).
 - El script de despliegue copiaba `tests/` al docroot (PHP ejecutable por HTTP). Se excluye y se bloquea también por `.htaccess`.
 - `-Simular` del script de despliegue se ignoraba y copiaba igualmente.

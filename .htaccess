@@ -29,10 +29,8 @@ DirectoryIndex index.php
     RewriteBase /
     RewriteRule ^(?:config|database|beestation_node|tools|docs|scripts|tests|\.git|\.svn|\.hg)(?:/|$) - [F,L]
 </IfModule>
-<IfModule !mod_rewrite.c>
-    # Sin mod_rewrite se recurre a bloquear los archivos por nombre.
-    RedirectMatch 404 "(?:^|/)(?:\.git|\.svn|\.hg)/"
-</IfModule>
+# Bloqueo independiente de mod_rewrite, valido tambien desde subdirectorios.
+RedirectMatch 404 "(?i)(?:^|/)(?:config|database|beestation_node|tools|docs|scripts|tests|\.git|\.svn|\.hg)(?:/|$)"
 
 # --- Archivos sueltos que nunca deben servirse ---
 #  Nota: los nombres se acotan con su extension para no capturar por

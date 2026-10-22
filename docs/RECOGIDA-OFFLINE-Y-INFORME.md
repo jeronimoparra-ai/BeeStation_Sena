@@ -140,7 +140,7 @@ Selector de periodo: 1 · 3 · 7 · 15 · 30 días.
 |---|---|
 | 1 · Resumen bioclimático | IBB, EV, ΔT, H_miel, flujo de peso y estado del nodo |
 | 2 · Última lectura de cada variable | 9 variables con valor, unidad y **momento de medición** |
-| 3 · Evolución de las variables | 4 gráficas: temperatura, humedad, peso y nivel sonoro |
+| 3 · Evolución de las variables | 4 gráficas: temperatura, humedad, peso y frecuencia acústica estimada |
 | 4 · Inventario de sensores | Tipo, modelo, estado y última lectura de cada sensor |
 | 5 · Alertas activas | Tipo, nivel, mensaje y momento |
 

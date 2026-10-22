@@ -6,7 +6,7 @@
                 <img src="assets/logo-beestation.png" alt="BeeStation Logo" class="sidebar-logo">
             </div>
             <div class="sidebar-brand-copy">
-                <span class="sidebar-kicker">Hive OS</span>
+                <span class="sidebar-kicker">Monitoreo apícola</span>
                 <span class="sidebar-title">BeeStation</span>
             </div>
         </div>
@@ -14,7 +14,7 @@
 
     <div class="sidebar-system-pill">
         <span>Monitoreo IoT</span>
-        <span>Live</span>
+        <span><?= $espOnline ? 'En línea' : 'Sin señal' ?></span>
     </div>
 
     <div class="sidebar-summary">
@@ -54,7 +54,7 @@
             <a href="conectar_dispositivo.php" style="text-decoration: none;" title="Abrir radar de conexión">
                 <span class="sidebar-status-chip <?= $espOnline ? 'online' : 'offline' ?> hover-effect">
                     <span class="status-dot <?= $espOnline ? '' : 'offline' ?>"></span>
-                    <?= $espOnline ? 'ESP32 sincronizado' : 'Sincronización detenida' ?>
+                    <?= $espOnline ? 'ESP32 en línea' : 'ESP32 sin reportar' ?>
                 </span>
             </a>
             <span class="sidebar-summary-time"><?= $colmenaActiva ? htmlspecialchars($colmenaActiva['estado']) : 'N/A' ?></span>
@@ -76,7 +76,7 @@
 
         <div class="nav-group">
             <div class="nav-group-title">Análisis</div>
-            <a href="acustica.php" class="nav-item <?= is_active('acustica.php') ?>" data-name="Análisis Acústico">
+            <a href="acustica.php" class="nav-item <?= is_active('acustica.php') ?>" data-name="Actividad acústica">
                 <i data-lucide="activity"></i>
                 Acústica
             </a>
@@ -88,10 +88,6 @@
 
         <div class="nav-group">
             <div class="nav-group-title">Sistema</div>
-            <a href="energia.php" class="nav-item <?= is_active('energia.php') ?>" data-name="Energía">
-                <i data-lucide="battery-charging"></i>
-                Energía
-            </a>
             <a href="sensores.php" class="nav-item <?= is_active('sensores.php') ?>" data-name="Sensores">
                 <i data-lucide="settings-2"></i>
                 Sensores
@@ -109,12 +105,11 @@
             <div class="user-info">
                 <span class="user-name"><?= htmlspecialchars($_SESSION['nombre'] ?? '') ?></span>
                 <span class="user-email"><?= htmlspecialchars($_SESSION['correo'] ?? '') ?></span>
-                <span class="user-role"><?= htmlspecialchars($_SESSION['rol'] ?? 'Operador') ?></span>
             </div>
             <a href="logout.php" title="Cerrar sesión" class="logout-btn">
                 <i data-lucide="log-out"></i>
             </a>
         </div>
-        <div class="sidebar-footer-note text-xs u-muted-strong u-mt-2">Sesión segura · interfaz premium</div>
+        <div class="sidebar-footer-note text-xs u-muted-strong u-mt-2">Sesión iniciada</div>
     </div>
 </aside>

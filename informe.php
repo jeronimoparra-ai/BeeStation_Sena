@@ -52,22 +52,25 @@ $horas = $dias * 24;
 
 // ── Datos ──────────────────────────────────────────────────────────────
 $temp   = $idColmena ? ultimaLectura($idColmena, 'temperatura_interna') : null;
-$tempEx = $idColmena ? ultimaLectura($idColmena, 'temperatura_externa') : null;
 $hum    = $idColmena ? ultimaLectura($idColmena, 'humedad_relativa') : null;
 $peso   = $idColmena ? ultimaLectura($idColmena, 'peso') : null;
 $sonido = $idColmena ? ultimaLectura($idColmena, 'sonido') : null;
 $pres   = $idColmena ? ultimaLectura($idColmena, 'presion') : null;
 $luz    = $idColmena ? ultimaLectura($idColmena, 'luminosidad') : null;
-$co2    = $idColmena ? ultimaLectura($idColmena, 'co2') : null;
-$energia= $idColmena ? ultimaLectura($idColmena, 'energia') : null;
 
-$ibb   = $idColmena ? calcularIBB($idColmena) : null;
-$ev    = $idColmena ? calcularEV($idColmena) : null;
-$delta = $idColmena ? calcularDeltaT($idColmena) : null;
-$hmiel = $idColmena ? calcularHMiel($idColmena) : null;
+$tempFresca   = lecturaReciente($temp, 5);
+$humFresca    = lecturaReciente($hum, 5);
+$pesoFresco   = lecturaReciente($peso, 5);
+$sonidoFresco = lecturaReciente($sonido, 5);
+
 $flujo = $idColmena ? calcularFlujoDiarioPeso($idColmena) : null;
 
-$sensores = $idColmena ? sensoresConEstado($idColmena) : [];
+$sensores = $idColmena
+    ? array_values(array_filter(
+        sensoresOperativos($idColmena),
+        fn($s) => esTipoSensorNodoBasico((string) $s['tipo'])
+    ))
+    : [];
 $alertas  = $idColmena ? alertasActivas($idColmena, 20) : [];
 
 // Series agregadas (cubos de 15 min / 1 dia): manejables en memoria
@@ -108,8 +111,8 @@ $valoresSonid = array_map(fn($r) => (float) $r['valor'], $serieSonid);
 <link rel="stylesheet" href="css/style-premium.css">
 <link rel="stylesheet" href="css/informe.css">
 <link rel="stylesheet" href="css/print.css">
-<script src="https://unpkg.com/lucide@latest"></script>
-<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="assets/vendor/lucide.min.js"></script>
+<script src="assets/vendor/chart.umd.min.js"></script>
 </head>
 <body class="informe-body">
 
@@ -155,32 +158,32 @@ $valoresSonid = array_map(fn($r) => (float) $r['valor'], $serieSonid);
 
     <!-- ── 1. Resumen ejecutivo ───────────────────────────────────── -->
     <section class="informe-bloque">
-        <h2 class="informe-titulo">1 · Resumen bioclimático</h2>
+        <h2 class="informe-titulo">1 · Resumen de la colmena</h2>
         <div class="informe-kpis">
             <div class="informe-kpi">
-                <span class="informe-kpi-label">IBB · Bienestar</span>
-                <strong class="informe-kpi-valor"><?= $ibb ? $ibb['valor'] : '—' ?></strong>
-                <em class="informe-kpi-estado"><?= $ibb ? htmlspecialchars($ibb['estado']) : 'sin datos' ?></em>
+                <span class="informe-kpi-label">Temperatura interna</span>
+                <strong class="informe-kpi-valor"><?= $temp ? number_format((float) $temp['valor_calibrado'], 1) . ' °C' : '—' ?></strong>
+                <em class="informe-kpi-estado"><?= $temp ? ($tempFresca ? 'dato reciente' : 'dato antiguo') : 'sin datos' ?></em>
             </div>
             <div class="informe-kpi">
-                <span class="informe-kpi-label">EV · Ventilación</span>
-                <strong class="informe-kpi-valor"><?= $ev ? $ev['valor'] : '—' ?></strong>
-                <em class="informe-kpi-estado"><?= $ev ? htmlspecialchars($ev['estado']) : 'sin datos' ?></em>
+                <span class="informe-kpi-label">Humedad relativa</span>
+                <strong class="informe-kpi-valor"><?= $hum ? number_format((float) $hum['valor_calibrado'], 0) . ' % HR' : '—' ?></strong>
+                <em class="informe-kpi-estado"><?= $hum ? ($humFresca ? 'dato reciente' : 'dato antiguo') : 'sin datos' ?></em>
             </div>
             <div class="informe-kpi">
-                <span class="informe-kpi-label">ΔT · Diferencial térmico</span>
-                <strong class="informe-kpi-valor"><?= $delta ? $delta['valor'] : '—' ?></strong>
-                <em class="informe-kpi-estado"><?= $delta ? htmlspecialchars($delta['estado']) : 'sin datos' ?></em>
+                <span class="informe-kpi-label">Peso de la colmena</span>
+                <strong class="informe-kpi-valor"><?= $peso ? number_format((float) $peso['valor_calibrado'], 2) . ' kg' : '—' ?></strong>
+                <em class="informe-kpi-estado"><?= $peso ? ($pesoFresco ? 'dato reciente' : 'dato antiguo') : 'sin datos' ?></em>
             </div>
             <div class="informe-kpi">
-                <span class="informe-kpi-label">H_miel · Humedad de miel</span>
-                <strong class="informe-kpi-valor"><?= $hmiel ? $hmiel['valor'] : '—' ?></strong>
-                <em class="informe-kpi-estado"><?= $hmiel ? htmlspecialchars($hmiel['estado']) : 'sin datos' ?></em>
+                <span class="informe-kpi-label">Actividad acústica <small>(experimental)</small></span>
+                <strong class="informe-kpi-valor"><?= $sonido ? number_format((float) $sonido['valor_calibrado'], 0) . ' Hz' : '—' ?></strong>
+                <em class="informe-kpi-estado"><?= $sonido ? ($sonidoFresco ? 'estimación, no diagnóstico' : 'dato antiguo') : 'sin datos' ?></em>
             </div>
             <div class="informe-kpi">
                 <span class="informe-kpi-label">Flujo de peso (24 h)</span>
-                <strong class="informe-kpi-valor"><?= $flujo !== null ? number_format($flujo, 2) : '—' ?></strong>
-                <em class="informe-kpi-estado">kg en 24 horas</em>
+                <strong class="informe-kpi-valor"><?= $flujo !== null ? number_format($flujo, 2) . ' kg' : 'Sin datos' ?></strong>
+                <em class="informe-kpi-estado"><?= $flujo !== null ? 'en 24 horas · HX711 sin calibrar' : 'sin datos recientes' ?></em>
             </div>
             <div class="informe-kpi">
                 <span class="informe-kpi-label">Estado del nodo</span>
@@ -188,11 +191,14 @@ $valoresSonid = array_map(fn($r) => (float) $r['valor'], $serieSonid);
                 <em class="informe-kpi-estado"><?= $ultimo ? htmlspecialchars(tiempoRelativo($ultimo)) : 'sin datos' ?></em>
             </div>
         </div>
+        <p class="informe-nota">IBB, EV, ΔT y H_miel no se incluyen: requieren CO₂, temperatura exterior o una medición directa de humedad de miel que este nodo no tiene. No se presentan como diagnóstico.</p>
     </section>
 
     <!-- ── 2. Lecturas actuales ───────────────────────────────────── -->
     <section class="informe-bloque">
         <h2 class="informe-titulo">2 · Última lectura de cada variable</h2>
+        <p class="informe-nota">Solo se listan las seis variables del nodo básico. CO₂, temperatura exterior y energía no están instalados; si quedaron filas de pruebas anteriores en la base, no se presentan aquí. Un guion (—) significa que no hay lectura.</p>
+        <div class="table-wrap">
         <table class="informe-tabla">
             <thead>
                 <tr><th>Variable</th><th>Valor</th><th>Momento de medición</th></tr>
@@ -201,14 +207,11 @@ $valoresSonid = array_map(fn($r) => (float) $r['valor'], $serieSonid);
                 <?php
                 $lecturas = [
                     'Temperatura interna'  => [$temp,   $unidadDe('temperatura_interna', '°C'),   2],
-                    'Temperatura externa'  => [$tempEx, $unidadDe('temperatura_externa', '°C'),   2],
                     'Humedad relativa'     => [$hum,    $unidadDe('humedad_relativa', '%HR'),    1],
                     'Presión atmosférica' => [$pres,   $unidadDe('presion', 'hPa'),            1],
                     'Peso'                => [$peso,   $unidadDe('peso', 'kg'),                2],
-                    'Nivel sonoro'        => [$sonido, $unidadDe('sonido', 'Hz'),              2],
+                    'Frecuencia acústica' => [$sonido, $unidadDe('sonido', 'Hz'),              2],
                     'Luminosidad'         => [$luz,    $unidadDe('luminosidad', 'lux'),        1],
-                    'CO₂'                 => [$co2,    $unidadDe('co2', 'ppm'),                0],
-                    'Energía'             => [$energia,$unidadDe('energia', 'V'),              2],
                 ];
                 foreach ($lecturas as $nombre => [$l, $unidadVar, $dec]):
                     ?>
@@ -220,6 +223,7 @@ $valoresSonid = array_map(fn($r) => (float) $r['valor'], $serieSonid);
                 <?php endforeach; ?>
             </tbody>
         </table>
+        </div>
     </section>
 
     <!-- ── 3. Gráficas ────────────────────────────────────────────── -->
@@ -239,7 +243,7 @@ $valoresSonid = array_map(fn($r) => (float) $r['valor'], $serieSonid);
                 <div class="informe-canvas"><canvas id="infPeso"></canvas></div>
             </div>
             <div class="informe-grafica">
-                <div class="informe-grafica-titulo">Nivel sonoro (<?= htmlspecialchars($unidadDe('sonido', 'Hz')) ?>) · últimas 12 h</div>
+                <div class="informe-grafica-titulo">Frecuencia acústica estimada (<?= htmlspecialchars($unidadDe('sonido', 'Hz')) ?>) · últimas 12 h</div>
                 <div class="informe-canvas"><canvas id="infSonido"></canvas></div>
             </div>
         </div>
@@ -248,28 +252,48 @@ $valoresSonid = array_map(fn($r) => (float) $r['valor'], $serieSonid);
     <!-- ── 4. Sensores ────────────────────────────────────────────── -->
     <section class="informe-bloque">
         <h2 class="informe-titulo">4 · Inventario de sensores</h2>
+        <div class="table-wrap">
         <table class="informe-tabla">
             <thead>
                 <tr><th>Sensor</th><th>Modelo</th><th>Estado</th><th>Última lectura</th><th>Momento</th></tr>
             </thead>
             <tbody>
-                <?php foreach ($sensores as $s): ?>
+                <?php
+                $etiquetasSensor = [
+                    'temperatura_interna' => 'Temperatura interna',
+                    'humedad_relativa'    => 'Humedad relativa',
+                    'presion'             => 'Presión',
+                    'peso'                => 'Peso',
+                    'sonido'              => 'Frecuencia acústica',
+                    'luminosidad'         => 'Luminosidad',
+                ];
+                foreach ($sensores as $s):
+                    $estadoReal = (string) $s['estado_real'];
+                    $nombreSensor = $etiquetasSensor[$s['tipo']] ?? ucfirst(str_replace('_', ' ', (string) $s['tipo']));
+                    $estadoTexto = [
+                        'en_linea'    => 'En línea',
+                        'advertencia' => 'Advertencia',
+                        'sin_senal'   => 'Sin datos recientes',
+                    ][$estadoReal] ?? $estadoReal;
+                    ?>
                     <tr>
-                        <td><?= htmlspecialchars($s['tipo']) ?></td>
+                        <td><?= htmlspecialchars($nombreSensor) ?></td>
                         <td><?= htmlspecialchars($s['modelo']) ?></td>
-                        <td><span class="informe-estado <?= $s['estado'] ?>"><?= htmlspecialchars($s['estado']) ?></span></td>
-                        <td><?= $s['ultima_lectura'] !== null ? number_format((float) $s['ultima_lectura'], 2) : '—' ?></td>
+                        <td><span class="informe-estado <?= htmlspecialchars($estadoReal) ?>"><?= htmlspecialchars($estadoTexto) ?></span></td>
+                        <td><?= $s['ultima_lectura'] !== null ? number_format((float) $s['ultima_lectura'], 2) . ' ' . htmlspecialchars($s['unidad_medida'] ?? '') : '—' ?></td>
                         <td class="informe-td-fecha"><?= $s['ultima_fecha'] ? htmlspecialchars(date('d/m/Y H:i', strtotime($s['ultima_fecha']))) : '—' ?></td>
                     </tr>
                 <?php endforeach; ?>
             </tbody>
         </table>
+        </div>
     </section>
 
     <!-- ── 5. Alertas ────────────────────────────────────────────── -->
     <section class="informe-bloque">
         <h2 class="informe-titulo">5 · Alertas activas</h2>
         <?php if (count($alertas) > 0): ?>
+            <div class="table-wrap">
             <table class="informe-tabla">
                 <thead><tr><th>Tipo</th><th>Nivel</th><th>Mensaje</th><th>Momento</th></tr></thead>
                 <tbody>
@@ -283,6 +307,7 @@ $valoresSonid = array_map(fn($r) => (float) $r['valor'], $serieSonid);
                     <?php endforeach; ?>
                 </tbody>
             </table>
+            </div>
         <?php else: ?>
             <p class="informe-nota">No hay alertas activas en este periodo.</p>
         <?php endif; ?>
@@ -290,7 +315,7 @@ $valoresSonid = array_map(fn($r) => (float) $r['valor'], $serieSonid);
 
     <footer class="informe-pie">
         <div><strong>BeeStation</strong> · Informe generado automáticamente el <?= $generado ?></div>
-        <div>Los indicadores se calculan con los algoritmos del software (IBB, ΔT, EV, H_miel) sobre las lecturas registradas en la base de datos.</div>
+        <div>Datos medidos por el nodo. La actividad acústica es experimental y no confirma enjambrazón; IBB, EV, ΔT y H_miel no se calculan con el hardware actual.</div>
     </footer>
 
     <?php endif; ?>

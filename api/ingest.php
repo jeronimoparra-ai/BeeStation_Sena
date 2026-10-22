@@ -282,10 +282,9 @@ foreach ($body['lecturas'] as $l) {
     $stmtUpd = $pdo->prepare("UPDATE sensor SET estado = 'en_linea' WHERE id_sensor = ?");
     $stmtUpd->execute([$id_sensor]);
 
-    // ALERTA TEMPRANA DE ENJAMBRAZÓN: Evaluamos acústica (MAX9814) en la banda de 400 a 600 Hz
-    if ($tipo === 'sonido') {
-        evaluarAlertaEnjambrazon($id_colmena, $valor_calibrado);
-    }
+    // La acústica es experimental y no se usa para diagnosticar enjambrazón.
+    // Se conserva la lectura para análisis, pero no se generan alertas hasta
+    // validar el método con grabaciones y una ventana temporal sostenida.
 
     $insertados[] = $tipo;
     $resultados[] = [
@@ -312,6 +311,14 @@ if ($lote !== null && $lote !== '') {
 }
 
 // ── 6. RECALCULO Y PERSISTENCIA DE INDICADORES EN TIEMPO REAL ────────────────
+// Solo recalcular si el lote aportó al menos una lectura nueva. Un reintento
+// con todo duplicado no debe inflar `indicador` con filas idénticas.
+$ibb = null;
+$deltaT = null;
+$ev = null;
+$hMiel = null;
+
+if (count($insertados) > 0) {
 $ibb = calcularIBB($id_colmena);
 if ($ibb !== null) {
     $stmtIbb = $pdo->prepare("
@@ -372,6 +379,7 @@ if ($hMiel !== null) {
         VALUES ('H_MIEL', ?, NOW(), 'Humedad estimada de la miel', ?, ?)
     ")->execute([$hMiel['valor'], $hMiel['estado'], $id_colmena]);
 }
+} // fin: solo si hubo lecturas nuevas
 
 // ── 7. RESPUESTA EXITOSA AL CLIENTE (ESP32) ──────────────────────────────────
 // `ok_total` distingue "todo se guardo" de "se guardo parcialmente":

@@ -57,7 +57,6 @@ $permitidas = [
     'sensores.php',
     'peso.php',
     'acustica.php',
-    'energia.php',
     'dispositivos.php',
     'conectar_dispositivo.php',
 ];

@@ -91,6 +91,12 @@ static String identPubPem     = "";
 static String identHuella     = "";
 static String identCodigoAlta = "";
 
+// Declaraciones adelantadas: identIniciar() asegura el código de alta antes
+// de que estas funciones aparezcan definidas más abajo en el archivo.
+static String identGenerarCodigoAlta();
+static void identGuardarCodigo(const String& codigo);
+static void identAsegurarCodigo();
+
 // ── Fuente de entropía ──────────────────────────────────────────────────────
 //  esp_random() es el generador de hardware del ESP32 (TrueRNG). Evita
 //  arrastrar mbedtls_entropy + mbedtls_ctr_drbg (≈+8 KB de flash) para
@@ -239,6 +245,7 @@ static bool identIniciar() {
     identCodigoAlta = prefs.getString(IDENTIDAD_NVS_CODIGO, "");
     prefs.end();
     if (identIdDisp.length() == 32) {
+      identAsegurarCodigo();
       Serial.printf("[IDENTIDAD] identidad cargada %s\n", identIdDisp.c_str());
       return true;
     }
@@ -246,7 +253,9 @@ static bool identIniciar() {
     identListo = false;
   }
 
-  return identGenerarClave();
+  bool ok = identGenerarClave();
+  if (ok) identAsegurarCodigo();
+  return ok;
 }
 
 // ── Firma ECDSA de un mensaje ──────────────────────────────────────────────
@@ -334,15 +343,39 @@ static String identGenerarCodigoAlta() {
     uint32_t v = esp_random();
     memcpy(bytes + i, &v, 4);
   }
-  for (size_t i = 0; i < 8; i++) {
+  for (size_t i = 0; i < 4; i++) {
     codigo += alfabeto[bytes[i] % n];
   }
   codigo += "-";
-  codigo += alfabeto[bytes[4] % n];
-  codigo += alfabeto[bytes[5] % n];
-  codigo += alfabeto[bytes[6] % n];
-  codigo += alfabeto[bytes[7] % n];
+  for (size_t i = 4; i < 8; i++) {
+    codigo += alfabeto[bytes[i] % n];
+  }
   return codigo;
+}
+
+// El backend exige exactamente 4-4 caracteres (^[A-Z0-9]{4}-[A-Z0-9]{4}$).
+static bool identCodigoValido(const String& codigo) {
+  if (codigo.length() != 9 || codigo.charAt(4) != '-') return false;
+  for (int i = 0; i < 9; i++) {
+    if (i == 4) continue;
+    char c = codigo.charAt(i);
+    bool ok = (c >= 'A' && c <= 'Z') || (c >= '2' && c <= '9');
+    if (!ok) return false;
+  }
+  return true;
+}
+
+// Genera y persiste el código una sola vez. Si ya existe y es válido, no lo
+// cambia: el código impreso en el nodo sigue sirviendo para autorizarlo.
+static void identAsegurarCodigo() {
+  if (identCodigoValido(identCodigoAlta)) return;
+  String nuevo = identGenerarCodigoAlta();
+  if (!identCodigoValido(nuevo)) {
+    Serial.println("[IDENTIDAD] no se pudo generar un codigo de alta valido");
+    return;
+  }
+  identGuardarCodigo(nuevo);
+  Serial.printf("[IDENTIDAD] codigo de vinculacion: %s\n", nuevo.c_str());
 }
 
 #endif  // BEE_IDENTIDAD_ECDSA_H

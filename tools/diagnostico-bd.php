@@ -14,6 +14,11 @@
  * ─────────────────────────────────────────────────────────────
  */
 
+if (PHP_SAPI !== 'cli') {
+    http_response_code(403);
+    exit;
+}
+
 // ── Tablas esperadas según database/beestation_sena.sql ──
 $expectedTables = [
     'usuario',

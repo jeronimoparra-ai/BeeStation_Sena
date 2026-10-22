@@ -1,9 +1,18 @@
 # Tareas
 
-- [x] Auditoría estática inicial de seguridad, esquema, firmware y herramientas disponibles.
-- [x] Documentar hallazgos, migración creada (sin ejecutar) y bloqueos pendientes en `docs/auditoria-tecnica.md`.
-- [x] Implementar rechazo de replay/timestamp cero, nonce, acuse parcial conservador y pruebas unitarias iniciales.
-- [ ] Diseñar e implementar la transición de enrolamiento individual y revocación.
-- [ ] Alinear migraciones y esquemas nuevos sin ejecutar operaciones sobre la BD local.
-- [ ] Corregir controles web, estados de sensores e interfaz visual.
-- [ ] Ejecutar verificaciones disponibles y publicar resultados, bloqueos y pasos operativos.
+- [x] Auditoría de campo, backend, firmware y UX.
+- [x] Fase 0 en código: dashboard honesto, frescura, acústica experimental,
+      sensores con unidades, informe sin KPIs imposibles, recursos locales.
+- [x] Firmware: alta 4-4, `test` sin telemetría falsa, `/status` sin código.
+- [x] Verificación: `php -l`, compilación ESP32, Playwright autenticado.
+- [ ] Probar alta/`test`/`/status` en hardware real.
+- [x] Revisar worktrees Orca e integrar selectivamente seguridad y documentos.
+- [ ] Commit y sync al docroot.
+- [ ] Fase 1: perfil de hardware, hora local, arranque sin router, calibración,
+      `seq` y cola SD.
+- [ ] Fase 2: métricas condicionadas y alertas con histéresis.
+- [ ] Fase 3: UX de campo.
+- [ ] Fase 4: operación y seguridad.
+- [ ] Fase 5: piloto de 30 días.
+
+Detalle: `docs/PLAN-REESTRUCTURACION-2026-10-21.md`.

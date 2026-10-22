@@ -7,63 +7,73 @@
         <p class="empty-desc">Registra una colmena para ver su histórico de peso.</p>
     </div>
 <?php else:
-    $idColmena = $colmenaActiva['id_colmena'];
+    $idColmena = (int) $colmenaActiva['id_colmena'];
     $pesoActual = ultimaLectura($idColmena, 'peso');
-    $serie30d = serieHistoricaDias($idColmena, 'peso', 30);
+    $pesoFresco = lecturaReciente($pesoActual, 5);
+    // Agregado diario: 30 puntos en lugar de decenas de miles de filas crudas.
+    $serie30d = serieHistoricaAgregada($idColmena, 'peso', 30 * 24, 1440);
 ?>
 
 <div class="page-header">
     <div>
         <h1 class="page-title">Histórico de Peso</h1>
-        <p class="page-subtitle"><?= htmlspecialchars($colmenaActiva['nombre']) ?> · Datos reales de sensor gravimétrico (HX711)</p>
+        <p class="page-subtitle"><?= htmlspecialchars($colmenaActiva['nombre']) ?> · serie del HX711 · calibración pendiente en campo</p>
     </div>
+</div>
+
+<div class="scope-note u-mb-4">
+    <strong>Calibración pendiente.</strong> El HX711 registra una señal de peso, pero la báscula todavía no
+    está calibrada ni validada con una colmena real. Usa esta página como tendencia; una variación no confirma
+    por sí sola entrada de néctar, cosecha o enjambrazón.
 </div>
 
 <div class="card page-hero animate-fadeUp stagger-1">
     <div class="page-hero-copy">
         <span class="hero-eyebrow">Tendencia de masa</span>
-        <h2>El peso de la colmena como señal de flujo y acumulación.</h2>
-        <p class="page-subtitle">Una lectura limpia, con foco en la evolución real del HX711 y una visualización más amplia para interpretar variaciones de manera inmediata.</p>
+        <h2>El peso como tendencia; no como diagnóstico automático.</h2>
+        <p class="page-subtitle">La serie se agrega por día para mostrar la evolución del HX711. La calibración todavía no está validada y la interpretación requiere bitácora de campo.</p>
         <div class="page-hero-grid">
             <div class="page-kpi-card">
                 <span>Peso actual</span>
-                <strong><?= $pesoActual ? number_format($pesoActual['valor_calibrado'], 2) . ' kg' : 'Sin datos' ?></strong>
+                <strong><?= $pesoActual ? number_format((float) $pesoActual['valor_calibrado'], 2) . ' kg' : 'Sin datos' ?></strong>
+                <small class="text-tertiary text-xs"><?= $pesoActual ? ($pesoFresco ? 'dato reciente' : 'dato antiguo') : 'sin datos' ?></small>
             </div>
             <div class="page-kpi-card">
-                <span>Registros</span>
-                <strong><?= count($serie30d) ?> lecturas</strong>
+                <span>Puntos diarios</span>
+                <strong><?= count($serie30d) ?> agregados</strong>
             </div>
         </div>
     </div>
     <div class="page-hero-aside">
         <div class="premium-banner">
             <div>
-                <div class="subtle-note u-mb-1">Último ciclo</div>
+                <div class="subtle-note u-mb-1">Serie disponible</div>
                 <div class="card-title">30 días de histórico</div>
             </div>
-            <span class="badge badge-brand">Peso vivo</span>
+            <span class="badge badge-brand">Serie diaria</span>
         </div>
-        <div class="hero-chip"><i data-lucide="scale"></i><span>Señal gravimétrica continua</span></div>
-        <div class="hero-chip"><i data-lucide="trending-up"></i><span>Variación útil para flujo de néctar</span></div>
-        <div class="hero-chip"><i data-lucide="database"></i><span>Datos reales desde la base</span></div>
+        <div class="hero-chip"><i data-lucide="scale"></i><span>HX711 sin calibrar</span></div>
+        <div class="hero-chip"><i data-lucide="trending-up"></i><span>Variación de peso, no flujo confirmado</span></div>
+        <div class="hero-chip"><i data-lucide="database"></i><span>Lecturas registradas</span></div>
     </div>
 </div>
 
 <div class="metric-compact-grid u-mb-4">
-    <div class="card metric-mini metric-card brand">
-        <div class="metric-icon brand">
+    <div class="card metric-mini metric-card <?= $pesoActual ? ($pesoFresco ? 'brand' : 'stale') : '' ?>">
+        <div class="metric-icon <?= $pesoFresco ? 'brand' : 'neutral' ?>">
             <i data-lucide="scale"></i>
         </div>
-        <div class="metric-header"><i data-lucide="scale"></i> Peso Actual</div>
-        <div class="metric-value"><?= $pesoActual ? number_format($pesoActual['valor_calibrado'], 2) . ' <span class="metric-unit">kg</span>' : '<span class="text-tertiary">Sin datos</span>' ?></div>
+        <div class="metric-header"><i data-lucide="scale"></i> Peso actual</div>
+        <div class="metric-value"><?= $pesoActual ? number_format((float) $pesoActual['valor_calibrado'], 2) . ' <span class="metric-unit">kg</span>' : '<span class="text-tertiary">Sin datos</span>' ?></div>
+        <div class="metric-footer"><span class="badge <?= $pesoFresco ? 'badge-brand' : 'badge-neutral' ?>"><?= $pesoFresco ? 'Dato reciente' : ($pesoActual ? 'Dato antiguo' : 'Sin datos') ?></span></div>
     </div>
     <div class="card metric-mini metric-card neutral">
         <div class="metric-icon neutral">
             <i data-lucide="database"></i>
         </div>
-        <div class="metric-header"><i data-lucide="database"></i> Registros (30 días)</div>
+        <div class="metric-header"><i data-lucide="database"></i> Puntos diarios (30 días)</div>
         <div class="metric-value"><?= count($serie30d) ?></div>
-        <div class="metric-footer"><span class="badge badge-neutral">Lecturas reales</span></div>
+        <div class="metric-footer"><span class="badge badge-neutral">Agregado diario</span></div>
     </div>
 </div>
 
@@ -71,8 +81,8 @@
     <div class="card chart-frame">
         <div class="card-header">
             <div>
-                <div class="card-title">Evolución de Peso — Últimos 30 días</div>
-                <div class="page-subtitle chart-note"><?= htmlspecialchars($colmenaActiva['nombre']) ?> · Datos reales registrados en la base de datos</div>
+                <div class="card-title">Peso · últimos 30 días</div>
+                <div class="page-subtitle chart-note"><?= htmlspecialchars($colmenaActiva['nombre']) ?> · promedio diario · HX711 sin calibración validada</div>
             </div>
         </div>
         <?php if (count($serie30d) > 0): ?>
@@ -86,8 +96,6 @@
     </div>
 </div>
 
-<button class="btn-floating" title="Ayuda"><i data-lucide="help-circle"></i></button>
-
 <?php if (count($serie30d) > 0): ?>
 <script>
 document.addEventListener('DOMContentLoaded', () => {
@@ -99,7 +107,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Datos REALES desde PHP
     const labels = <?= json_encode(array_map(fn($r) => date('d/m', strtotime($r['fecha_hora'])), $serie30d)) ?>;
-    const data    = <?= json_encode(array_map(fn($r) => (float) $r['valor_calibrado'], $serie30d)) ?>;
+    const data    = <?= json_encode(array_map(fn($r) => (float) $r['valor'], $serie30d)) ?>;
 
     new Chart(ctxArea, {
         type: 'line',

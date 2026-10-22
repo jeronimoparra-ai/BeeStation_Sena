@@ -23,12 +23,17 @@ param(
 $ErrorActionPreference = 'Stop'
 
 if (-not (Test-Path $Docroot)) {
+    if ($Simular) {
+        Write-Host "El docroot no existe: $Docroot"
+        Write-Host "Simulacion sin crear directorios ni copiar archivos."
+        exit 0
+    }
     New-Item -ItemType Directory -Force -Path $Docroot | Out-Null
 }
 
 # Extensiones que forman parte de la aplicación servida
 # (las imagenes tambien: el fondo del login y el heroe viven en assets/)
-$extensiones = @('.php', '.js', '.css', '.htm', '.html', '.sql', '.ino', '.h',
+$extensiones = @('.php', '.js', '.css', '.htm', '.html',
                  '.jpg', '.jpeg', '.png', '.webp', '.svg', '.ico')
 
 Write-Host "Repositorio: $Repo"
@@ -39,8 +44,7 @@ Write-Host ""
 $copiados = 0
 Get-ChildItem $Repo -Recurse -File -Force | Where-Object {
     $_.FullName -notmatch '\\\.git\\' -and
-    $_.FullName -notmatch '\\docs\\' -and
-    $_.FullName -notmatch '\\tests\\' -and
+    $_.FullName -notmatch '\\(?:tools|tests|database|docs|beestation_node|scripts)\\' -and
     ($extensiones -contains $_.Extension.ToLower() -or $_.Name -eq '.htaccess')
 } | ForEach-Object {
     $rel = $_.FullName.Substring($Repo.Length + 1)
@@ -80,16 +84,22 @@ foreach ($p in $prohibidos) {
         else { Remove-Item $dest -Recurse -Force; Write-Host "  - eliminado del docroot: $p" }
     }
 }
-# Directorios que ya no deben existir.
-# 'tools' NO se borra: sigue en el docroot pero .htaccess lo bloquea (404),
-# para poder diagnosticar en local sin exponerlo por HTTP.
-# 'tests' tampoco debe servirse: son scripts PHP ejecutables por HTTP.
-foreach ($d in @('docs', 'tests')) {
+# Directorios que no deben permanecer en el docroot, aunque una sincronizacion
+# anterior los haya copiado.
+foreach ($d in @('tools', 'tests', 'database', 'docs', 'beestation_node', 'scripts')) {
     $dest = Join-Path $Docroot $d
     if (Test-Path $dest) {
         if ($Simular) { Write-Host "  - eliminaria del docroot: $d\" }
         else { Remove-Item $dest -Recurse -Force; Write-Host "  - eliminado del docroot: $d\" }
     }
+}
+
+Get-ChildItem $Docroot -Recurse -File -Force | Where-Object {
+    $_.Extension.ToLower() -in @('.sql', '.ino', '.h')
+} | ForEach-Object {
+    $rel = $_.FullName.Substring($Docroot.Length + 1)
+    if ($Simular) { Write-Host "  - eliminaria del docroot: $rel" }
+    else { Remove-Item -LiteralPath $_.FullName -Force; Write-Host "  - eliminado del docroot: $rel" }
 }
 
 # ── 3. Verificar ─────────────────────────────────────────────────────
@@ -98,6 +108,7 @@ $dif = 0
 Get-ChildItem $Repo -Recurse -File -Force | Where-Object {
     $_.FullName -notmatch '\\\.git\\' -and $_.FullName -notmatch '\\docs\\' -and
     $_.FullName -notmatch '\\tests\\' -and
+    $_.FullName -notmatch '\\(?:tools|database|beestation_node|scripts)\\' -and
     ($extensiones -contains $_.Extension.ToLower() -or $_.Name -eq '.htaccess')
 } | ForEach-Object {
     $rel = $_.FullName.Substring($Repo.Length + 1)

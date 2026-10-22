@@ -1,6 +1,11 @@
 <?php
 declare(strict_types=1);
 
+if (PHP_SAPI !== 'cli') {
+    http_response_code(403);
+    exit;
+}
+
 function comprobarEcdsa(bool $condicion, string $mensaje): void {
     if (!$condicion) {
         fwrite(STDERR, "FALLO: {$mensaje}\n");

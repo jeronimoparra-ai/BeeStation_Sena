@@ -2,7 +2,8 @@
    BeeStation Login — Pixel-Perfect Redesign 2026
    ═══════════════════════════════════════════════════ */
 
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap');
+/* Sin @import remoto: el login debe cargar en la LAN sin internet.
+   Si Inter no está instalada, se usa la fuente del sistema. */
 
 /* ── Reset ── */
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }

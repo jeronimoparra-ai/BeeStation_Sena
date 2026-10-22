@@ -1190,7 +1190,7 @@ void imprimirMenuAyuda() {
   Serial.println("│  host    → Ver/fijar la IP del servidor (NVS)        │");
   Serial.println("│  datos   → Ver los datos guardados en la microSD     │");
   Serial.println("│  scan    → Escanear redes WiFi disponibles           │");
-  Serial.println("│  test    → Enviar POST de prueba al servidor         │");
+  Serial.println("│  test    → Diagnostico local, sin enviar datos       │");
   Serial.println("│  reset   → Borrar configuración y reiniciar          │");
   Serial.println("│  help    → Mostrar este menú de ayuda                │");
   Serial.println("└─────────────────────────────────────────────────────┘");
@@ -1509,52 +1509,32 @@ void comandoTest() {
     http.end();
   }
 
-  // ── Test 3: envio de telemetria real (tambien firmado) ──
-  Serial.println("[TEST] 3/3 - Enviando telemetria de prueba...");
-  String urlIngest = "http://" + ipServidor + "/BeeStation_Sena/api/ingest.php";
-  http.begin(urlIngest);
-  http.setTimeout(8000);
-
-  float t = bmeActivo ? bme.readTemperature() : 25.0;
-  float h = bmeActivo ? bme.readHumidity() : 50.0;
-  float p = bmeActivo ? (bme.readPressure() / 100.0F) : 1013.25;
-  float l = bh1750Activo ? lightMeter.readLightLevel() : 100.0;
+  // ── Test 3: sensores locales, SIN insertar telemetria falsa ──
+  // Un POST de prueba contaminaba la tabla lectura con 25 C / 50 % / 0 kg
+  // cuando faltaba un sensor. Este comando ahora solo diagnostica: no
+  // escribe en la base de datos ni en la microSD.
+  Serial.println("[TEST] 3/3 - Comprobando sensores locales (no se envia telemetria)...");
+  if (bmeActivo) {
+    Serial.printf("[TEST]   BME280: %.1f C, %.1f %%, %.1f hPa\n",
+      bme.readTemperature(), bme.readHumidity(), bme.readPressure() / 100.0F);
+  } else {
+    Serial.println("[TEST]   BME280: no detectado (no se inventan valores).");
+  }
+  if (bh1750Activo) {
+    Serial.printf("[TEST]   BH1750: %.1f lux\n", lightMeter.readLightLevel());
+  } else {
+    Serial.println("[TEST]   BH1750: no detectado (no se inventan valores).");
+  }
+  if (hx711Activo) {
+    Serial.printf("[TEST]   HX711: ultima lectura %.2f kg (sin enviar)\n", ultimoPeso);
+  } else {
+    Serial.println("[TEST]   HX711: no detectado (no se envia peso 0).");
+  }
   float s = 0.0f;
   float sVoltios = 0.0f;
   medirAcustica(50, sVoltios, s);
-
-  long epochTest = (long)time(nullptr);
-  if (!horaSincronizada(epochTest)) {
-    Serial.println("[TEST] Hora no sincronizada; no se envían mediciones de prueba.");
-    http.end();
-    return;
-  }
-  bool conReloj   = (epochTest > 1000000);
-  String testPayload = "{\"lecturas\":[";
-  testPayload += lecturaJson("temperatura_interna", t, epochTest, conReloj) + ",";
-  testPayload += lecturaJson("humedad_relativa",    h, epochTest, conReloj) + ",";
-  testPayload += lecturaJson("presion",            p, epochTest, conReloj) + ",";
-  testPayload += lecturaJson("peso",               0.00, epochTest, conReloj) + ",";
-  testPayload += lecturaJson("sonido",             s, epochTest, conReloj) + ",";
-  testPayload += lecturaJson("luminosidad",        l, epochTest, conReloj);
-  testPayload += "]}";
-
-  // La firma se calcula sobre el payload final (el servidor la recomputa).
-  if (!identFirmarCabeceras(http, urlIngest, testPayload)) {
-    Serial.println("[TEST]   x No se pudo firmar la telemetria de prueba.");
-    http.end();
-    return;
-  }
-
-  Serial.println("[TEST]   Payload: " + testPayload);
-  code = http.POST(testPayload);
-  if (code == 200) {
-    String resp = http.getString();
-    Serial.printf("[TEST]   Respuesta [%d]: %s\n", code, resp.c_str());
-  } else {
-    Serial.printf("[TEST]   x Fallo de envio [%d]: %s\n", code, http.errorToString(code).c_str());
-  }
-  http.end();
+  Serial.printf("[TEST]   MAX4466: %.1f Hz (experimental)\n", s);
+  Serial.println("[TEST]   No se envio telemetria. La ingesta normal sigue siendo la unica via de datos.");
   Serial.println("[TEST] Diagnostico completo.\n");
 }
 
@@ -2200,7 +2180,8 @@ void atenderStatusJSON() {
   json += ",\"identidad\":{";
   json += "\"id\":\"" + identId() + "\",";
   json += "\"huella\":\"" + identHuellaClave() + "\",";
-  json += "\"codigo\":\"" + identCodigo() + "\",";
+  // El codigo de alta NO se publica en /status: esa ruta es accesible desde
+  // la LAN sin autenticacion. Solo se muestra en el portal cautivo y el serial.
   json += "\"autorizado\":" + String(identAutorizado ? "true" : "false") + ",";
   json += "\"revocado\":" + String(identRevocado ? "true" : "false");
   json += "}";

@@ -24,15 +24,18 @@ cuando le faltan entradas.
 Consecuencia directa:
 
 - **IBB** necesita `temperatura_interna` + `humedad_relativa` + `co2`.
-  En un nodo físico sin MQ-135 queda **sin calcular** (el panel muestra
-  «Sin datos suficientes»). No se rellena con ceros.
+  En un nodo físico sin MQ-135 queda **sin calcular**. Desde la Fase 0 no se
+  muestra en el dashboard ni en el informe: una tarjeta vacía seguía sugiriendo
+  una capacidad que el hardware no tiene.
 - **ΔT** necesita `temperatura_interna` + `temperatura_externa`.
-  Sin el segundo DHT22 queda **sin calcular**.
-- **EV** necesita `co2`; **H_miel** solo necesita humedad y sí se calcula.
+  Sin el segundo DHT22 queda **sin calcular** y no se muestra.
+- **EV** necesita `co2`; **H_miel** es una estimación indirecta y tampoco se
+  presenta como diagnóstico de campo.
 
-El simulador virtual envía los 9 tipos, por eso en la colmena 2 los
-indicadores sí aparecen. Es la forma prevista de probar el panel completo
-sin instrumentar una colmena real.
+El simulador virtual puede enviar los 9 tipos para pruebas de backend, pero el
+dashboard de campo y el informe solo presentan las seis variables del nodo
+básico. Las filas antiguas de CO₂, temperatura exterior o energía no se tratan
+como sensores instalados.
 
 ## 2. `sonido`: de voltios a frecuencia
 
@@ -89,15 +92,17 @@ Resultado actual: **11/11**.
 | Amplitud 0–1000 cuentas | 0,806 V | 0,806 V |
 
 El sesgo de ~1,5 % es la cuantización de los cruces en una ventana de
-64 ms; es aceptable frente al ancho de la banda crítica (400–600 Hz).
+64 ms; la banda 400–600 Hz se usa solo como referencia, no como umbral de
+diagnóstico.
 
 ### Límites que hay que decir en voz alta
 
 - Es una **estimación**, no un analizador de espectro. Una señal de banda
   ancha (ruido de colmena) produce la frecuencia media de cruces, no la
   frecuencia del «piping» de la reina.
-- No se ha medido todavía en una colmena real. Hasta entonces, la alerta
-  de enjambrazón debe tratarse como **experimental**, no como diagnóstico.
+- No se ha medido todavía en una colmena real. Por eso la alerta automática
+  de enjambrazón está desactivada y la actividad acústica se presenta como
+  **experimental**, no como diagnóstico.
 - Para una detección robusta haría falta un micrófono digital con FFT
   (p. ej. INMP441) o un acelerómetro, y una campaña de grabaciones etiquetadas.
 
