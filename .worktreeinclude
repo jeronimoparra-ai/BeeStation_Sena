@@ -1,0 +1,6 @@
+# Archivos locales que Orca debe COPIAR a cada worktree nuevo.
+# Solo rutas literales, gitignored y existentes en el checkout principal.
+# No se versionan secretos: este archivo solo contiene rutas.
+
+# Credenciales de MariaDB para desarrollo/pruebas locales.
+config/db.local.php
