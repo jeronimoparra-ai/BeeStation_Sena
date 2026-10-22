@@ -95,27 +95,17 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    // ── Card Entrance Animations (Intersection Observer) ─────────
+    // ── Card Entrance Animations ─────────────────────────────────
+    // No dejamos tarjetas con opacity:0 esperando al IntersectionObserver:
+    // si una tarjeta queda debajo del pliegue y el observer no se dispara,
+    // el contenido (por ejemplo el gráfico de peso) queda invisible.
     const cards = document.querySelectorAll('.card, .stat-pill');
-    if ('IntersectionObserver' in window) {
-        const observer = new IntersectionObserver((entries) => {
-            entries.forEach((entry, i) => {
-                if (entry.isIntersecting) {
-                    entry.target.style.animationDelay = `${i * 0.04}s`;
-                    entry.target.style.opacity = '';
-                    entry.target.classList.add('animate-fadeUp');
-                    observer.unobserve(entry.target);
-                }
-            });
-        }, { threshold: 0.05 });
-
-        cards.forEach(card => {
-            if (!card.classList.contains('animate-fadeUp')) {
-                card.style.opacity = '0';
-            }
-            observer.observe(card);
-        });
-    }
+    cards.forEach((card, i) => {
+        if (!card.classList.contains('animate-fadeUp')) {
+            card.style.animationDelay = `${Math.min(i, 12) * 0.04}s`;
+            card.classList.add('animate-fadeUp');
+        }
+    });
 
     // ── Count-Up Animation for metric values ─────────────────────
     const metricValues = document.querySelectorAll('[data-countup]');

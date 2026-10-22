@@ -251,6 +251,12 @@ textarea {
   background: var(--color-surface);
 }
 
+/* Una sola tarjeta dentro de un grid de dos columnas debe ocupar el ancho
+   completo. La clase se usaba en peso.php pero no tenía definición. */
+.single-column-grid {
+  grid-template-columns: minmax(0, 1fr);
+}
+
 /* ── Tablas y formularios en móvil ────────────────────────── */
 @media (max-width: 1280px) {
   /* En portátiles de 1200–1280 px las cuatro tarjetas quedan demasiado

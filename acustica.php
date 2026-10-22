@@ -134,7 +134,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 borderWidth: 2,
                 tension: 0.3,
                 fill: true,
-                pointRadius: 0,
+                pointRadius: data.length === 1 ? 5 : 0,
+                pointBackgroundColor: theme.brand,
                 pointHoverRadius: 4
             }]
         },
@@ -148,6 +149,7 @@ document.addEventListener('DOMContentLoaded', () => {
             },
             scales: {
                 x: {
+                    offset: data.length === 1,
                     grid: { display: false },
                     ticks: { color: theme.textSecondary, font: { family: 'Inter', size: 11 }, maxTicksLimit: 8 }
                 },

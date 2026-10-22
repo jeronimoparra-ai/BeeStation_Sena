@@ -337,7 +337,8 @@ document.addEventListener('DOMContentLoaded', () => {
             type: 'line',
             data: { labels: labels, datasets: [{
                 label: titulo, data: datos, borderColor: color,
-                borderWidth: 1.8, tension: .3, pointRadius: 0, pointHoverRadius: 3,
+                borderWidth: 1.8, tension: .3, pointRadius: datos.length === 1 ? 4 : 0,
+                pointBackgroundColor: color, pointHoverRadius: 3,
                 fill: true, backgroundColor: 'rgba(185,119,18,.10)'
             }]},
             options: {
@@ -345,7 +346,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 devicePixelRatio: 2,
                 plugins: { legend: { display: false } },
                 scales: {
-                    x: { grid: { display: false }, ticks: { color: TINTA, maxTicksLimit: 8, autoSkip: true, font: { size: 9 } } },
+                    x: { offset: datos.length === 1, grid: { display: false }, ticks: { color: TINTA, maxTicksLimit: 8, autoSkip: true, font: { size: 9 } } },
                     y: { ticks: { color: TINTA, font: { size: 9 } }, grid: { color: GRID } }
                 }
             }

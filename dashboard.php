@@ -365,7 +365,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 borderWidth: 2.5,
                 tension: 0.35,
                 fill: true,
-                pointRadius: 0,
+                pointRadius: data.length === 1 ? 5 : 0,
+                pointBackgroundColor: colors.brand,
                 pointHoverRadius: 5,
                 pointHoverBackgroundColor: colors.brand
             }]
@@ -385,6 +386,7 @@ document.addEventListener('DOMContentLoaded', () => {
             },
             scales: {
                 x: {
+                    offset: data.length === 1,
                     grid: { display: false },
                     ticks: {
                         color: colors.textSecondary,

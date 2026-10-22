@@ -31,6 +31,14 @@
   duplicada; el JS ya no pinta indicadores inexistentes.
 - `informe.php`: sin KPIs imposibles; muestra las variables medidas y advierte
   que la acústica es experimental.
+- `serieHistoricaAgregada()` ahora agrupa por el cubo temporal local. Antes
+  `GROUP BY fecha_hora` se resolvía contra `lectura.fecha_hora` y devolvía una
+  fila por lectura (puntos y etiquetas duplicadas); además, el cubo diario se
+  alineaba a medianoche UTC y adelantaba la fecha un día.
+- Peso: una sola lectura diaria se dibuja como punto visible; la tarjeta del
+  gráfico ocupa todo el ancho y ya no se repiten las tarjetas de KPI.
+- Las tarjetas ya no quedan con `opacity: 0` esperando al IntersectionObserver:
+  el gráfico de peso es visible sin depender del desplazamiento.
 
 ### Security
 - Tests PHP y `tools/diagnostico-bd.php` rechazan ejecución por HTTP.

@@ -40,7 +40,7 @@
             </div>
             <div class="page-kpi-card">
                 <span>Puntos diarios</span>
-                <strong><?= count($serie30d) ?> agregados</strong>
+                <strong><?= count($serie30d) ?> <?= count($serie30d) === 1 ? 'agregado' : 'agregados' ?></strong>
             </div>
         </div>
     </div>
@@ -55,25 +55,6 @@
         <div class="hero-chip"><i data-lucide="scale"></i><span>HX711 sin calibrar</span></div>
         <div class="hero-chip"><i data-lucide="trending-up"></i><span>Variación de peso, no flujo confirmado</span></div>
         <div class="hero-chip"><i data-lucide="database"></i><span>Lecturas registradas</span></div>
-    </div>
-</div>
-
-<div class="metric-compact-grid u-mb-4">
-    <div class="card metric-mini metric-card <?= $pesoActual ? ($pesoFresco ? 'brand' : 'stale') : '' ?>">
-        <div class="metric-icon <?= $pesoFresco ? 'brand' : 'neutral' ?>">
-            <i data-lucide="scale"></i>
-        </div>
-        <div class="metric-header"><i data-lucide="scale"></i> Peso actual</div>
-        <div class="metric-value"><?= $pesoActual ? number_format((float) $pesoActual['valor_calibrado'], 2) . ' <span class="metric-unit">kg</span>' : '<span class="text-tertiary">Sin datos</span>' ?></div>
-        <div class="metric-footer"><span class="badge <?= $pesoFresco ? 'badge-brand' : 'badge-neutral' ?>"><?= $pesoFresco ? 'Dato reciente' : ($pesoActual ? 'Dato antiguo' : 'Sin datos') ?></span></div>
-    </div>
-    <div class="card metric-mini metric-card neutral">
-        <div class="metric-icon neutral">
-            <i data-lucide="database"></i>
-        </div>
-        <div class="metric-header"><i data-lucide="database"></i> Puntos diarios (30 días)</div>
-        <div class="metric-value"><?= count($serie30d) ?></div>
-        <div class="metric-footer"><span class="badge badge-neutral">Agregado diario</span></div>
     </div>
 </div>
 
@@ -114,13 +95,16 @@ document.addEventListener('DOMContentLoaded', () => {
         data: { labels: labels, datasets: [{
             label: 'Peso (kg)', data: data,
             borderColor: colors.brand, backgroundColor: gradArea,
-            borderWidth: 2, fill: true, tension: 0.3, pointRadius: 0, pointHoverRadius: 4
+            borderWidth: 2, fill: true, tension: 0.3,
+            // Con un solo cubo diario no hay línea: muestra el punto.
+            pointRadius: data.length === 1 ? 5 : 0,
+            pointBackgroundColor: colors.brand, pointHoverRadius: 4
         }]},
         options: {
             responsive: true, maintainAspectRatio: false,
             plugins: { legend: { display: false } },
             scales: {
-                x: { grid: { display: false }, ticks: { color: colors.textSecondary, maxTicksLimit: 31, autoSkip: true } },
+                x: { offset: data.length === 1, grid: { display: false }, ticks: { color: colors.textSecondary, maxTicksLimit: 31, autoSkip: true } },
                 y: { ticks: { color: colors.textSecondary }, grid: { color: colors.grid } }
             }
         }

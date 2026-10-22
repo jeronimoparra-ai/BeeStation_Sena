@@ -336,7 +336,11 @@ function serieHistoricaDias(int $id_colmena, string $tipo_sensor, int $dias = 30
 function serieHistoricaAgregada(int $id_colmena, string $tipo_sensor, int $horas = 24, int $minutos = 15): array {
     $pdo = getPDO();
     $stmt = $pdo->prepare("
-        SELECT FROM_UNIXTIME(FLOOR(UNIX_TIMESTAMP(l.fecha_hora) / (? * 60)) * (? * 60)) AS fecha_hora,
+        SELECT TIMESTAMPADD(
+                   MINUTE,
+                   FLOOR(TIMESTAMPDIFF(MINUTE, DATE(l.fecha_hora), l.fecha_hora) / ?) * ?,
+                   DATE(l.fecha_hora)
+               ) AS fecha_hora,
                AVG(l.valor_calibrado) AS valor,
                MIN(l.valor_calibrado) AS minimo,
                MAX(l.valor_calibrado) AS maximo,
@@ -347,8 +351,11 @@ function serieHistoricaAgregada(int $id_colmena, string $tipo_sensor, int $horas
           AND s.tipo = ?
           AND l.es_valida = 1
           AND l.fecha_hora >= (NOW() - INTERVAL ? HOUR)
-        GROUP BY fecha_hora
-        ORDER BY fecha_hora ASC
+        -- Se agrupa por el alias del cubo local. Si se usa
+        -- GROUP BY fecha_hora, MySQL puede resolverlo contra la columna
+        -- original `lectura.fecha_hora` y devolver una fila por lectura.
+        GROUP BY 1
+        ORDER BY 1 ASC
     ");
     $stmt->execute([$minutos, $minutos, $id_colmena, $tipo_sensor, $horas]);
     return $stmt->fetchAll();
