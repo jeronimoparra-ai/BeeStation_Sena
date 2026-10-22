@@ -36,24 +36,18 @@ Abre config/db.php y ajusta:
   define('DB_PASS', '');   <-- pon tu clave real aquí
   // La API ya no usa clave global: cada colmena firma con su token. para el ESP32
 
-1.4 Generar la contraseña real del usuario admin
+1.4 Restablecer la contraseña del usuario admin
 ----------------------------------------------------
-El schema.sql trae un usuario admin@beestation.io con una
-contraseña de relleno que NO va a funcionar. Genera la real así:
+El schema.sql no incluye credenciales utilizables. La contraseña
+se guarda como hash bcrypt: no se puede recuperar, solo restablecer.
+Hazlo desde la consola (nunca por HTTP):
 
-  a) Crea un archivo temporal generar_clave.php con este contenido:
+  $env:BEESTATION_RESET_EMAIL    = "admin@beestation.io"
+  $env:BEESTATION_RESET_PASSWORD = "una-clave-de-12-o-mas"
+  php tools/restablecer-clave.php
 
-     <?php
-     echo password_hash("TU_CLAVE_AQUI", PASSWORD_DEFAULT);
-     ?>
-
-  b) Ábrelo en el navegador, copia el texto que aparece (empieza
-     con $2y$10$...)
-
-  c) En phpMyAdmin, ve a la tabla `usuario`, edita el registro de
-     admin@beestation.io y pega ese texto en el campo `contrasena`.
-
-  d) Borra el archivo generar_clave.php por seguridad.
+Borra las variables de entorno al terminar. Al entrar, cambia la
+clave por una tuya desde la interfaz.
 
 1.5 Copiar el proyecto al servidor
 ---------------------------------------
