@@ -49,12 +49,27 @@ orca terminal read --terminal <handle> --json
 orca skills get orca-cli    # guía completa en Markdown
 ```
 
-Dentro de los terminales que Orca abre, bare `orca` ya resuelve (mete el shim en el
-PATH del terminal); el shell por defecto en Windows es PowerShell.
+Shell por defecto en Windows de los terminales de Orca: PowerShell.
 
 La guía `orca-cli` completa quedó instalada globalmente en `~/.agents/skills/orca-cli`
-y copiada a las casas de Codex y OpenCode con
-`orca skills install --skill orca-cli --agent codex,opencode`.
+y copiada a las casas de Codex, OpenCode y Antigravity con
+`orca skills install --skill orca-cli --agent codex,opencode,antigravity`.
+
+## Flujo probado con Orca + Codex (2026-10-21)
+
+1. `orca worktree create --project ... --name fix-badge-acustico --agent codex --prompt "<tarea de una línea>" --surface terminal --json`
+   Ojo: los prompts se envían de una sola línea; los saltos rompen el parseo del CLI.
+2. Codex editó `js/actualizar-dashboard.js` en su propio worktree (sin tocar main),
+   con las reglas dadas en el prompt (solo un archivo, sin BD, sin commit).
+3. Revisión en nuestra consola: `git -C <worktree> diff` y `node --check`.
+4. Aprobación: commit en el worktree (`eff24c6`) y `git cherry-pick <sha>` hacia
+   `main` (push `0781978`).
+5. `scripts/sincronizar-htdocs.ps1` desplegó el cambio en el docroot local.
+6. Marca de estado del workspace: `orca worktree set --workspace-status in-review --comment ...`.
+
+Worktrees dejados para referencia:
+- `prueba-orca` (solo prueba de checkout; se puede borrar con `orca worktree rm`).
+- `fix-badge-acustico` (el cambio ya está integrado en `main`).
 
 ## Probar cambios de un worktree en el Apache local
 
@@ -87,9 +102,9 @@ se sobrescribe el docroot, no se crea un vhost.
 
 | Agente | Estado | En Orca |
 |---|---|---|
-| Codex 0.163.0 | Autenticado y operativo | OK (skill `orca-cli` instalada) |
+| Codex 0.163.0 | Autenticado y operativo | OK; primer trabajo real en worktree: `fix-badge-acustico` |
 | OpenCode | Operativo | OK |
+| Antigravity CLI (agy 1.4.4) | Instalada en `%LOCALAPPDATA%\agy\bin`; falta su **inicio de sesión único** de Google (ejecutar `agy` en un terminal o entrar desde Orca) | registrado en Orca; skill `orca-cli` instalada; entra a la misma tabla que Codex |
 | Claude Code 2.1.303 | Instalado, **sin saldo** (`Credit balance is too low`) | falla hasta recargar créditos o definir `ANTHROPIC_API_KEY` |
-| Antigravity CLI | No está instalado (es un IDE de Google, no un CLI público) | Orca lo orquesta cuando exista |
 
 Mantener al día las skills de Orca con `orca skills update`.
