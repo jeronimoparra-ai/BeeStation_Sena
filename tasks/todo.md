@@ -7,7 +7,7 @@
 - [x] Verificación: `php -l`, compilación ESP32, Playwright autenticado.
 - [ ] Probar alta/`test`/`/status` en hardware real.
 - [x] Revisar worktrees Orca e integrar selectivamente seguridad y documentos.
-- [ ] Commit y sync al docroot.
+- [x] Commit y sync al docroot (Apache verificado; rutas privadas 403).
 - [ ] Fase 1: perfil de hardware, hora local, arranque sin router, calibración,
       `seq` y cola SD.
 - [ ] Fase 2: métricas condicionadas y alertas con histéresis.

@@ -6,8 +6,9 @@
 
 ## Estado
 
-- Fase 0 (verdad y limpieza): implementada en código, pendiente de prueba en
-  hardware y de commit.
+- Fase 0 (verdad y limpieza): implementada, commiteada y sincronizada al
+  docroot; verificada en Apache. Pendiente la prueba de alta/`test`/`/status`
+  en hardware real.
 - Fase 1 (hardware y datos): bloqueada por placa ESP32, RTC y sensores de energía.
 - Fases 2–5: planificadas; no empezar hasta cerrar la Fase 0.
 
@@ -24,7 +25,7 @@
 - [x] `php -l`, compilación ESP32 y render autenticado con Playwright.
 - [ ] Prueba de alta, `test` y `/status` en hardware real.
 - [x] Revisar worktrees Orca e integrar selectivamente seguridad y documentos.
-- [ ] Commit y sync al docroot.
+- [x] Commit y sync al docroot (Apache verificado; rutas privadas 403).
 
 ## Fase 1 — contrato de hardware y datos
 
