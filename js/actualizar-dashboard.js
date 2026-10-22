@@ -16,7 +16,7 @@
     const RANGOS = {
         temp:   [34, 36, 'Rango óptimo', 'Fuera de rango', 1],
         hum:    [50, 70, 'Normal', 'Atención', 0],
-        sonido: [400, 600, 'Normal', 'Zona de alerta', 0]
+        sonido: [400, 600, 'Zona de alerta', 'Normal', 0]
     };
 
     const num = (v, d) => (v === null || v === undefined || isNaN(v)) ? '—' : Number(v).toFixed(d);
@@ -27,10 +27,13 @@
             const card = document.querySelector('[data-metric="' + clave + '"]');
             if (!card || !l) return;
 
+            const valorNumerico = Number(l.valor);
+            const valorValido = l.valor !== null && l.valor !== undefined && Number.isFinite(valorNumerico);
+
             const valor = card.querySelector('[data-countup]');
-            if (valor && l.valor !== null && l.valor !== undefined) {
+            if (valor && valorValido) {
                 const dec = RANGOS[clave] ? RANGOS[clave][4] : 1;
-                valor.textContent = Number(l.valor).toFixed(dec);
+                valor.textContent = valorNumerico.toFixed(dec);
                 valor.setAttribute('data-countup', l.valor);
             }
 
@@ -38,9 +41,17 @@
             if (tiempo) tiempo.textContent = l.subida + ' · ' + l.relativo;
 
             const badge = card.querySelector('.metric-footer .badge');
-            if (badge && RANGOS[clave] && l.valor !== null) {
+            if (badge && clave === 'sonido') {
+                if (!valorValido || valorNumerico <= 0) {
+                    badge.className = 'badge badge-neutral';
+                    return;
+                }
+                const enAlerta = valorNumerico >= RANGOS.sonido[0] && valorNumerico <= RANGOS.sonido[1];
+                badge.textContent = enAlerta ? 'Zona de alerta' : 'Normal';
+                badge.className = 'badge ' + (enAlerta ? 'badge-critical' : 'badge-success');
+            } else if (badge && RANGOS[clave] && valorValido) {
                 const r = RANGOS[clave];
-                const ok = l.valor >= r[0] && l.valor <= r[1];
+                const ok = valorNumerico >= r[0] && valorNumerico <= r[1];
                 badge.textContent = ok ? r[2] : r[3];
                 badge.className = 'badge ' + (ok ? 'badge-success' : 'badge-warning');
             }
