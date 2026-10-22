@@ -37,6 +37,12 @@ dashboard de campo y el informe solo presentan las seis variables del nodo
 básico. Las filas antiguas de CO₂, temperatura exterior o energía no se tratan
 como sensores instalados.
 
+> Nota de datos: algunas filas antiguas de `sensor` etiquetan temperatura y
+> humedad como `DHT22`. El firmware 3.2.0 usa un **BME280** para esas tres
+> variables. La interfaz muestra el modelo del firmware; la corrección de las
+> filas heredadas queda para la Fase 1, cuando exista un perfil de hardware por
+> nodo.
+
 ## 2. `sonido`: de voltios a frecuencia
 
 ### El problema
