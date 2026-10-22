@@ -3,9 +3,11 @@
  * BeeStation — Centro de Dispositivos y Aprovisionamiento IoT
  * Centro Minero Ambiental - SENA, El Bagre (Antioquia)
  * 
- * Este archivo gestiona el registro de colmenas del usuario, genera
- * automáticamente sus tokens alfanuméricos de vinculación para el ESP32
- * y autoprovisiona sus respectivos sensores en la base de datos.
+ * Este archivo gestiona apiarios, colmenas y nodos IoT. Cada nodo tiene
+ * su propia identidad ECDSA P-256: el alta se autoriza con un código de
+ * 8 caracteres y no hay ningún token compartido que copiar. Las colmenas
+ * nuevas siguen generando un token heredado para los nodos con firmware
+ * anterior (ruta HMAC), pero el panel no lo presenta como credencial.
  */
 
 // Iniciamos la sesión de forma segura
@@ -24,22 +26,45 @@ if ($id_usuario <= 0) {
 }
 $pdo = getPDO();
 
-// MEJORA DE USABILIDAD: Si el apicultor no tiene apiarios, le creamos uno por defecto automáticamente
-$stmtCheckApiario = $pdo->prepare("SELECT COUNT(*) AS total FROM apiario WHERE id_usuario = ?");
-$stmtCheckApiario->execute([$id_usuario]);
-$tiene_apiarios = (int)$stmtCheckApiario->fetch()['total'] > 0;
-
-if (!$tiene_apiarios) {
-    // Insertamos un apiario principal inicial para que el selector nunca aparezca vacío
-    $stmtAutoApiario = $pdo->prepare("
-        INSERT INTO apiario (nombre, ubicacion, municipio, id_usuario) 
-        VALUES ('Apiario Principal', 'API_DEMO_SENA', 'El Bagre, Antioquia', ?)
-    ");
-    $stmtAutoApiario->execute([$id_usuario]);
-}
-
 $mensaje_exito = "";
 $mensaje_error = "";
+
+// ── PROCESS POST: CREAR APIARIO ─────────────────────────────────────────────
+// Un apiario es un dato real del apicultor: se crea solo cuando él lo pide.
+// Antes se insertaba un "Apiario Principal" con ubicación de demo como efecto
+// secundario de abrir esta página (un GET no debe escribir en la base).
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['crear_apiario'])) {
+    if (!validarCsrfSesion($_POST['csrf'] ?? null)) {
+        http_response_code(403);
+        $mensaje_error = 'La sesión del formulario expiró. Recarga e inténtalo de nuevo.';
+    } else {
+        $nombreApiario = is_string($_POST['nombre_apiario'] ?? null) ? trim($_POST['nombre_apiario']) : '';
+        $ubicacion     = is_string($_POST['ubicacion'] ?? null) ? trim($_POST['ubicacion']) : '';
+        $municipio     = is_string($_POST['municipio'] ?? null) ? trim($_POST['municipio']) : '';
+
+        if ($nombreApiario === '' || mb_strlen($nombreApiario) > 100) {
+            $mensaje_error = 'El nombre del apiario es obligatorio (máximo 100 caracteres).';
+        } elseif (mb_strlen($ubicacion) > 150 || mb_strlen($municipio) > 100) {
+            $mensaje_error = 'La ubicación o el municipio son demasiado largos.';
+        } else {
+            try {
+                $pdo->prepare("
+                    INSERT INTO apiario (nombre, ubicacion, municipio, id_usuario)
+                    VALUES (?, ?, ?, ?)
+                ")->execute([
+                    $nombreApiario,
+                    $ubicacion !== '' ? $ubicacion : null,
+                    $municipio !== '' ? $municipio : null,
+                    $id_usuario,
+                ]);
+                $mensaje_exito = 'Apiario creado. Ya puedes registrar colmenas en él.';
+            } catch (Throwable $e) {
+                error_log('BeeStation: fallo al crear el apiario.');
+                $mensaje_error = 'No fue posible crear el apiario. Inténtalo de nuevo.';
+            }
+        }
+    }
+}
 
 // ── PROCESS POST: REGISTRO DE NUEVA COLMENA ──────────────────────────────────
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['crear_colmena'])) {
@@ -68,7 +93,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['crear_colmena'])) {
             }
             $pdo->beginTransaction();
 
-            // 1. Generamos algorítmicamente un token seguro de vinculación
+            // 1. Token heredado: solo para nodos con firmware HMAC anterior.
+            //    El firmware 3.2.0 usa identidad ECDSA y no lo necesita.
             $token_seguro = generarTokenVinculacion($nombre);
 
             // 2. Insertamos la nueva colmena con su respectivo token
@@ -216,7 +242,7 @@ $stmtApiarios = $pdo->prepare("SELECT id_apiario, nombre FROM apiario WHERE id_u
 $stmtApiarios->execute([$id_usuario]);
 $apiarios = $stmtApiarios->fetchAll();
 
-// Obtenemos la lista completa de colmenas del usuario con su respectivo Token
+// Obtenemos la lista completa de colmenas del usuario
 $stmtColmenas = $pdo->prepare("
     SELECT c.*, a.nombre AS nombre_apiario 
     FROM colmena c
@@ -283,6 +309,45 @@ require_once __DIR__ . '/includes/header.php';
                 </div>
             <?php endif; ?>
 
+            <?php if (empty($apiarios)): ?>
+            <!-- Primer apiario: sin él no se puede registrar una colmena -->
+            <div class="card animate-fadeUp u-mb-4">
+                <div class="card-header">
+                    <h3 class="card-title">
+                        <i data-lucide="map-pin" class="text-brand"></i>
+                        Crea tu primer apiario
+                    </h3>
+                </div>
+                <form action="dispositivos.php" method="POST" class="stack">
+                    <input type="hidden" name="crear_apiario" value="1">
+                    <input type="hidden" name="csrf" value="<?= htmlspecialchars(tokenCsrfSesion(), ENT_QUOTES, 'UTF-8') ?>">
+
+                    <div class="form-group">
+                        <label class="ls-label" for="nombre_apiario">Nombre del apiario</label>
+                        <input type="text" name="nombre_apiario" id="nombre_apiario" class="form-control"
+                               placeholder="Ej: Apiario Norte" maxlength="100" required>
+                    </div>
+
+                    <div class="form-group">
+                        <label class="ls-label" for="ubicacion">Ubicación (opcional)</label>
+                        <input type="text" name="ubicacion" id="ubicacion" class="form-control"
+                               placeholder="Vereda, finca o referencia" maxlength="150">
+                    </div>
+
+                    <div class="form-group">
+                        <label class="ls-label" for="municipio">Municipio (opcional)</label>
+                        <input type="text" name="municipio" id="municipio" class="form-control"
+                               placeholder="Ej: El Bagre, Antioquia" maxlength="100">
+                    </div>
+
+                    <button type="submit" class="btn btn-brand btn-full u-mt-2">
+                        <i data-lucide="plus"></i>
+                        <span>Crear apiario</span>
+                    </button>
+                </form>
+            </div>
+            <?php endif; ?>
+
             <!-- Cuadrícula Principal (Formulario + Instrucciones) -->
             <div class="grid-2x2 animate-fadeUp stagger-1">
                 
@@ -294,6 +359,11 @@ require_once __DIR__ . '/includes/header.php';
                             Registrar Nueva Colmena
                         </h3>
                     </div>
+                    <?php if (empty($apiarios)): ?>
+                        <p class="text-secondary text-sm">
+                            Crea un apiario arriba para poder registrar tu primera colmena.
+                        </p>
+                    <?php else: ?>
                     <form action="dispositivos.php" method="POST" class="stack">
                         <input type="hidden" name="crear_colmena" value="1">
                         <input type="hidden" name="csrf" value="<?= htmlspecialchars(tokenCsrfSesion(), ENT_QUOTES, 'UTF-8') ?>">
@@ -324,9 +394,10 @@ require_once __DIR__ . '/includes/header.php';
 
                         <button type="submit" class="btn btn-brand btn-full u-mt-2">
                             <i data-lucide="plus"></i>
-                            <span>Registrar y Generar Token</span>
+                            <span>Registrar colmena</span>
                         </button>
                     </form>
+                    <?php endif; ?>
                 </div>
 
                 <!-- Columna Derecha: Guía del Portal Cautivo -->
@@ -340,16 +411,19 @@ require_once __DIR__ . '/includes/header.php';
                     <div style="font-size: 0.9rem; line-height: 1.6; color: var(--color-text-secondary);">
                         <ol style="padding-left: 20px; margin-bottom: 16px;" class="stack">
                             <li style="margin-bottom: 8px;">
-                                <strong>Copia el Token:</strong> Copia el Token Único de la colmena que deseas configurar usando el botón <i data-lucide="copy" style="width:14px; height:14px; display:inline-block; vertical-align:middle;"></i> en la tabla inferior.
+                                <strong>Enciende el nodo:</strong> El ESP32 crea la red Wi-Fi <strong>`BeeStation_Config`</strong>. Conéctate desde tu celular.
                             </li>
                             <li style="margin-bottom: 8px;">
-                                <strong>Conéctate al AP:</strong> Enciende tu ESP32 física en el apiario. Desde tu celular, conéctate a la red Wi-Fi libre llamada <strong>`BeeStation_Config`</strong>.
+                                <strong>Configura la red:</strong> En el portal cautivo elige la Wi-Fi de tu finca y escribe la contraseña. El nodo <strong>no pide ningún token</strong>: genera su propia clave.
                             </li>
                             <li style="margin-bottom: 8px;">
-                                <strong>Configura la Red:</strong> Al abrirse el Portal Cautivo, selecciona la red Wi-Fi de tu finca, escribe la contraseña y pega el <strong>Token Único</strong> que copiaste.
+                                <strong>Anota el código:</strong> El monitor Serie (115200) muestra un identificador y un <strong>código de alta de 8 caracteres</strong>.
+                            </li>
+                            <li style="margin-bottom: 8px;">
+                                <strong>Autoriza el nodo:</strong> En <em>Nodos IoT</em>, escribe el código, elige la colmena y pulsa Vincular.
                             </li>
                             <li>
-                                <strong>Listo:</strong> Haz clic en Vincular. El ESP32 se enlazará automáticamente y verás encenderse el estado <span class="badge badge-success">En línea</span> en pocos segundos.
+                                <strong>Listo:</strong> El nodo pasa a <span class="badge badge-success">En línea</span> en pocos segundos y empieza a enviar telemetría firmada.
                             </li>
                         </ol>
                         <?php

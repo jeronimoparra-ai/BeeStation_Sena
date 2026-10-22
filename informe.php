@@ -334,7 +334,7 @@ document.addEventListener('DOMContentLoaded', () => {
     serie('infTemp',   lTemp,  <?= json_encode($valoresTemp) ?>,  MARCA,  'Temperatura', '°C');
     serie('infHum',    lHum,   <?= json_encode($valoresHum) ?>,  VERDE,  'Humedad', '%HR');
     serie('infPeso',   lPeso,  <?= json_encode($valoresPeso) ?>,  MALLOR, 'Peso', 'kg');
-    serie('infSonido', lSonid, <?= json_encode($valoresSonid) ?>, MARCA, 'Sonido', 'V');
+    serie('infSonido', lSonid, <?= json_encode($valoresSonid) ?>, MARCA, 'Sonido', 'Hz');
 
     if (window.lucide) { window.lucide.createIcons(); }
 });

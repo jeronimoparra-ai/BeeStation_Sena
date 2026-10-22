@@ -11,13 +11,15 @@
     $sonido      = ultimaLectura($idColmena, 'sonido');
     $serieSonido = serieHistorica($idColmena, 'sonido', 6); // últimas 6 horas
 
-    $enAlerta = $sonido && $sonido['valor_calibrado'] >= 400 && $sonido['valor_calibrado'] <= 600;
+    $enAlerta = $sonido && $sonido['valor_calibrado'] > 0
+        && $sonido['valor_calibrado'] >= 400 && $sonido['valor_calibrado'] <= 600;
+    $activo = $sonido && $sonido['valor_calibrado'] > 0;
 ?>
 
 <div class="page-header">
     <div>
         <h1 class="page-title">Análisis Acústico</h1>
-        <p class="page-subtitle"><?= htmlspecialchars($colmenaActiva['nombre']) ?> · Sensor MAX9814 · Datos reales</p>
+        <p class="page-subtitle"><?= htmlspecialchars($colmenaActiva['nombre']) ?> · Sensor MAX4466 · Datos reales</p>
     </div>
     <?php if ($enAlerta): ?>
     <div class="alert-banner critical">
@@ -47,11 +49,11 @@
         <div class="premium-banner">
             <div>
                 <div class="subtle-note u-mb-1">Estado de riesgo</div>
-                <div class="card-title"><?= $enAlerta ? 'Alerta activa' : 'Monitoreo estable' ?></div>
+                <div class="card-title"><?= $enAlerta ? 'Alerta activa' : ($activo ? 'Monitoreo estable' : 'Sin datos') ?></div>
             </div>
-            <span class="badge <?= $enAlerta ? 'badge-critical' : 'badge-success' ?>"><?= $enAlerta ? 'Crítico' : 'Normal' ?></span>
+            <span class="badge <?= $enAlerta ? 'badge-critical' : ($activo ? 'badge-success' : 'badge-neutral') ?>"><?= $enAlerta ? 'Crítico' : ($activo ? 'Normal' : 'Sin datos') ?></span>
         </div>
-        <div class="hero-chip"><i data-lucide="waves"></i><span>MAX9814 · señal continua</span></div>
+        <div class="hero-chip"><i data-lucide="waves"></i><span>MAX4466 · frecuencia estimada</span></div>
         <div class="hero-chip"><i data-lucide="shield-alert"></i><span>Umbral 400–600 Hz para enjambrazón</span></div>
         <div class="hero-chip"><i data-lucide="mic"></i><span>Histórico real de 6 horas</span></div>
     </div>
@@ -59,8 +61,8 @@
 
 <!-- Metric Cards -->
 <div class="grid-2x2 two-column-metrics">
-    <div class="card metric-card animate-fadeUp stagger-1 <?= $enAlerta ? 'critical' : ($sonido ? 'success' : '') ?>">
-        <div class="metric-icon <?= $enAlerta ? 'critical' : 'success' ?>">
+    <div class="card metric-card animate-fadeUp stagger-1 <?= $enAlerta ? 'critical' : ($activo ? 'success' : '') ?>">
+        <div class="metric-icon <?= $enAlerta ? 'critical' : ($activo ? 'success' : 'neutral') ?>">
             <i data-lucide="waves"></i>
         </div>
         <div class="metric-header"><i data-lucide="waves"></i> Frecuencia Actual</div>
@@ -70,7 +72,13 @@
                 <span class="metric-unit">Hz</span>
             </div>
             <div class="metric-footer">
-                <span class="badge <?= $enAlerta ? 'badge-critical' : 'badge-success' ?>"><?= $enAlerta ? 'Alerta' : 'Normal' ?></span>
+                <?php if ($enAlerta): ?>
+                    <span class="badge badge-critical">Alerta</span>
+                <?php elseif ($activo): ?>
+                    <span class="badge badge-success">Normal</span>
+                <?php else: ?>
+                    <span class="badge badge-neutral">Sin actividad</span>
+                <?php endif; ?>
                 <span class="text-tertiary text-xs"><?= tiempoRelativo($sonido['fecha_hora']) ?></span>
             </div>
         <?php else: ?>
@@ -103,7 +111,7 @@
     <?php else: ?>
         <div class="premium-empty compact">
             <div class="empty-icon-circle"><i data-lucide="mic-off" class="u-icon-lg"></i></div>
-            <p class="empty-desc">Todavía no hay lecturas del sensor de sonido. Cuando el MAX9814 empiece a transmitir, este gráfico se llenará con datos reales.</p>
+            <p class="empty-desc">Todavía no hay lecturas del sensor de sonido. Cuando el MAX4466 empiece a transmitir, este gráfico se llenará con datos reales.</p>
         </div>
     <?php endif; ?>
 </div>

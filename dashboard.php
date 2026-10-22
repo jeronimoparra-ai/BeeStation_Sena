@@ -24,6 +24,12 @@
     $hMiel = calcularHMiel($idColmena);
     $alertas = alertasActivas($idColmena, 5);
 
+    // Estado acústico derivado: 0 Hz = silencio (sin actividad), no "normal".
+    $sonidoActivo    = $sonido && (float) $sonido['valor_calibrado'] > 0;
+    $sonidoEnAlerta  = $sonidoActivo
+        && (float) $sonido['valor_calibrado'] >= 400
+        && (float) $sonido['valor_calibrado'] <= 600;
+
     $serieTemp = serieHistorica($idColmena, 'temperatura_interna', 24);
     $seriePeso = serieHistorica($idColmena, 'peso', 24);
 ?>
@@ -77,7 +83,7 @@
 
     <!-- Temperatura -->
     <div data-metric="temp" class="card metric-card animate-fadeUp stagger-1 <?= ($temp && $temp['valor_calibrado'] >= 34 && $temp['valor_calibrado'] <= 36) ? 'success' : ($temp ? 'warning' : '') ?>">
-        <div class="metric-icon <?= ($temp && $temp['valor_calibrado'] >= 34 && $temp['valor_calibrado'] <= 36) ? 'success' : 'warning' ?>">
+        <div class="metric-icon <?= $temp ? (($temp['valor_calibrado'] >= 34 && $temp['valor_calibrado'] <= 36) ? 'success' : 'warning') : 'neutral' ?>">
             <i data-lucide="thermometer"></i>
         </div>
         <div class="metric-header"><i data-lucide="thermometer"></i> Temperatura Interna</div>
@@ -100,7 +106,7 @@
 
     <!-- Humedad -->
     <div data-metric="hum" class="card metric-card animate-fadeUp stagger-2 <?= ($hum && $hum['valor_calibrado'] >= 50 && $hum['valor_calibrado'] <= 70) ? 'success' : ($hum ? 'warning' : '') ?>">
-        <div class="metric-icon <?= ($hum && $hum['valor_calibrado'] >= 50 && $hum['valor_calibrado'] <= 70) ? 'success' : 'warning' ?>">
+        <div class="metric-icon <?= $hum ? (($hum['valor_calibrado'] >= 50 && $hum['valor_calibrado'] <= 70) ? 'success' : 'warning') : 'neutral' ?>">
             <i data-lucide="droplets"></i>
         </div>
         <div class="metric-header"><i data-lucide="droplets"></i> Humedad Relativa</div>
@@ -146,8 +152,8 @@
     </div>
 
     <!-- Acústica -->
-    <div data-metric="sonido" class="card metric-card animate-fadeUp stagger-4 <?= ($sonido && $sonido['valor_calibrado'] >= 400 && $sonido['valor_calibrado'] <= 600) ? 'critical' : 'success' ?>">
-        <div class="metric-icon <?= ($sonido && $sonido['valor_calibrado'] >= 400 && $sonido['valor_calibrado'] <= 600) ? 'critical' : 'success' ?>">
+    <div data-metric="sonido" class="card metric-card animate-fadeUp stagger-4 <?= $sonidoEnAlerta ? 'critical' : ($sonidoActivo ? 'success' : '') ?>">
+        <div class="metric-icon <?= $sonidoEnAlerta ? 'critical' : ($sonidoActivo ? 'success' : 'neutral') ?>">
             <i data-lucide="activity"></i>
         </div>
         <div class="metric-header"><i data-lucide="activity"></i> Actividad Acústica</div>
@@ -157,9 +163,13 @@
                 <span class="metric-unit">Hz</span>
             </div>
             <div class="metric-footer">
-                <span class="badge <?= ($sonido['valor_calibrado'] >= 400 && $sonido['valor_calibrado'] <= 600) ? 'badge-critical' : 'badge-success' ?>">
-                    <?= ($sonido['valor_calibrado'] >= 400 && $sonido['valor_calibrado'] <= 600) ? 'Zona de alerta' : 'Normal' ?>
-                </span>
+                <?php if ($sonidoEnAlerta): ?>
+                    <span class="badge badge-critical">Zona de alerta</span>
+                <?php elseif ($sonidoActivo): ?>
+                    <span class="badge badge-success">Normal</span>
+                <?php else: ?>
+                    <span class="badge badge-neutral">Sin actividad</span>
+                <?php endif; ?>
                 <span class="metric-time text-tertiary text-xs"><?= horaSubida($sonido['fecha_hora']) ?> · <?= tiempoRelativo($sonido['fecha_hora']) ?></span>
             </div>
         <?php else: ?>
@@ -176,7 +186,7 @@
 
     <!-- Delta T -->
     <div class="card metric-card animate-fadeUp stagger-5 <?= ($deltaT && $deltaT['estado'] === 'Normal') ? 'success' : ($deltaT ? 'critical' : '') ?>">
-        <div class="metric-icon <?= ($deltaT && $deltaT['estado'] === 'Normal') ? 'success' : 'critical' ?>">
+        <div class="metric-icon <?= $deltaT ? ($deltaT['estado'] === 'Normal' ? 'success' : 'critical') : 'neutral' ?>">
             <i data-lucide="thermometer"></i>
         </div>
         <div class="metric-header"><i data-lucide="thermometer"></i> Delta T (Interior - Exterior)</div>
@@ -199,7 +209,7 @@
 
     <!-- Humedad Miel -->
     <div class="card metric-card animate-fadeUp stagger-6 <?= ($hMiel && $hMiel['estado'] === 'Lista para cosecha') ? 'success' : ($hMiel ? 'warning' : '') ?>">
-        <div class="metric-icon <?= ($hMiel && $hMiel['estado'] === 'Lista para cosecha') ? 'success' : 'warning' ?>">
+        <div class="metric-icon <?= $hMiel ? ($hMiel['estado'] === 'Lista para cosecha' ? 'success' : 'warning') : 'neutral' ?>">
             <i data-lucide="droplet"></i>
         </div>
         <div class="metric-header"><i data-lucide="droplet"></i> Humedad de Miel</div>

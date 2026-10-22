@@ -1,5 +1,27 @@
 # Changelog
 
+## 2026-10-21 — Firmware 3.2.0 y puesta en marcha local
+
+### Added
+- `beestation_node/acustica.h`: estimación de la **frecuencia dominante** del micrófono por cruces por cero con histéresis. El backend ya recibe Hz reales y la alerta de enjambrazón puede dispararse.
+- `tests/host/acustica_test.c`: prueba del mismo encabezado que usa el ESP32 (11/11), con tonos de 250–900 Hz, silencio, ruido, onda cuadrada y amplitud.
+- `docs/SENSORES-Y-UNIDADES.md`: contrato de unidades y matriz de disponibilidad real (qué mide el ESP32 y qué solo el simulador).
+
+### Changed
+- `INTERVALO_LECTURA` documentado como **30 s** (los comentarios decían 5 min y no coincidían con el código).
+- El CSV de la microSD rotula la columna como `Sonido_Hz`.
+- El panel y `acustica.php` muestran `Sin actividad`/neutro cuando la frecuencia es 0, en lugar de un falso `Normal` verde.
+- El ícono de ΔT es neutro cuando faltan datos, no crítico.
+
+### Fixed
+- **Unidades del sonido**: el firmware enviaba voltios pico a pico a una variable declarada en Hz; la alerta de 400–600 Hz era inalcanzable. Ahora envía frecuencia estimada y conserva la amplitud en `sonido_v` (solo diagnóstico).
+- El API devolvía **HTTP 200 con stack trace y rutas internas** ante un fallo: ahora responde `500` JSON genérico y registra el detalle en el log (`api/.htaccess` + manejador en `includes/functions.php`).
+- El script de despliegue copiaba `tests/` al docroot (PHP ejecutable por HTTP). Se excluye y se bloquea también por `.htaccess`.
+- `-Simular` del script de despliegue se ignoraba y copiaba igualmente.
+
+### Migration
+- Aplicadas en la BD local: `004_nonce_antireplay.sql`, `005_identidad_dispositivo.sql` y `006_identificador_medicion.sql` (13 tablas). Respaldo previo en `backups\pre-fase2_20261021-202730.sql`.
+
 ## 2026-10-21 — Fase 2: autenticación sin token permanente
 
 ### Added

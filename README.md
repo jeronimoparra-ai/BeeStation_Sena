@@ -384,14 +384,17 @@ El firmware se puede validar sin la placa conectada:
 
 ```bash
 arduino-cli compile --fqbn esp32:esp32:esp32:PartitionScheme=min_spiffs beestation_node
-# El Sketch usa 1297468 bytes (65%) del espacio de almacenamiento de programa.
-# Las variables globales usan 57032 bytes (17%) de la memoria dinámica.
+# El Sketch usa 1298228 bytes (66%) del espacio de almacenamiento de programa.
+# Las variables globales usan 57544 bytes (17%) de la memoria dinámica.
 ```
 
 > La Fase 2 (identidad ECDSA) deja el binario en ~1,30 MB. Con la tabla de
 > particiones por defecto quedaría al 98 %; por eso se usa `min_spiffs`
 > (1,9 MB de APP) y hay que **reflashear la tabla por USB una vez**.
 > Detalles en `docs/reconciliacion-fase2.md`.
+>
+> Unidades, disponibilidad real de sensores y la estimación de frecuencia
+> acústica (firmware 3.2.0): `docs/SENSORES-Y-UNIDADES.md`.
 
 </details>
 
