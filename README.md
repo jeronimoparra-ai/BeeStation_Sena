@@ -172,7 +172,7 @@ El nodo físico con firmware **3.2.0** envía `temperatura_interna` (°C), `hume
 | Experimental | Acústica en Hz: no confirma enjambrazón. `H_miel` es una estimación indirecta de HR y no mide miel. El alta ECDSA ya genera el código `4-4` en firmware, pero no se probó en hardware. |
 | No disponible | IBB y EV (falta CO₂), ΔT (falta temperatura exterior) y medición de energía. `energia.php` es un placeholder. |
 
-El sistema no se declara listo para campo. Consulta [Sensores y unidades](docs/SENSORES-Y-UNIDADES.md) para el contrato de telemetría.
+El sistema no se declara listo para campo. Consulta [Sensores y unidades](docs/SENSORES-Y-UNIDADES.md) para el contrato de telemetría y [Fase 1: contrato de hardware](docs/FASE1-CONTRATO-HARDWARE.md) para los perfiles, la hora local, la calibración y la cola offline.
 
 ## 🧮 Índice de Bienestar Bioclimático
 

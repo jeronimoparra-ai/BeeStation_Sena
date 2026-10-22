@@ -20,7 +20,7 @@ Si falta cualquiera, el dato no se muestra como diagnóstico. Se muestra como
 
 ---
 
-## Fase 0 — Verdad y limpieza (en curso)
+## Fase 0 — Verdad y limpieza (cerrada en software)
 
 **Objetivo:** quitar la ficción y dejar el panel honesto antes de añadir funciones.
 
@@ -62,7 +62,10 @@ Si falta cualquiera, el dato no se muestra como diagnóstico. Se muestra como
       no expone `codigo`.
 - [x] Integrar en la auditoría los hallazgos H38–H43 y los informes de backend/UX.
 - [x] Revisar los worktrees Orca e integrar selectivamente `seguridad-despliegue` y `docs-verdad`.
-- [ ] Commit y sincronización al docroot (`scripts/sincronizar-htdocs.ps1`).
+- [x] Commit y sincronización al docroot (`scripts/sincronizar-htdocs.ps1`).
+- [x] Apache verificado: páginas autenticadas, assets locales y rutas privadas
+      con 403 (`config/`, `.git/`, `docs/`, `tests/`, `README.md`, `.sql`, `.ino`,
+      `.h`).
 
 ### Criterio de aceptación
 
@@ -75,6 +78,8 @@ Si falta cualquiera, el dato no se muestra como diagnóstico. Se muestra como
 ---
 
 ## Fase 1 — Contrato de hardware y datos
+
+> Contrato detallado y matriz de pruebas: `docs/FASE1-CONTRATO-HARDWARE.md`.
 
 **Objetivo:** que el nodo y el backend hablen el mismo idioma.
 
