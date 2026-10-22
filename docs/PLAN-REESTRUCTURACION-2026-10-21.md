@@ -265,7 +265,8 @@ se repite el piloto. El resultado se documenta en `docs/PILOTO-2026.md`.
 
 ## Orden de ejecución recomendado
 
-1. Cerrar Fase 0 y commit.
+1. Fase 0 cerrada, commiteada y desplegada; queda la prueba del alta en
+   hardware real.
 2. Hora + arranque sin router + alta en hardware (Fase 1).
 3. Energía medida y calibración de peso (Fase 1).
 4. Cola SD y `seq` (Fase 1).
