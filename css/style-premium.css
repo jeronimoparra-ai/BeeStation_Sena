@@ -921,7 +921,15 @@ code {
 }
 
 .page-hero {
-  padding: 32px;
+  padding: 36px;
+  margin-bottom: 32px;
+}
+.page-hero-copy h2 {
+  margin-bottom: 14px;
+}
+.page-hero-copy p {
+  margin-bottom: 18px;
+  line-height: 1.65;
 }
 .page-kpi-card {
   padding: 18px;
