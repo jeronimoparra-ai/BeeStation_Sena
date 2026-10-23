@@ -9,6 +9,11 @@
  * Lo consume js/actualizar-dashboard.js cada 10 s para que la
  * dashboard se refresque sola sin recargar la página.
  */
+// Este endpoint debe responder JSON cuando caduca la sesión, sin heredar
+// la redirección HTML que usa el control de acceso de las páginas.
+if (!defined('BEESTATION_API_CONTEXT')) {
+    define('BEESTATION_API_CONTEXT', true);
+}
 require_once __DIR__ . '/../includes/auth.php';
 
 // XAMPP trae serialize_precision=100 y json_encode imprime 0.47 como
@@ -53,6 +58,14 @@ function empaquetarLectura(?array $lectura): ?array
 $alertas = alertasActivas($idColmena, 10);
 
 $serieTemp = serieHistoricaAgregada($idColmena, 'temperatura_interna', 24, 15);
+$stmtTempInvalida = getPDO()->prepare("
+    SELECT MAX(l.fecha_hora) AS fecha_hora
+    FROM lectura l
+    INNER JOIN sensor s ON l.id_sensor = s.id_sensor
+    WHERE s.id_colmena = ? AND s.tipo = 'temperatura_interna' AND l.es_valida = 0
+");
+$stmtTempInvalida->execute([$idColmena]);
+$ultimaTempInvalida = $stmtTempInvalida->fetchColumn();
 
 $respuesta = [
     'ok'     => true,
@@ -78,8 +91,12 @@ $respuesta = [
         ];
     }, $alertas),
     'serie_temp' => [
-        'labels' => array_map(static fn($r) => date('H:i', strtotime($r['fecha_hora'])), $serieTemp),
+        'labels' => array_map(static fn($r) => date('d/m/Y H:i', strtotime($r['fecha_hora'])), $serieTemp),
         'data'   => array_map(static fn($r) => (float) $r['valor'], $serieTemp),
+        'muestras' => array_map(static fn($r) => (int) $r['muestras'], $serieTemp),
+        'ultima_invalida' => $ultimaTempInvalida
+            ? date('d/m/Y H:i', strtotime((string) $ultimaTempInvalida))
+            : null,
     ],
 ];
 

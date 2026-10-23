@@ -220,8 +220,8 @@
         <?php endif; ?>
     </div>
 
-    <div data-metric="sonido" class="card metric-card animate-fadeUp <?= $sonido ? (!$sonidoFresca ? 'stale' : ($sonidoBanda ? 'warning' : '')) : '' ?>">
-        <div class="metric-icon <?= $sonidoBanda ? 'warning' : 'neutral' ?>">
+    <div data-metric="sonido" class="card metric-card animate-fadeUp <?= $sonido && !$sonidoFresca ? 'stale' : '' ?>">
+        <div class="metric-icon neutral">
             <i data-lucide="activity"></i>
         </div>
         <div class="metric-header">
@@ -234,20 +234,20 @@
                 <span class="metric-unit">Hz</span>
             </div>
             <div class="metric-footer">
-                <?php if (!$sonidoFresca): ?>
-                    <span class="badge badge-neutral">Dato antiguo</span>
-                <?php elseif (!$sonidoActivo): ?>
+                <?php if ((float) $sonido['valor_calibrado'] <= 0): ?>
                     <span class="badge badge-neutral">Sin actividad</span>
+                <?php elseif (!$sonidoFresca): ?>
+                    <span class="badge badge-neutral">Dato antiguo</span>
                 <?php elseif ($sonidoBanda): ?>
-                    <span class="badge badge-warning">Banda 400–600 Hz</span>
+                    <span class="badge badge-neutral">Banda de referencia</span>
                 <?php else: ?>
-                    <span class="badge badge-neutral">Fuera de banda</span>
+                    <span class="badge badge-neutral">Fuera de banda de referencia</span>
                 <?php endif; ?>
                 <span class="metric-time text-tertiary text-xs"><?= horaSubida($sonido['fecha_hora']) ?> · <?= tiempoRelativo($sonido['fecha_hora']) ?></span>
             </div>
         <?php else: ?>
             <div class="metric-value metric-empty">—<span class="metric-unit">Hz</span></div>
-            <div class="metric-footer"><span class="badge badge-neutral">Sin datos</span></div>
+            <div class="metric-footer"><span class="badge badge-neutral">Sin actividad</span></div>
         <?php endif; ?>
     </div>
 
@@ -256,33 +256,37 @@
 <div class="dashboard-insights-grid">
 
     <div class="card animate-fadeUp">
-        <div class="card-header">
+        <div class="card-header card-header-chart">
             <div>
-                <div class="card-title">Temperatura interna · 24 h</div>
-                <div class="page-subtitle chart-note">Promedio cada 15 minutos · datos reales</div>
+                <div class="card-title" id="tempChartTitle">Temperatura interna · 24 h</div>
+                <div class="page-subtitle chart-note" id="tempChartNote">Promedio cada 15 minutos · datos reales</div>
+            </div>
+            <div class="chart-period-control">
+                <label for="tempPeriod">Período</label>
+                <select class="form-control" id="tempPeriod" aria-label="Período de temperatura">
+                    <option value="24" selected>24 horas</option>
+                    <option value="48">48 horas</option>
+                    <option value="168">7 días</option>
+                    <option value="720">30 días</option>
+                </select>
             </div>
         </div>
-        <?php if (count($serieTemp) > 0): ?>
-            <div class="chart-shell-sm"><canvas id="tempChart" aria-label="Serie de temperatura interna de las últimas 24 horas"></canvas></div>
-            <details class="chart-table">
-                <summary>Ver tabla de datos</summary>
-                <div class="table-wrap">
-                    <table class="data-table">
-                        <thead><tr><th>Hora</th><th>Temperatura (°C)</th></tr></thead>
-                        <tbody>
-                        <?php foreach ($serieTemp as $p): ?>
-                            <tr><td><?= date('d/m H:i', strtotime($p['fecha_hora'])) ?></td><td><?= number_format((float) $p['valor'], 1) ?></td></tr>
-                        <?php endforeach; ?>
-                        </tbody>
-                    </table>
-                </div>
-            </details>
-        <?php else: ?>
-            <div class="empty-state compact">
-                <div class="empty-icon-circle"><i data-lucide="line-chart" class="u-icon-lg"></i></div>
-                <p class="empty-desc">Aún no hay lecturas en las últimas 24 horas. El gráfico aparecerá cuando el nodo empiece a enviar datos.</p>
+        <div class="chart-shell-sm" id="tempChartShell"<?= count($serieTemp) === 0 ? ' style="display:none"' : '' ?>><canvas id="tempChart" aria-label="Serie de temperatura interna de las últimas 24 horas"></canvas></div>
+        <div class="empty-state compact" id="tempChartEmpty" role="status"<?= count($serieTemp) > 0 ? ' style="display:none"' : '' ?>>
+            <div class="empty-icon-circle"><i data-lucide="line-chart" class="u-icon-lg"></i></div>
+            <p class="empty-desc">Aún no hay lecturas en las últimas 24 horas. El gráfico aparecerá cuando el nodo envíe datos.</p>
+        </div>
+        <details class="chart-table" id="tempChartTable"<?= count($serieTemp) === 0 ? ' style="display:none"' : '' ?>>
+            <summary>Ver tabla de datos</summary>
+            <div class="table-wrap">
+                <table class="data-table">
+                    <thead><tr><th>Fecha y hora del cubo</th><th>Temperatura media (°C)</th><th>Muestras</th></tr></thead>
+                    <tbody><?php foreach ($serieTemp as $p): ?>
+                        <tr><td><?= date('d/m/Y H:i', strtotime($p['fecha_hora'])) ?></td><td><?= number_format((float) $p['valor'], 1) ?></td><td><?= (int) $p['muestras'] ?></td></tr>
+                    <?php endforeach; ?></tbody>
+                </table>
             </div>
-        <?php endif; ?>
+        </details>
     </div>
 
     <div class="stack">
@@ -339,7 +343,6 @@
     actividad acústica es experimental: no confirma enjambrazón. <a href="sensores.php">Ver inventario de sensores</a>.
 </div>
 
-<?php if (count($serieTemp) > 0): ?>
 <script>
 document.addEventListener('DOMContentLoaded', () => {
     const canvas = document.getElementById('tempChart');
@@ -350,7 +353,7 @@ document.addEventListener('DOMContentLoaded', () => {
     gradientBrand.addColorStop(0, colors.brandAreaStrong);
     gradientBrand.addColorStop(1, colors.brandAreaSoft);
 
-    const labels = <?= json_encode(array_map(fn($r) => date('H:i', strtotime($r['fecha_hora'])), $serieTemp)) ?>;
+    const labels = <?= json_encode(array_map(fn($r) => date('d/m/Y H:i', strtotime($r['fecha_hora'])), $serieTemp)) ?>;
     const data   = <?= json_encode(array_map(fn($r) => (float) $r['valor'], $serieTemp)) ?>;
 
     window.tempChart = new Chart(ctx, {
@@ -380,6 +383,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 legend: { display: false },
                 tooltip: {
                     callbacks: {
+                        title: (items) => items[0]?.label || '',
                         label: (item) => item.parsed.y.toFixed(1) + ' °C'
                     }
                 }
@@ -411,8 +415,8 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 });
 </script>
-<?php endif; ?>
 
+<script src="js/historico-graficas.js"></script>
 <script src="js/actualizar-dashboard.js"></script>
 
 <?php endif; ?>

@@ -78,40 +78,44 @@
 </div>
 
 <div class="card chart-frame animate-fadeUp stagger-3 u-mb-4">
-    <div class="card-header">
+    <div class="card-header card-header-chart">
         <div>
-            <div class="card-title">Frecuencia estimada · 6 h</div>
-            <div class="page-subtitle chart-note">Serie real agregada · la banda 400–600 Hz es solo una referencia</div>
+            <div class="card-title" id="acousticChartTitle">Frecuencia estimada · 6 h</div>
+            <div class="page-subtitle chart-note" id="acousticChartNote">Promedio cada 5 minutos · la banda 400–600 Hz es solo una referencia</div>
+        </div>
+        <div class="chart-period-control">
+            <label for="acousticPeriod">Período</label>
+            <select class="form-control" id="acousticPeriod" aria-label="Período de actividad acústica">
+                <option value="6" selected>6 horas</option>
+                <option value="24">24 horas</option>
+                <option value="48">48 horas</option>
+                <option value="168">7 días</option>
+                <option value="720">30 días</option>
+            </select>
         </div>
     </div>
-    <?php if (count($serieSonido) > 0): ?>
-        <div class="chart-shell-sm"><canvas id="acousticChart" aria-label="Serie de frecuencia acústica de las últimas 6 horas"></canvas></div>
-        <details class="chart-table">
+        <div class="chart-shell-sm" id="acousticChartShell"<?= count($serieSonido) === 0 ? ' style="display:none"' : '' ?>><canvas id="acousticChart" aria-label="Serie de frecuencia acústica de las últimas 6 horas"></canvas></div>
+        <div class="empty-state compact" id="acousticChartEmpty" role="status" aria-live="polite"<?= count($serieSonido) > 0 ? ' style="display:none"' : '' ?>>
+            <div class="empty-icon-circle"><i data-lucide="mic-off" class="u-icon-lg"></i></div>
+            <p class="empty-desc">No hay lecturas válidas en las últimas 6 horas. Amplía el período para consultar el histórico.</p>
+        </div>
+        <details class="chart-table" id="acousticChartTable"<?= count($serieSonido) === 0 ? ' style="display:none"' : '' ?>>
             <summary>Ver tabla de datos</summary>
             <div class="table-wrap">
                 <table class="data-table">
-                    <thead><tr><th>Hora</th><th>Frecuencia (Hz)</th><th>Muestras</th></tr></thead>
-                    <tbody>
-                    <?php foreach ($serieSonido as $p): ?>
+                    <thead><tr><th>Fecha y hora del cubo</th><th>Frecuencia media (Hz)</th><th>Muestras</th></tr></thead>
+                    <tbody><?php foreach ($serieSonido as $p): ?>
                         <tr>
-                            <td><?= date('d/m H:i', strtotime($p['fecha_hora'])) ?></td>
+                            <td><?= date('d/m/Y H:i', strtotime($p['fecha_hora'])) ?></td>
                             <td><?= number_format((float) $p['valor'], 0) ?></td>
                             <td><?= (int) $p['muestras'] ?></td>
                         </tr>
-                    <?php endforeach; ?>
-                    </tbody>
+                    <?php endforeach; ?></tbody>
                 </table>
             </div>
         </details>
-    <?php else: ?>
-        <div class="empty-state compact">
-            <div class="empty-icon-circle"><i data-lucide="mic-off" class="u-icon-lg"></i></div>
-            <p class="empty-desc">No hay lecturas de sonido en las últimas 6 horas. El gráfico aparecerá cuando el nodo envíe datos.</p>
-        </div>
-    <?php endif; ?>
 </div>
 
-<?php if (count($serieSonido) > 0): ?>
 <script>
 document.addEventListener('DOMContentLoaded', () => {
     const canvas = document.getElementById('acousticChart');
@@ -119,10 +123,10 @@ document.addEventListener('DOMContentLoaded', () => {
     const ctx = canvas.getContext('2d');
     const theme = window.BeeStationTheme.chartColors();
 
-    const labels = <?= json_encode(array_map(fn($r) => date('H:i', strtotime($r['fecha_hora'])), $serieSonido)) ?>;
+    const labels = <?= json_encode(array_map(fn($r) => date('d/m/Y H:i', strtotime($r['fecha_hora'])), $serieSonido)) ?>;
     const data   = <?= json_encode(array_map(fn($r) => (float) $r['valor'], $serieSonido)) ?>;
 
-    new Chart(ctx, {
+    window.acousticChart = new Chart(ctx, {
         type: 'line',
         data: {
             labels: labels,
@@ -136,16 +140,21 @@ document.addEventListener('DOMContentLoaded', () => {
                 fill: true,
                 pointRadius: data.length === 1 ? 5 : 0,
                 pointBackgroundColor: theme.brand,
-                pointHoverRadius: 4
+                pointHoverRadius: 5
             }]
         },
         options: {
             responsive: true,
             maintainAspectRatio: false,
             animation: false,
+            interaction: { mode: 'index', intersect: false },
+            hover: { mode: 'index', intersect: false },
             plugins: {
                 legend: { display: false },
-                tooltip: { callbacks: { label: (item) => item.parsed.y.toFixed(0) + ' Hz' } }
+                tooltip: { enabled: true, callbacks: {
+                    title: (items) => items[0]?.label || '',
+                    label: (item) => item.parsed.y.toFixed(0) + ' Hz'
+                } }
             },
             scales: {
                 x: {
@@ -163,7 +172,7 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 });
 </script>
-<?php endif; ?>
+<script src="js/historico-graficas.js"></script>
 
 <?php endif; ?>
 <?php include 'includes/footer.php'; ?>

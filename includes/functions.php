@@ -341,6 +341,7 @@ function serieHistoricaAgregada(int $id_colmena, string $tipo_sensor, int $horas
                    FLOOR(TIMESTAMPDIFF(MINUTE, DATE(l.fecha_hora), l.fecha_hora) / ?) * ?,
                    DATE(l.fecha_hora)
                ) AS fecha_hora,
+               MAX(l.fecha_hora) AS ultima_muestra,
                AVG(l.valor_calibrado) AS valor,
                MIN(l.valor_calibrado) AS minimo,
                MAX(l.valor_calibrado) AS maximo,

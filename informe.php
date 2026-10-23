@@ -49,6 +49,7 @@ $unidadDe = fn(string $tipo, string $porDefecto = '') => $unidades[$tipo] ?? $po
 // ── Periodo del informe (parametro ?dias=) ─────────────────────────────
 $dias = isset($_GET['dias']) ? max(1, min(90, (int) $_GET['dias'])) : 7;
 $horas = $dias * 24;
+$ventanaTempHum = min($horas, 48);
 
 // ── Datos ──────────────────────────────────────────────────────────────
 $temp   = $idColmena ? ultimaLectura($idColmena, 'temperatura_interna') : null;
@@ -74,10 +75,10 @@ $sensores = $idColmena
 $alertas  = $idColmena ? alertasActivas($idColmena, 20) : [];
 
 // Series agregadas (cubos de 15 min / 1 dia): manejables en memoria
-$serieTemp  = $idColmena ? serieHistoricaAgregada($idColmena, 'temperatura_interna', min($horas, 48), 15) : [];
+$serieTemp  = $idColmena ? serieHistoricaAgregada($idColmena, 'temperatura_interna', $ventanaTempHum, 15) : [];
 $seriePeso  = $idColmena ? serieHistoricaAgregada($idColmena, 'peso', $horas, $dias > 3 ? 1440 : 60) : [];
 $serieSonid = $idColmena ? serieHistoricaAgregada($idColmena, 'sonido', min($horas, 12), 5) : [];
-$serieHum   = $idColmena ? serieHistoricaAgregada($idColmena, 'humedad_relativa', min($horas, 48), 60) : [];
+$serieHum   = $idColmena ? serieHistoricaAgregada($idColmena, 'humedad_relativa', $ventanaTempHum, 60) : [];
 
 $online  = $idColmena ? dispositivoConectado($idColmena, 5) : false;
 $ultimo  = $idColmena ? ultimaConexion($idColmena) : null;
@@ -232,20 +233,36 @@ $valoresSonid = array_map(fn($r) => (float) $r['valor'], $serieSonid);
         <h2 class="informe-titulo">3 · Evolución de las variables medidas</h2>
         <div class="informe-graficas">
             <div class="informe-grafica">
-                <div class="informe-grafica-titulo">Temperatura interna (°C) · últimas 48 h</div>
-                <div class="informe-canvas"><canvas id="infTemp"></canvas></div>
+                <div class="informe-grafica-titulo">Temperatura interna (°C) · últimas <?= $ventanaTempHum ?> h</div>
+                <?php if ($serieTemp): ?>
+                    <div class="informe-canvas"><canvas id="infTemp"></canvas></div>
+                <?php else: ?>
+                    <p class="informe-nota">Sin lecturas de temperatura interna en las últimas <?= $ventanaTempHum ?> horas.</p>
+                <?php endif; ?>
             </div>
             <div class="informe-grafica">
-                <div class="informe-grafica-titulo">Humedad relativa (%HR) · últimas 48 h</div>
-                <div class="informe-canvas"><canvas id="infHum"></canvas></div>
+                <div class="informe-grafica-titulo">Humedad relativa (%HR) · últimas <?= $ventanaTempHum ?> h</div>
+                <?php if ($serieHum): ?>
+                    <div class="informe-canvas"><canvas id="infHum"></canvas></div>
+                <?php else: ?>
+                    <p class="informe-nota">Sin lecturas de humedad en las últimas <?= $ventanaTempHum ?> horas.</p>
+                <?php endif; ?>
             </div>
             <div class="informe-grafica">
                 <div class="informe-grafica-titulo">Peso de la colmena (kg) · últimos <?= $dias ?> días</div>
-                <div class="informe-canvas"><canvas id="infPeso"></canvas></div>
+                <?php if ($seriePeso): ?>
+                    <div class="informe-canvas"><canvas id="infPeso"></canvas></div>
+                <?php else: ?>
+                    <p class="informe-nota">Sin lecturas de peso en este período.</p>
+                <?php endif; ?>
             </div>
             <div class="informe-grafica">
                 <div class="informe-grafica-titulo">Frecuencia acústica estimada (<?= htmlspecialchars($unidadDe('sonido', 'Hz')) ?>) · últimas 12 h</div>
-                <div class="informe-canvas"><canvas id="infSonido"></canvas></div>
+                <?php if ($serieSonid): ?>
+                    <div class="informe-canvas"><canvas id="infSonido"></canvas></div>
+                <?php else: ?>
+                    <p class="informe-nota">Sin lecturas de sonido en las últimas 12 horas.</p>
+                <?php endif; ?>
             </div>
         </div>
     </section>

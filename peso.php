@@ -62,47 +62,71 @@
     <div class="card chart-frame">
         <div class="card-header">
             <div>
-                <div class="card-title">Peso · últimos 30 días</div>
-                <div class="page-subtitle chart-note"><?= htmlspecialchars($colmenaActiva['nombre']) ?> · promedio diario · HX711 sin calibración validada</div>
+                <div class="card-title" id="weightChartTitle">Peso · últimos 30 días</div>
+                <div class="page-subtitle chart-note" id="weightChartNote"><?= htmlspecialchars($colmenaActiva['nombre']) ?> · promedio diario de lecturas válidas; cada punto muestra la última hora de muestra del día.</div>
             </div>
         </div>
-        <?php if (count($serie30d) > 0): ?>
-            <div class="chart-shell"><canvas id="weightAreaChart"></canvas></div>
-        <?php else: ?>
-            <div class="premium-empty compact">
-                <div class="empty-icon-circle"><i data-lucide="line-chart" class="u-icon-lg"></i></div>
-                <p class="empty-desc">Aún no hay lecturas para esta colmena (MySQL 127.0.0.1 no disponible). Cuando el nodo envíe datos aparecerán automáticamente.</p>
+        <div class="chart-shell" id="weightChartShell"<?= count($serie30d) === 0 ? ' style="display:none"' : '' ?>><canvas id="weightAreaChart" aria-label="Promedio diario del peso de los últimos 30 días"></canvas></div>
+        <div class="empty-state compact" id="weightChartEmpty" role="status" aria-live="polite"<?= count($serie30d) > 0 ? ' style="display:none"' : '' ?>>
+            <div class="empty-icon-circle"><i data-lucide="line-chart" class="u-icon-lg"></i></div>
+            <p class="empty-desc">No hay lecturas válidas de peso en los últimos 30 días.</p>
+        </div>
+        <details class="chart-table" id="weightChartTable"<?= count($serie30d) === 0 ? ' style="display:none"' : '' ?>>
+            <summary>Ver tabla de promedios diarios</summary>
+            <div class="table-wrap">
+                <table class="data-table">
+                    <thead><tr><th>Fecha</th><th>Hora de última muestra</th><th>Promedio diario (kg)</th><th>Muestras</th></tr></thead>
+                    <tbody><?php foreach ($serie30d as $p): ?>
+                        <tr>
+                            <td><?= date('d/m/Y', strtotime($p['fecha_hora'])) ?></td>
+                            <td><?= date('H:i:s', strtotime($p['ultima_muestra'])) ?></td>
+                            <td><?= number_format((float) $p['valor'], 2) ?></td>
+                            <td><?= (int) $p['muestras'] ?></td>
+                        </tr>
+                    <?php endforeach; ?></tbody>
+                </table>
             </div>
-        <?php endif; ?>
+        </details>
     </div>
 </div>
 
-<?php if (count($serie30d) > 0): ?>
 <script>
 document.addEventListener('DOMContentLoaded', () => {
-    const ctxArea = document.getElementById('weightAreaChart').getContext('2d');
+    const canvas = document.getElementById('weightAreaChart');
+    if (!canvas) return;
+    const ctxArea = canvas.getContext('2d');
     const colors = window.BeeStationTheme.chartColors();
     const gradArea = ctxArea.createLinearGradient(0, 0, 0, 300);
     gradArea.addColorStop(0, colors.brandAreaMedium);
     gradArea.addColorStop(1, colors.brandAreaSoft);
 
     // Datos REALES desde PHP
-    const labels = <?= json_encode(array_map(fn($r) => date('d/m', strtotime($r['fecha_hora'])), $serie30d)) ?>;
+    const labels = <?= json_encode(array_map(fn($r) => date('d/m/Y', strtotime($r['fecha_hora'])), $serie30d)) ?>;
+    const ultimaMuestra = <?= json_encode(array_map(fn($r) => date('H:i:s', strtotime($r['ultima_muestra'])), $serie30d)) ?>;
     const data    = <?= json_encode(array_map(fn($r) => (float) $r['valor'], $serie30d)) ?>;
 
-    new Chart(ctxArea, {
+    window.weightChart = new Chart(ctxArea, {
         type: 'line',
         data: { labels: labels, datasets: [{
-            label: 'Peso (kg)', data: data,
+            label: 'Promedio diario de peso', data: data, ultimaMuestra: ultimaMuestra,
             borderColor: colors.brand, backgroundColor: gradArea,
             borderWidth: 2, fill: true, tension: 0.3,
             // Con un solo cubo diario no hay línea: muestra el punto.
-            pointRadius: data.length === 1 ? 5 : 0,
-            pointBackgroundColor: colors.brand, pointHoverRadius: 4
+            pointRadius: 2,
+            pointBackgroundColor: colors.brand, pointHoverRadius: 6
         }]},
         options: {
             responsive: true, maintainAspectRatio: false,
-            plugins: { legend: { display: false } },
+            interaction: { mode: 'index', intersect: false },
+            hover: { mode: 'index', intersect: false },
+            plugins: { legend: { display: false }, tooltip: { enabled: true, callbacks: {
+                title: (items) => {
+                    const item = items[0];
+                    const hora = item?.dataset.ultimaMuestra?.[item.dataIndex];
+                    return item ? item.label + (hora ? ' · última muestra ' + hora : '') : '';
+                },
+                label: (item) => 'Promedio diario: ' + item.parsed.y.toFixed(2) + ' kg'
+            } } },
             scales: {
                 x: { offset: data.length === 1, grid: { display: false }, ticks: { color: colors.textSecondary, maxTicksLimit: 31, autoSkip: true } },
                 y: { ticks: { color: colors.textSecondary }, grid: { color: colors.grid } }
@@ -111,7 +135,7 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 });
 </script>
-<?php endif; ?>
+<script src="js/historico-graficas.js"></script>
 
 <?php endif; ?>
 <?php include 'includes/footer.php'; ?>

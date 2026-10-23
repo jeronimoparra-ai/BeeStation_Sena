@@ -96,6 +96,10 @@
                 <i data-lucide="file-text"></i>
                 Informe
             </a>
+            <a href="centro-alertas.php" class="nav-item <?= is_active('centro-alertas.php') ?>" data-name="Centro de alertas">
+                <i data-lucide="bell"></i>
+                Alertas
+            </a>
         </div>
     </nav>
 
