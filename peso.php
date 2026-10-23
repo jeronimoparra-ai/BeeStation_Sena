@@ -71,7 +71,7 @@
         <?php else: ?>
             <div class="premium-empty compact">
                 <div class="empty-icon-circle"><i data-lucide="line-chart" class="u-icon-lg"></i></div>
-                <p class="empty-desc">Todavía no hay lecturas de peso registradas para esta colmena. En cuanto el sensor HX711 empiece a enviar datos, aparecerán aquí automáticamente.</p>
+                <p class="empty-desc">Aún no hay lecturas para esta colmena (MySQL 127.0.0.1 no disponible). Cuando el nodo envíe datos aparecerán automáticamente.</p>
             </div>
         <?php endif; ?>
     </div>
