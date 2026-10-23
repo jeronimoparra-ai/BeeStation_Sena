@@ -474,4 +474,3 @@ bibliográficas.
   siguen sin autenticación.
 - La documentación aún puede contradecir al código hasta que se fusione
   `docs-verdad`.
-
