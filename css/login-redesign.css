@@ -157,11 +157,11 @@ body.login-page {
   font-family: 'Bricolage Grotesque', 'Trebuchet MS', sans-serif;
   font-optical-sizing: auto;
   font-size: clamp(20px, 2.6vw, 28px);
-  font-weight: 800;
-  line-height: 1.22;
+  font-weight: 700;
+  line-height: 1.28;
   color: #fff;
   letter-spacing: -.03em;
-  margin-bottom: 14px;
+  margin-bottom: 18px;
 }
 .ls-headline .accent { color: var(--yellow); }
 
@@ -576,3 +576,6 @@ body.login-page {
   .ls-left { width: 100%; min-height: 260px; }
   .ls-form-wrap { padding: 32px 24px; max-width: 100%; }
 }
+. l s - l e f t - i n n e r   {   p a d d i n g - b o t t o m :   3 0 p x ;   }  
+ . l s - f o r m - w r a p   {   p a d d i n g - t o p :   2 8 p x ;   p a d d i n g - b o t t o m :   2 8 p x ;   }  
+ 
