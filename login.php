@@ -56,7 +56,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Iniciar Sesión — BeeStation</title>
   <meta name="description" content="Accede a BeeStation para registrar temperatura, humedad, peso y actividad acústica de tus colmenas.">
-  <link rel="stylesheet" href="css/login-redesign.css">
+  <link rel="preload" href="assets/fonts/manrope-latin.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="assets/fonts/bricolage-grotesque-latin.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="css/fonts.css?v=<?= filemtime(__DIR__ . '/css/fonts.css') ?>">
+  <link rel="stylesheet" href="css/login-redesign.css?v=<?= filemtime(__DIR__ . '/css/login-redesign.css') ?>">
   <script>
     if (localStorage.getItem('beestation-dark') === 'true') {
         document.documentElement.classList.add('dark');

@@ -20,6 +20,12 @@
   buscador, campana ni ayuda flotante.
 - Chart.js y Lucide servidos desde `assets/vendor/`; el panel funciona en LAN
   sin internet.
+- Tipografías locales **Bricolage Grotesque** (títulos) y **Manrope** (texto),
+  servidas desde `assets/fonts/`. No dependen de Google Fonts ni de internet.
+- El contenido del panel se limita a 1340 px y se centra, con más margen
+  interior y separación entre tarjetas. En pantallas de hasta 1560 px las
+  cuatro métricas pasan a una cuadrícula 2x2; en móvil queda una columna.
+- La barra superior alinea su contenido con el ancho máximo del panel.
 
 ### Fixed
 - Alta ECDSA: el firmware genera y persiste el código `4-4` (`identidad_ecdsa.h`).

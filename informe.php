@@ -108,8 +108,9 @@ $valoresSonid = array_map(fn($r) => (float) $r['valor'], $serieSonid);
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Informe BeeStation · <?= $colmena ? htmlspecialchars($colmena['nombre']) : 'Sin colmena' ?></title>
-<link rel="stylesheet" href="css/style-premium.css">
-<link rel="stylesheet" href="css/informe.css">
+<link rel="stylesheet" href="css/fonts.css?v=<?= filemtime(__DIR__ . '/css/fonts.css') ?>">
+<link rel="stylesheet" href="css/style-premium.css?v=<?= filemtime(__DIR__ . '/css/style-premium.css') ?>">
+<link rel="stylesheet" href="css/informe.css?v=<?= filemtime(__DIR__ . '/css/informe.css') ?>">
 <link rel="stylesheet" href="css/print.css">
 <script src="assets/vendor/lucide.min.js"></script>
 <script src="assets/vendor/chart.umd.min.js"></script>

@@ -9,7 +9,7 @@ button,
 input,
 select,
 textarea {
-  font-family: Inter, "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+  font-family: var(--font-body);
 }
 
 .page-header {
@@ -258,9 +258,11 @@ textarea {
 }
 
 /* ── Tablas y formularios en móvil ────────────────────────── */
-@media (max-width: 1280px) {
-  /* En portátiles de 1200–1280 px las cuatro tarjetas quedan demasiado
-     estrechas: mejor 2x2 que títulos partidos y pies truncados. */
+@media (min-width: 861px) and (max-width: 1560px) {
+  /* En portátiles y en pantallas con escala de Windows al 125 %, cuatro
+     tarjetas quedan demasiado estrechas: mejor 2x2 que títulos partidos y
+     pies truncados. A partir de 1561 px vuelven las cuatro columnas; por
+     debajo de 861 px se mantiene una sola columna. */
   .dashboard-metrics {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }

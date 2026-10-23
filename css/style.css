@@ -79,9 +79,9 @@
   --space-7:  64px;
   
   /* Fonts */
-  --font-display: 'Sora', sans-serif;
-  --font-body:    'Inter', sans-serif;
-  --font-mono:    'IBM Plex Mono', monospace;
+  --font-display: 'Bricolage Grotesque', 'Trebuchet MS', sans-serif;
+  --font-body:    'Manrope', 'Segoe UI', system-ui, sans-serif;
+  --font-mono:    'IBM Plex Mono', 'Cascadia Code', monospace;
   
   /* Transitions */
   --t-fast:   0.15s cubic-bezier(0.4, 0, 0.2, 1);
@@ -196,9 +196,10 @@ body::after {
 
 h1, h2, h3, h4, h5, h6 {
   font-family: var(--font-display);
+  font-optical-sizing: auto;
   font-weight: 600;
   color: var(--color-text);
-  letter-spacing: -0.02em;
+  letter-spacing: -0.025em;
 }
 
 a { color: var(--color-brand); text-decoration: none; transition: color var(--t-fast); }
@@ -1999,8 +2000,8 @@ html.dark .topbar-search {
 }
 
 .page-content {
-  max-width: 1520px;
-  padding: 28px 32px 40px;
+  max-width: 1340px;
+  padding: 34px clamp(24px, 2.8vw, 48px) 56px;
 }
 
 .page-header {

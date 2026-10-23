@@ -74,8 +74,9 @@ if ($id_colmena > 0 && dispositivoTieneHistorial($id_colmena)) {
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>BeeStation — Sincronizando Colmena</title>
-    <link rel="stylesheet" href="css/style.css">
-    <link rel="stylesheet" href="css/style-premium.css">
+    <link rel="stylesheet" href="css/fonts.css?v=<?= filemtime(__DIR__ . '/css/fonts.css') ?>">
+    <link rel="stylesheet" href="css/style.css?v=<?= filemtime(__DIR__ . '/css/style.css') ?>">
+    <link rel="stylesheet" href="css/style-premium.css?v=<?= filemtime(__DIR__ . '/css/style-premium.css') ?>">
     <style>
         @keyframes radar-pulse {
             0% { transform: scale(0.95); opacity: 0.8; }

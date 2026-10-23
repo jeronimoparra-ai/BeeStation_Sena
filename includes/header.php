@@ -39,6 +39,9 @@ else $saludo = 'Buenas noches';
         }
     </script>
 
+    <link rel="preload" href="assets/fonts/manrope-latin.woff2" as="font" type="font/woff2" crossorigin>
+    <link rel="preload" href="assets/fonts/bricolage-grotesque-latin.woff2" as="font" type="font/woff2" crossorigin>
+    <link rel="stylesheet" href="css/fonts.css?v=<?= filemtime(__DIR__ . '/../css/fonts.css') ?>">
     <link rel="stylesheet" href="css/style-premium.css?v=<?= filemtime(__DIR__ . '/../css/style-premium.css') ?>">
     <link rel="stylesheet" href="css/redesign.css?v=<?= filemtime(__DIR__ . '/../css/redesign.css') ?>">
     <!-- Recursos locales: el panel debe funcionar en la LAN del apiario, sin internet. -->

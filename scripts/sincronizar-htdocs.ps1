@@ -32,9 +32,11 @@ if (-not (Test-Path $Docroot)) {
 }
 
 # Extensiones que forman parte de la aplicación servida
-# (las imagenes tambien: el fondo del login y el heroe viven en assets/)
+# (las imagenes y fuentes tambien: el fondo del login, el heroe y las
+# tipografias locales viven en assets/)
 $extensiones = @('.php', '.js', '.css', '.htm', '.html',
-                 '.jpg', '.jpeg', '.png', '.webp', '.svg', '.ico')
+                 '.jpg', '.jpeg', '.png', '.webp', '.svg', '.ico',
+                 '.woff2', '.woff', '.ttf', '.otf')
 
 Write-Host "Repositorio: $Repo"
 Write-Host "Docroot    : $Docroot"
