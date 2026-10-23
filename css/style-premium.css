@@ -1065,6 +1065,9 @@ code {
 
 .chart-shell { height: 420px; width: 100%; }
 .chart-shell-sm { height: 300px; width: 100%; }
+.chart-period-control { display: flex; align-items: center; gap: 10px; flex: 0 0 auto; }
+.chart-period-control label { color: var(--color-text-secondary); font-size: 0.82rem; white-space: nowrap; }
+.chart-period-control .form-control { width: auto; min-width: 132px; padding: 8px 10px; font-size: 0.88rem; }
 .chart-note { margin-top: 6px; font-size: 0.8rem; color: var(--color-text-tertiary); }
 
 .alert-list { list-style: none; margin: 0; padding: 0; }
@@ -2261,6 +2264,9 @@ tbody tr:last-child td { border-bottom: 0; }
 }
 
 @media (max-width: 560px) {
+  .card-header-chart { align-items: flex-start; flex-direction: column; }
+  .chart-period-control { width: 100%; justify-content: space-between; }
+  .chart-period-control .form-control { flex: 1; max-width: 180px; }
   .page-content { padding: 18px 14px 28px; }
   .card, .dashboard-hero, .page-hero, .auth-card.login-card, .connect-card { border-radius: 22px; }
   .card, .dashboard-hero, .page-hero, .auth-card.login-card, .connect-card { border-radius: 22px; }

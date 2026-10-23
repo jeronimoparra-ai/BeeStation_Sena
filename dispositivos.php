@@ -443,7 +443,7 @@ require_once __DIR__ . '/includes/header.php';
             </div>
 
             <!-- Tabla de Colmenas Registradas -->
-            <div class="card u-mt-4 animate-fadeUp stagger-2">
+            <div class="card device-collection-card u-mt-4 animate-fadeUp stagger-2">
                 <div class="card-header">
                     <h3 class="card-title">
                         <i data-lucide="cpu" class="text-brand"></i>
@@ -525,7 +525,7 @@ require_once __DIR__ . '/includes/header.php';
             </div>
 
             <!-- Nodos IoT: identidad propia por dispositivo (sin token) -->
-            <div class="card u-mt-4 animate-fadeUp stagger-3">
+            <div class="card device-nodes-card u-mt-4 animate-fadeUp stagger-3">
                 <div class="card-header">
                     <h3 class="card-title">
                         <i data-lucide="shield-check" class="text-brand"></i>
