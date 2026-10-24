@@ -1,0 +1,117 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    // ── PHP ────────────────────────────────────────────────────
+    {
+      "label": "PHP: Ver sintaxis del archivo",
+      "type": "shell",
+      "command": "php",
+      "args": ["-l", "${file}"],
+      "group": "build",
+      "presentation": { "reveal": "always", "panel": "shared", "clear": true },
+      "detail": "php -l sobre el archivo abierto"
+    },
+    {
+      "label": "PHP: Ver sintaxis de todo el proyecto",
+      "type": "shell",
+      "command": "Get-ChildItem -Recurse -Filter '*.php' | ForEach-Object { php -l $_.FullName }",
+      "group": { "kind": "build", "isDefault": true },
+      "presentation": { "reveal": "always", "panel": "new", "clear": true },
+      "detail": "php -l sobre todos los .php del repositorio"
+    },
+
+    // ── Pruebas de la Fase 2 ───────────────────────────────────
+    {
+      "label": "Tests: Fase 2 (ECDSA)",
+      "type": "shell",
+      "command": "php tests/php/ecdsa_flujo_test.php; if ($LASTEXITCODE -ne 0) { exit 1 }; php tests/php/ecdsa_interop_test.php; if ($LASTEXITCODE -ne 0) { exit 1 }; php tests/php/interop_firmware_test.php",
+      "group": { "kind": "test", "isDefault": true },
+      "options": {
+        "env": {
+          "OPENSSL_CONF": "C:\\xampp\\php\\extras\\openssl\\openssl.cnf"
+        }
+      },
+      "presentation": { "reveal": "always", "panel": "new", "clear": true },
+      "detail": "Flujo E2E + interop Mbed TLS/OpenSSL + cadenas canonicas. Requiere MariaDB en 127.0.0.1:3399"
+    },
+    {
+      "label": "Tests: comprobar MariaDB de pruebas (3399)",
+      "type": "shell",
+      "command": "Test-NetConnection -ComputerName 127.0.0.1 -Port 3399 -InformationLevel Quiet",
+      "group": "test",
+      "presentation": { "reveal": "always", "panel": "new" },
+      "detail": "Comprueba que la instancia aislada de pruebas esta escuchando"
+    },
+
+    // ── Firmware ESP32 ─────────────────────────────────────────
+    {
+      "label": "ESP32: Compilar (min_spiffs)",
+      "type": "shell",
+      "command": "arduino-cli",
+      "args": [
+        "compile",
+        "--fqbn", "esp32:esp32:esp32:PartitionScheme=min_spiffs",
+        "--output-dir", "${workspaceFolder}\\beestation_node\\build",
+        "${workspaceFolder}\\beestation_node"
+      ],
+      "group": "build",
+      "presentation": { "reveal": "always", "panel": "new", "clear": true },
+      "detail": "Tabla de particiones adoptada en la Fase 2 (1,9 MB de APP)"
+    },
+    {
+      "label": "ESP32: Compilar (tabla por defecto)",
+      "type": "shell",
+      "command": "arduino-cli",
+      "args": [
+        "compile",
+        "--fqbn", "esp32:esp32:esp32",
+        "--output-dir", "${workspaceFolder}\\beestation_node\\build",
+        "${workspaceFolder}\\beestation_node"
+      ],
+      "group": "build",
+      "presentation": { "reveal": "always", "panel": "new", "clear": true },
+      "detail": "Solo para comparar tamano: deja el binario al 98 % de la flash"
+    },
+    {
+      "label": "ESP32: Subir por USB (min_spiffs)",
+      "type": "shell",
+      "command": "arduino-cli",
+      "args": [
+        "upload",
+        "--fqbn", "esp32:esp32:esp32:PartitionScheme=min_spiffs",
+        "-p", "${input:puertoSerie}",
+        "${workspaceFolder}\\beestation_node"
+      ],
+      "group": "build",
+      "presentation": { "reveal": "always", "panel": "new", "clear": true },
+      "detail": "Reflashea tambien la tabla de particiones (necesario una vez)"
+    },
+    {
+      "label": "ESP32: Monitor serie",
+      "type": "shell",
+      "command": "arduino-cli",
+      "args": ["monitor", "-p", "${input:puertoSerie}", "-c", "baudrate=115200"],
+      "group": "none",
+      "presentation": { "reveal": "always", "panel": "new" },
+      "detail": "Monitor a 115200 baudios (Ctrl+C para salir)"
+    },
+
+    // ── Utilidades ─────────────────────────────────────────────
+    {
+      "label": "Git: Estado",
+      "type": "shell",
+      "command": "git",
+      "args": ["status", "--short", "--branch"],
+      "group": "none",
+      "presentation": { "reveal": "always", "panel": "new", "clear": true }
+    }
+  ],
+  "inputs": [
+    {
+      "id": "puertoSerie",
+      "type": "promptString",
+      "description": "Puerto serie del ESP32 (ej. COM3)",
+      "default": "COM3"
+    }
+  ]
+}

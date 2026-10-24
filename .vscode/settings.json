@@ -1,71 +1,80 @@
 {
-  // Git integration
+  // ── Git ──────────────────────────────────────────────────────
   "git.enabled": true,
   "git.autofetch": true,
   "git.autorefresh": true,
   "git.autofetchPeriod": 60,
-  "git.suggestSmartCommit": true,
-  "git.enableSmartCommit": true,
+  // Smart commit desactivado a propósito: este repositorio guarda
+  // credenciales y datos de sensores; cada commit debe revisarse.
+  "git.suggestSmartCommit": false,
+  "git.enableSmartCommit": false,
   "git.confirmSync": false,
-  "git.path": "",
   "git.inputValidationLength": 72,
   "git.inputValidationLengthWarning": 50,
   "git.inputValidationSubjectLength": 50,
 
-  // Files
+  // ── Archivos ─────────────────────────────────────────────────
   "files.insertFinalNewline": true,
   "files.trimTrailingWhitespace": true,
   "files.trimFinalNewlines": true,
   "files.encoding": "utf8",
+  "files.associations": {
+    "*.php": "php",
+    "*.ino": "cpp"
+  },
 
-  // Search excludes
+  // ── Ruido del proyecto ───────────────────────────────────────
+  "files.exclude": {
+    "**/beestation_node/build": true,
+    "**/tests/host/build": true,
+    "**/database/dumps": true,
+    "**/*.bak": true
+  },
   "search.exclude": {
     "**/node_modules": true,
     "**/vendor": true,
-    "**/.cache": true,
-    "**/htdocs/.archive_old": true,
-    "**/htdocs/uploads/cache": true
+    "**/.git": true,
+    "**/beestation_node/build": true,
+    "**/tests/host/build": true,
+    "**/database/dumps": true
   },
   "search.useIgnoreFiles": true,
   "search.useGlobalIgnoreFiles": true,
-
-  // File watcher excludes (reduce CPU)
   "files.watcherExclude": {
-    "**/htdocs/**": false,
     "**/.git/objects/**": true,
-    "**/.git/subtree-cache/**": true,
+    "**/beestation_node/build/**": true,
+    "**/tests/host/build/**": true,
+    "**/database/dumps/**": true,
     "**/node_modules/**": true,
-    "**/vendor/**": true,
-    "**/htdocs/uploads/**": true,
-    "**/htdocs/logs/**": true
+    "**/vendor/**": true
   },
 
-  // PHP
-  "php.executablePath": "php",
-  "php.validate.executablePath": "php",
+  // ── PHP ──────────────────────────────────────────────────────
+  "php.validate.executablePath": "C:\\xampp\\php\\php.exe",
   "php.suggest.basic": false,
   "[php]": {
-    "editor.defaultFormatter": "bmewburn.vscode-great-icons",
     "editor.tabSize": 4,
-    "files.associations": {
-      "*.php": "php"
-    }
+    "editor.insertSpaces": true,
+    // No hay formateador PHP instalado: evitar que VS Code invente uno.
+    "editor.formatOnSave": false
   },
 
-  // Arduino / PlatformIO
-  "arduino.path": "",
-  "platformio-ide.customPATH": "",
+  // ── C/C++ (firmware ESP32) ───────────────────────────────────
   "[cpp]": {
     "editor.tabSize": 2
   },
 
-  // SQL
+  // ── SQL ──────────────────────────────────────────────────────
   "sql.format.whitespace.tabAsSpaces": true,
   "[sql]": {
     "editor.tabSize": 4
   },
 
-  // Editor defaults
+  // ── Terminal ─────────────────────────────────────────────────
+  "terminal.integrated.cwd": "${workspaceFolder}",
+  "terminal.integrated.defaultProfile.windows": "PowerShell",
+
+  // ── Editor ───────────────────────────────────────────────────
   "editor.fontFamily": "Consolas, 'Courier New', monospace",
   "editor.fontSize": 14,
   "editor.lineHeight": 21,
@@ -73,11 +82,11 @@
   "breadcrumbs.enabled": true,
   "workbench.editor.enablePreview": false,
   "workbench.editor.wrapTabs": true,
-  "workbench.colorTheme": "Default Dark+",
-  "workbench.iconTheme": "vs-seti",
+  "workbench.colorTheme": "Dark+",
+  "workbench.iconTheme": "material-icon-theme",
   "window.zoomLevel": 0,
 
-  // Breadcrumbs / minimap
+  // ── Breadcrumbs / minimapa ───────────────────────────────────
   "editor.renderLineHighlight": "all",
   "editor.cursorBlinking": "smooth",
   "editor.smoothScrolling": true,

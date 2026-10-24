@@ -1,17 +1,20 @@
 {
   "recommendations": [
-    "felixalter.git-project-manager",
-    "github.vscode-pull-request-github",
-    "github.gitlens",
-    "mblode.php-intelephense",
+    "bmewburn.vscode-intelephense-client",
     "xdebug.php-debug",
+    "brapifra.phpserver",
+    "eamodio.gitlens",
+    "mhutchie.git-graph",
+    "mechatroner.rainbow-csv",
     "platformio.platformio-ide",
-    "ms-vscode.vscode-node-azurepack",
-    "timonwong.shellcheck",
+    "ms-vscode.cpptools-extension-pack",
     "davidanson.vscode-markdownlint"
   ],
   "unwantedRecommendations": [
-    "redhat.telemetry-manager-registry",
-    "ms-python.python"
+    // La extension Arduino de VS Code esta descontinuada y ademas exige
+    // Arduino IDE, que no esta instalado. El firmware se compila con
+    // arduino-cli (tareas del workspace) o con PlatformIO.
+    "vsciot-vscode.vscode-arduino",
+    "ms-vscode.vscode-node-azurepack"
   ]
 }

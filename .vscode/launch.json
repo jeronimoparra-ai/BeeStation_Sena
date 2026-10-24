@@ -1,0 +1,29 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      // Requiere xdebug.mode=debug en C:\xampp\php\php.ini y que Apache
+      // sirva el proyecto. El mapeo une la ruta de XAMPP con el repo.
+      "name": "PHP: Escuchar Xdebug (Apache/XAMPP)",
+      "type": "php",
+      "request": "launch",
+      "port": 9003,
+      "pathMappings": {
+        "C:\\xampp\\htdocs\\BeeStation_Sena": "${workspaceFolder}"
+      }
+    },
+    {
+      // Levanta el servidor integrado de PHP con Xdebug y abre el navegador.
+      // Usa config/db.local.php, igual que Apache.
+      "name": "PHP: Servidor integrado (php -S)",
+      "type": "php",
+      "request": "launch",
+      "runtimeArgs": ["-S", "127.0.0.1:8000", "-t", "."],
+      "port": 9003,
+      "serverReadyAction": {
+        "pattern": "Development Server \\(http://127\\.0\\.0\\.1:([0-9]+)\\) started",
+        "uriFormat": "http://127.0.0.1:%s"
+      }
+    }
+  ]
+}
