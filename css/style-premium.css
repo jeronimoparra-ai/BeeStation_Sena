@@ -64,9 +64,9 @@
   --space-6: 48px;
   --space-7: 64px;
 
-  --font-display: 'Sora', sans-serif;
-  --font-body: 'Inter', sans-serif;
-  --font-mono: 'IBM Plex Mono', monospace;
+  --font-display: 'Bricolage Grotesque', 'Trebuchet MS', sans-serif;
+  --font-body: 'Manrope', 'Segoe UI', system-ui, sans-serif;
+  --font-mono: 'IBM Plex Mono', 'Cascadia Code', monospace;
 
   --t-fast: 0.16s cubic-bezier(0.4, 0, 0.2, 1);
   --t-base: 0.25s cubic-bezier(0.4, 0, 0.2, 1);
@@ -179,7 +179,8 @@ body::after {
 h1, h2, h3, h4, h5, h6 {
   margin: 0;
   font-family: var(--font-display);
-  letter-spacing: -0.03em;
+  font-optical-sizing: auto;
+  letter-spacing: -0.035em;
   color: var(--color-text);
 }
 
@@ -431,6 +432,31 @@ code {
   font-family: var(--font-mono);
   font-size: 0.74rem;
   color: var(--color-sidebar-muted);
+}
+.sidebar-hive-form {
+  margin: 4px 0 10px;
+}
+.sidebar-hive-select {
+  width: 100%;
+  padding: 7px 10px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--color-sidebar-text);
+  font: inherit;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+.sidebar-hive-select:focus {
+  outline: 2px solid var(--color-brand);
+  outline-offset: 1px;
+}
+.sidebar-hive-select option {
+  color: #1f2937;
+  background: #ffffff;
+}
+.sidebar-hive-btn {
+  margin-top: 6px;
 }
 
 .sidebar-nav {
@@ -702,21 +728,27 @@ code {
 
 .page-content {
   width: 100%;
-  max-width: 1520px;
+  max-width: 1340px;
   margin: 0 auto;
-  padding: 28px 32px 40px;
+  padding: 34px clamp(24px, 2.8vw, 48px) 56px;
+}
+
+/* En pantallas anchas la barra superior acompaña al contenido centrado,
+   para que el saludo y las acciones no queden desalineados con el título. */
+.topbar {
+  padding-inline: max(clamp(24px, 2.8vw, 48px), calc((100% - 1340px) / 2 + clamp(24px, 2.8vw, 48px)));
 }
 .page-header {
   display: flex;
   justify-content: space-between;
   align-items: end;
-  gap: 16px;
-  margin-bottom: 24px;
+  gap: 18px;
+  margin-bottom: 28px;
 }
 .page-title {
-  font-size: clamp(1.8rem, 2.4vw, 2.45rem);
-  margin-bottom: 6px;
-  letter-spacing: -0.05em;
+  font-size: clamp(1.9rem, 2.3vw, 2.5rem);
+  margin-bottom: 8px;
+  letter-spacing: -0.045em;
 }
 .page-subtitle {
   color: var(--color-text-secondary);
@@ -732,7 +764,7 @@ code {
     linear-gradient(180deg, color-mix(in srgb, var(--color-surface-raised) 92%, transparent) 0%, var(--color-surface) 100%),
     radial-gradient(circle at top right, color-mix(in srgb, var(--color-brand) 7%, transparent), transparent 30%);
   box-shadow: var(--shadow-sm);
-  padding: 22px;
+  padding: 24px;
   transition: transform var(--t-base), box-shadow var(--t-base), border-color var(--t-base), background var(--t-base);
 }
 .card::after {
@@ -760,20 +792,22 @@ code {
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 1rem;
+  font-family: var(--font-display);
+  font-optical-sizing: auto;
+  font-size: 1.04rem;
   font-weight: 700;
-  letter-spacing: -0.02em;
+  letter-spacing: -0.03em;
 }
 .card-header-compact { margin-bottom: 12px; }
 .alert-title-row { display: flex; align-items: center; gap: 10px; }
 
 .grid-2x2, .grid-3-cols, .grid-4-cols, .dashboard-insights-grid, .metric-compact-grid, .page-hero-grid {
   display: grid;
-  gap: 24px;
+  gap: 26px;
 }
-.grid-2x2 { grid-template-columns: repeat(2, minmax(0, 1fr)); margin-bottom: 24px; }
-.grid-3-cols { grid-template-columns: repeat(3, minmax(0, 1fr)); margin-bottom: 24px; }
-.grid-4-cols { grid-template-columns: repeat(4, minmax(0, 1fr)); margin-bottom: 24px; }
+.grid-2x2 { grid-template-columns: repeat(2, minmax(0, 1fr)); margin-bottom: 28px; }
+.grid-3-cols { grid-template-columns: repeat(3, minmax(0, 1fr)); margin-bottom: 28px; }
+.grid-4-cols { grid-template-columns: repeat(4, minmax(0, 1fr)); margin-bottom: 28px; }
 .dashboard-insights-grid { grid-template-columns: 2fr 1fr; }
 .metric-compact-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .page-hero-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -781,14 +815,14 @@ code {
 .dashboard-hero,
 .page-hero {
   display: grid;
-  grid-template-columns: 1.45fr 1fr;
+  grid-template-columns: minmax(0, 1.45fr) minmax(340px, 1fr);
   align-items: stretch;
-  gap: 24px;
-  margin-bottom: 24px;
+  gap: 28px;
+  margin-bottom: 28px;
 }
 .dashboard-hero {
   overflow: hidden;
-  padding: 28px;
+  padding: 32px;
 }
 .dashboard-hero::before,
 .page-hero::before {
@@ -816,9 +850,9 @@ code {
   background: var(--color-brand-light);
 }
 .dashboard-hero h2, .page-hero h2 {
-  font-size: clamp(2rem, 3vw, 3rem);
-  line-height: 1.06;
-  margin-bottom: 12px;
+  font-size: clamp(2rem, 2.7vw, 2.8rem);
+  line-height: 1.07;
+  margin-bottom: 14px;
 }
 .hero-copy p, .page-hero-copy p { max-width: 60ch; }
 .hero-chip-row {
@@ -887,7 +921,15 @@ code {
 }
 
 .page-hero {
-  padding: 28px;
+  padding: 36px;
+  margin-bottom: 32px;
+}
+.page-hero-copy h2 {
+  margin-bottom: 14px;
+}
+.page-hero-copy p {
+  margin-bottom: 18px;
+  line-height: 1.65;
 }
 .page-kpi-card {
   padding: 18px;
@@ -1023,6 +1065,9 @@ code {
 
 .chart-shell { height: 420px; width: 100%; }
 .chart-shell-sm { height: 300px; width: 100%; }
+.chart-period-control { display: flex; align-items: center; gap: 10px; flex: 0 0 auto; }
+.chart-period-control label { color: var(--color-text-secondary); font-size: 0.82rem; white-space: nowrap; }
+.chart-period-control .form-control { width: auto; min-width: 132px; padding: 8px 10px; font-size: 0.88rem; }
 .chart-note { margin-top: 6px; font-size: 0.8rem; color: var(--color-text-tertiary); }
 
 .alert-list { list-style: none; margin: 0; padding: 0; }
@@ -2219,6 +2264,9 @@ tbody tr:last-child td { border-bottom: 0; }
 }
 
 @media (max-width: 560px) {
+  .card-header-chart { align-items: flex-start; flex-direction: column; }
+  .chart-period-control { width: 100%; justify-content: space-between; }
+  .chart-period-control .form-control { flex: 1; max-width: 180px; }
   .page-content { padding: 18px 14px 28px; }
   .card, .dashboard-hero, .page-hero, .auth-card.login-card, .connect-card { border-radius: 22px; }
   .card, .dashboard-hero, .page-hero, .auth-card.login-card, .connect-card { border-radius: 22px; }

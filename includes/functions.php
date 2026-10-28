@@ -21,6 +21,28 @@ if (!defined('BEESTATION_API_CONTEXT')) {
     $current_page = basename($_SERVER['PHP_SELF']);
 }
 
+// ── RESPUESTA SEGURA ANTE ERRORES EN LA API ──────────────────
+// La API es una superficie máquina-a-máquina: no debe devolver HTML,
+// stack traces ni rutas internas. Cualquier excepción no controlada se
+// registra en el log y el cliente recibe un 500 JSON genérico.
+if (defined('BEESTATION_API_CONTEXT') && BEESTATION_API_CONTEXT) {
+    ini_set('display_errors', '0');
+    ini_set('display_startup_errors', '0');
+    ini_set('log_errors', '1');
+    set_exception_handler(function (Throwable $e): void {
+        error_log('BeeStation API: ' . get_class($e) . ': ' . $e->getMessage()
+            . ' en ' . $e->getFile() . ':' . $e->getLine());
+        if (!headers_sent()) {
+            http_response_code(500);
+            header('Content-Type: application/json; charset=utf-8');
+        }
+        echo json_encode([
+            'ok'    => false,
+            'error' => 'Error interno del servidor',
+        ], JSON_UNESCAPED_UNICODE);
+    });
+}
+
 /**
  * Devuelve la clase 'active' si la página coincide con la actual.
  */
@@ -45,16 +67,36 @@ function intentarLogin(string $correo, string $clave): ?array {
 }
 
 /**
- * Devuelve la colmena activa por defecto (la primera del apiario del usuario).
+ * Devuelve la colmena activa del usuario.
+ * Si hay una seleccionada en sesión y le pertenece, la usa;
+ * si no, cae a la primera (comportamiento anterior).
  */
 function obtenerColmenaActiva(int $id_usuario): ?array {
     $pdo = getPDO();
+
+    if (!empty($_SESSION['id_colmena_activa'])) {
+        $stmt = $pdo->prepare("
+            SELECT c.*
+            FROM colmena c
+            INNER JOIN apiario a ON c.id_apiario = a.id_apiario
+            WHERE a.id_usuario = ? AND c.id_colmena = ?
+            LIMIT 1
+        ");
+        $stmt->execute([$id_usuario, (int) $_SESSION['id_colmena_activa']]);
+        $row = $stmt->fetch();
+        if ($row) {
+            return $row;
+        }
+        // La colmena ya no existe o no es del usuario: limpiar y continuar
+        unset($_SESSION['id_colmena_activa']);
+    }
+
     $stmt = $pdo->prepare("
-        SELECT c.* 
-        FROM colmena c 
-        INNER JOIN apiario a ON c.id_apiario = a.id_apiario 
-        WHERE a.id_usuario = ? 
-        ORDER BY c.id_colmena ASC 
+        SELECT c.*
+        FROM colmena c
+        INNER JOIN apiario a ON c.id_apiario = a.id_apiario
+        WHERE a.id_usuario = ?
+        ORDER BY c.id_colmena ASC
         LIMIT 1
     ");
     $stmt->execute([$id_usuario]);
@@ -63,16 +105,42 @@ function obtenerColmenaActiva(int $id_usuario): ?array {
 }
 
 /**
- * Genera un token de vinculación alfanumérico único para una nueva colmena.
+ * Lista todas las colmenas del usuario, ordenadas por id.
+ * Se usa para llenar el selector de colmena activa.
+ */
+function obtenerColmenasDelUsuario(int $id_usuario): array {
+    $pdo = getPDO();
+    $stmt = $pdo->prepare("
+        SELECT c.id_colmena, c.nombre, c.estado
+        FROM colmena c
+        INNER JOIN apiario a ON c.id_apiario = a.id_apiario
+        WHERE a.id_usuario = ?
+        ORDER BY c.id_colmena ASC
+    ");
+    $stmt->execute([$id_usuario]);
+    return $stmt->fetchAll();
+}
+
+/**
+ * Genera un token de vinculación único para una nueva colmena.
+ *
+ * El token es el SECRETO del nodo: con él firma cada petición al
+ * backend (ver includes/firma.php). Por eso debe ser impredecible.
+ * Antes se usaban 3 bytes (24 bits = 16,7 millones de combinaciones,
+ * agotables en horas); ahora son 16 bytes (128 bits).
+ *
+ * Formato: BS-<SLUG4>-<8 grupos de 4 hex>, copiable y verificable a ojo.
  */
 function generarTokenVinculacion(string $nombre = 'COL'): string {
-    $sufijo = strtoupper(bin2hex(random_bytes(3)));
+    // El hex va en MAYUSCULAS: el token se compara y se firma, y la
+    // normalizacion debe ser identica en el panel, en el ESP32 y aqui.
+    $grupos = implode('-', str_split(strtoupper(bin2hex(random_bytes(16))), 4));
     $slug = strtoupper(preg_replace('/[^a-zA-Z0-9]/', '', $nombre));
-    $slug = substr($slug, 0, 8);
+    $slug = substr($slug, 0, 4);
     if (empty($slug)) {
         $slug = 'COL';
     }
-    return "BS-{$slug}-{$sufijo}";
+    return "BS-{$slug}-{$grupos}";
 }
 
 /**
@@ -97,16 +165,26 @@ function resolverColmenaPorToken(string $token): ?array {
 }
 
 /**
- * Registra en la tabla intento_vinculacion cada intento de autenticación
- * por token, exitoso o fallido, para diagnóstico y trazabilidad.
+ * Registra en la tabla intento_vinculacion los intentos de acceso
+ * FALLIDOS, para diagnóstico y trazabilidad.
+ *
+ * Los envíos correctos NO se anotan: el último contacto se guarda en
+ * `colmena.nodo_ultimo_contacto`. Anotar cada 'ok' multiplicaba la
+ * tabla por diez en cada despliegue (2.880 filas/día por colmena)
+ * sin aportar información: el 100 % de las filas era ruido.
+ *
+ * @param string|null $identificador MAC del nodo o token recibido
  */
-function registrarIntentoVinculacion(?string $token, ?string $ip, string $resultado): void {
+function registrarIntentoVinculacion(?string $identificador, ?string $ip, string $resultado): void {
+    if ($resultado === 'ok') {
+        return;
+    }
     $pdo = getPDO();
     $stmt = $pdo->prepare("
         INSERT INTO intento_vinculacion (token_recibido, ip_origen, resultado) 
         VALUES (?, ?, ?)
     ");
-    $stmt->execute([$token ?? '', $ip, $resultado]);
+    $stmt->execute([$identificador ?? '', $ip, $resultado]);
 }
 
 /**
@@ -175,6 +253,35 @@ function ultimaLectura(int $id_colmena, string $tipo_sensor): ?array {
 }
 
 /**
+ * Una lectura solo puede considerarse "actual" si tiene una fecha válida y
+ * no supera la ventana de frescura. Evita pintar en verde un dato de hace días.
+ */
+function lecturaReciente(?array $lectura, int $minutos = 5): bool {
+    if (!$lectura || empty($lectura['fecha_hora'])) {
+        return false;
+    }
+    $ts = strtotime((string) $lectura['fecha_hora']);
+    if ($ts === false) {
+        return false;
+    }
+    return (time() - $ts) <= ($minutos * 60);
+}
+
+/**
+ * Devuelve la edad de una lectura en minutos, o null si no se puede calcular.
+ */
+function edadLecturaMinutos(?array $lectura): ?int {
+    if (!$lectura || empty($lectura['fecha_hora'])) {
+        return null;
+    }
+    $ts = strtotime((string) $lectura['fecha_hora']);
+    if ($ts === false) {
+        return null;
+    }
+    return max(0, (int) floor((time() - $ts) / 60));
+}
+
+/**
  * Obtiene el histórico de datos en serie temporal de un sensor en las últimas N horas.
  */
 function serieHistorica(int $id_colmena, string $tipo_sensor, int $horas = 24): array {
@@ -213,6 +320,49 @@ function serieHistoricaDias(int $id_colmena, string $tipo_sensor, int $dias = 30
 }
 
 /**
+ * Serie temporal AGREGADA en cubos de N minutos.
+ *
+ * Para informes y gráficas largas no conviene traer las filas crudas:
+ * con el firmware a 30 s, 30 días son 86.400 filas por sensor. Aqui se
+ * agrupan en cubos (15 min, 1 h, 1 dia...) y se devuelve media, minimo,
+ * maximo y numero de muestras de cada cubo, que es ademas informacion
+ * mas util para el analisis.
+ *
+ * @param int    $id_colmena  Colmena
+ * @param string $tipo_sensor Tipo de sensor
+ * @param int    $horas       Ventana temporal en horas
+ * @param int    $minutos     Tamano del cubo en minutos
+ */
+function serieHistoricaAgregada(int $id_colmena, string $tipo_sensor, int $horas = 24, int $minutos = 15): array {
+    $pdo = getPDO();
+    $stmt = $pdo->prepare("
+        SELECT TIMESTAMPADD(
+                   MINUTE,
+                   FLOOR(TIMESTAMPDIFF(MINUTE, DATE(l.fecha_hora), l.fecha_hora) / ?) * ?,
+                   DATE(l.fecha_hora)
+               ) AS fecha_hora,
+               MAX(l.fecha_hora) AS ultima_muestra,
+               AVG(l.valor_calibrado) AS valor,
+               MIN(l.valor_calibrado) AS minimo,
+               MAX(l.valor_calibrado) AS maximo,
+               COUNT(*) AS muestras
+        FROM lectura l
+        INNER JOIN sensor s ON l.id_sensor = s.id_sensor
+        WHERE s.id_colmena = ?
+          AND s.tipo = ?
+          AND l.es_valida = 1
+          AND l.fecha_hora >= (NOW() - INTERVAL ? HOUR)
+        -- Se agrupa por el alias del cubo local. Si se usa
+        -- GROUP BY fecha_hora, MySQL puede resolverlo contra la columna
+        -- original `lectura.fecha_hora` y devolver una fila por lectura.
+        GROUP BY 1
+        ORDER BY 1 ASC
+    ");
+    $stmt->execute([$minutos, $minutos, $id_colmena, $tipo_sensor, $horas]);
+    return $stmt->fetchAll();
+}
+
+/**
  * Obtiene la lista completa de sensores de una colmena junto con su último reporte.
  */
 function sensoresConEstado(int $id_colmena): array {
@@ -227,6 +377,43 @@ function sensoresConEstado(int $id_colmena): array {
     ");
     $stmt->execute([$id_colmena]);
     return $stmt->fetchAll();
+}
+
+/**
+ * Tipos que el nodo básico puede medir de verdad. La lista se usa para no
+ * presentar como diagnóstico filas antiguas de CO₂, temperatura exterior o
+ * energía que quedaron en la base durante pruebas.
+ */
+function tiposSensorNodoBasico(): array {
+    return [
+        'temperatura_interna',
+        'humedad_relativa',
+        'presion',
+        'peso',
+        'sonido',
+        'luminosidad',
+    ];
+}
+
+function esTipoSensorNodoBasico(string $tipo): bool {
+    return in_array($tipo, tiposSensorNodoBasico(), true);
+}
+
+/**
+ * Modelo que corresponde al firmware del nodo básico. La base puede tener
+ * filas antiguas con "DHT22" para temperatura/humedad; el firmware actual usa
+ * BME280, así que la presentación no debe repetir ese dato obsoleto.
+ */
+function modeloFisicoNodoBasico(string $tipo): ?string {
+    $modelos = [
+        'temperatura_interna' => 'BME280',
+        'humedad_relativa'    => 'BME280',
+        'presion'             => 'BME280',
+        'peso'                => 'HX711',
+        'sonido'              => 'MAX4466',
+        'luminosidad'         => 'BH1750',
+    ];
+    return $modelos[$tipo] ?? null;
 }
 
 /**
@@ -288,6 +475,22 @@ function alertasActivas(int $id_colmena, int $limite = 10): array {
 }
 
 /**
+ * Cuenta todas las alertas activas, no solo las que caben en la lista.
+ */
+function contarAlertasActivas(int $id_colmena): int {
+    $pdo = getPDO();
+    $stmt = $pdo->prepare("
+        SELECT COUNT(*)
+        FROM alerta al
+        INNER JOIN indicador i ON al.id_indicador = i.id_indicador
+        WHERE i.id_colmena = ?
+          AND al.estado = 'activa'
+    ");
+    $stmt->execute([$id_colmena]);
+    return (int) $stmt->fetchColumn();
+}
+
+/**
  * Obtiene el último registro de un indicador bioclimático calculado (como el IBB).
  */
 function ultimoIndicador(int $id_colmena, string $tipo): ?array {
@@ -306,14 +509,9 @@ function ultimoIndicador(int $id_colmena, string $tipo): ?array {
 }
 
 /**
- * Calcula el flujo diario de néctar (variación de peso en las últimas 24 h).
- *
- * Filtra las intervenciones humanas: un salto mayor a $umbralIntervencion kg
- * entre dos lecturas consecutivas (p. ej. quitar/poner un alza) no se cuenta
- * como ganancia/pérdida de néctar. La detección de enjambrazón es un evento
- * aparte (vía acústica), no parte del flujo diario.
+ * Calcula el flujo diario de néctar (peso acumulado ganado/perdido hoy).
  */
-function calcularFlujoDiarioPeso(int $id_colmena, float $umbralIntervencion = 3.0): ?float {
+function calcularFlujoDiarioPeso(int $id_colmena): ?float {
     $pdo = getPDO();
     $stmt = $pdo->prepare("
         SELECT l.valor_calibrado, l.fecha_hora 
@@ -329,19 +527,9 @@ function calcularFlujoDiarioPeso(int $id_colmena, float $umbralIntervencion = 3.
     $rows = $stmt->fetchAll();
 
     if (count($rows) < 2) return null;
-
-    $flujo = 0.0;
-    $anterior = (float)$rows[0]['valor_calibrado'];
-    for ($i = 1; $i < count($rows); $i++) {
-        $actual = (float)$rows[$i]['valor_calibrado'];
-        $delta = $actual - $anterior;
-        if (abs($delta) <= $umbralIntervencion) {
-            $flujo += $delta; // variación natural acumulada
-        }
-        // Un salto mayor al umbral se interpreta como intervención: no cuenta.
-        $anterior = $actual;
-    }
-    return round($flujo, 2);
+    $primero = (float)$rows[0]['valor_calibrado'];
+    $ultimo  = (float)end($rows)['valor_calibrado'];
+    return round($ultimo - $primero, 2);
 }
 
 /**
@@ -354,27 +542,13 @@ function calcularIBB(int $id_colmena): ?array {
     $h = ultimaLectura($id_colmena, 'humedad_relativa');
     $c = ultimaLectura($id_colmena, 'co2');
 
-    // Sin temperatura ni humedad no hay un IBB interpretable.
-    if (!$t || !$h) return null;
+    if (!$t || !$h || !$c) return null;
 
     $ft = abs(((float)$t['valor_calibrado'] - 35) / 3) * 100;
     $fh = abs(((float)$h['valor_calibrado'] - 60) / 20) * 100;
+    $fc = abs(((float)$c['valor_calibrado'] - 3000) / 3000) * 100;
 
-    // Ponderación validada del proyecto: temperatura 45 % + humedad 35 % + CO2 20 %.
-    // El sensor de CO2 (MQ-135) aún no está instalado en el hardware, así que se
-    // renormalizan los pesos de las variables disponibles para no anular el índice.
-    // Cuando exista lectura de CO2 vuelve a usarse la fórmula completa sin cambios.
-    if ($c) {
-        $fc = abs(((float)$c['valor_calibrado'] - 3000) / 3000) * 100;
-        $penalizacion = 0.45 * $ft + 0.35 * $fh + 0.20 * $fc;
-        $cobertura = 'temperatura+humedad+co2';
-    } else {
-        $peso_disponible = 0.45 + 0.35;
-        $penalizacion = (0.45 * $ft + 0.35 * $fh) / $peso_disponible;
-        $cobertura = 'temperatura+humedad (sin CO2)';
-    }
-
-    $ibb = 100 - $penalizacion;
+    $ibb = 100 - (0.45 * $ft + 0.35 * $fh + 0.20 * $fc);
     $ibb = max(0, min(100, round($ibb, 1)));
 
     if ($ibb >= 85)       $estado = 'Óptimo';
@@ -383,7 +557,7 @@ function calcularIBB(int $id_colmena): ?array {
     elseif ($ibb >= 30)   $estado = 'Deficiente';
     else                  $estado = 'Crítico';
 
-    return ['valor' => $ibb, 'estado' => $estado, 'cobertura' => $cobertura];
+    return ['valor' => $ibb, 'estado' => $estado];
 }
 
 /**

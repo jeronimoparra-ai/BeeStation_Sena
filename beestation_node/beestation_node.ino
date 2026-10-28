@@ -5,6 +5,10 @@
 #include <HTTPClient.h>
 #include <ESPmDNS.h>
 #include <time.h>            // NTP + hora real para los registros de la microSD
+#include <esp_system.h>      // esp_random para nonces criptográficos
+  #include <mbedtls/sha256.h>  // SHA-256: hash del cuerpo de la petición
+  #include "util_hex.h"         // hexadecimal (mayusculas / minusculas)
+  #include "identidad_ecdsa.h"  // identidad criptografica por dispositivo (ECDSA P-256)
 
 // ── LIBRERÍAS DE HARDWARE REAL (Diseño de tu Placa) ──────────
 #include <Wire.h>
@@ -16,10 +20,11 @@
 #include <HX711.h>           // Requiere "HX711 Arduino Library" de Bogdan Necula
 #include "index_html.h"      // Importa tu interfaz de la pestaña contigua
 #include "monitoreo_html.h"  // Página de monitoreo en vivo (STA)
+#include "acustica.h"        // Frecuencia dominante del micrófono (Hz)
 
 // ── VERSIÓN DEL FIRMWARE ──────────────────────────────────────
-#define FIRMWARE_VERSION "3.1.0"
-#define FIRMWARE_DATE    "2026-09-29"
+#define FIRMWARE_VERSION "3.2.1"
+#define FIRMWARE_DATE    "2026-10-23"
 
 // ── DEFINICIÓN DE PINES FÍSICOS (Según tu Plano Eléctrico) ────
 // Bus I2C (compartido por BME280 y BH1750)
@@ -54,26 +59,344 @@ bool bh1750Activo  = false;
 bool hx711Activo   = false;
 bool sdActivo      = false;
 
-// ── Variables de configuración de red y token seguro ──────────
+// ── Variables de configuración de red ─────────────────────────
+// Ya NO hay token de vinculación: la credencial del nodo es su propia
+// clave ECDSA, que vive en la NVS (ver identidad_ecdsa.h).
 String ssidGuardado  = "";
 String passGuardado  = "";
-String tokenGuardado = "";
 String hostGuardado  = ""; // IP de tu PC o dominio web dinámico
 
 // ── Flag de modo de operación ─────────────────────────────────
 bool modoPortalCautivo = false;
 
+// Id de la medición en curso (128 bits hex). Se genera al guardar la fila en
+// la microSD y lo reutiliza el envío en vivo para no duplicar el dato.
+String idMedicionActual = "";
+
+// ── Token anti-CSRF del portal (se regenera en cada arranque) ──
+String tokenCsrf = "";
+
+// ── Caché del escaneo de redes WiFi (evita congelar el nodo) ──
+unsigned long ultimoEscaneoWifi = 0;
+int redesCacheadas = 0;
+String listaRedesCache = "";
+
+// ── Cola de salida del datalogger ───────────────────────────────────────
+// Fichero y numero de linea ya confirmados por el servidor. Se guardan en
+// la NVS, asi que sobreviven a los reinicios, y solo se escriben cuando el
+// servidor confirma un lote: no se desgasta la flash en cada lectura.
+String upArchivo = "";
+unsigned long upLinea = 0;
+
 // ── Configuración de red local para el Portal Cautivo ─────────
 const byte DNS_PORT = 53;
 IPAddress apIP(192, 168, 4, 1);
 
-// ── SEGURIDAD: API Key sincronizada con config/db.php ─────────
-// IMPORTANTE: Esta clave DEBE ser idéntica a BEESTATION_API_KEY
-// definida en config/db.php del servidor PHP.
-const char* apiKey = "ba20858ed12a853bbcaafec2d9c753db0ad9f7e60022d6e1a3f94f978743808a";
+// ── SEGURIDAD: identidad ECDSA P-256 por dispositivo ──────────
+//
+// Cada nodo genera su par de claves la primera vez que arranca. La clave
+// privada NUNCA sale del ESP32 (vive en su NVS) y el servidor solo guarda
+// la pública. Cada petición va firmada y el servidor la verifica.
+//
+// Ventajas frente al token compartido:
+//   · no hay ningún secreto que pegar, copiar ni repartir;
+//   · la clave privada no viaja por la red ni aparece en el repositorio;
+//   · el servidor revoca un nodo concreto sin reflashear el resto;
+//   · la marca de tiempo y el nonce dentro de la firma impiden reutilizar
+//     una petición capturada (anti-replay).
+//
+// La autorización (a qué colmena pertenece el nodo) la da un usuario
+// autenticado desde dispositivos.php. El nodo la consulta periódicamente.
+#define FIRMA_VENTANA_SEGUNDOS 300
+
+// ── Utilidades de firma ───────────────────────────────────────────
+// La firma de las peticiones vive ahora en identidad_ecdsa.h: cada nodo
+// tiene su propia clave ECDSA P-256 y no hay ningún secreto compartido
+// (token) que guardar ni que repartir. La ruta HMAC heredada se conserva
+// SOLO en el backend, para los nodos ya desplegados.
+
+String nonceAleatorio() {
+  uint8_t bytes[16];
+  for (size_t i = 0; i < sizeof(bytes); i += 4) {
+    uint32_t valor = esp_random();
+    memcpy(bytes + i, &valor, sizeof(valor));
+  }
+  // En minúsculas: el servidor normaliza el nonce con strtolower() antes
+  // de construir la cadena canónica (firmaCanonica) y antes de guardarlo.
+  return hexMinusculas(bytes, sizeof(bytes));
+}
+
+bool horaSincronizada(time_t epoch) {
+  return epoch >= 1577836800;
+}
+
+// Ruta que se firma: la parte de la URL que va tras el host.
+String rutaDeUrl(const String& url) {
+  int posHost = url.indexOf("//");
+  if (posHost < 0) return "/";
+  int posRuta = url.indexOf("/", posHost + 2);
+  if (posRuta < 0) return "/";
+  return url.substring(posRuta);
+}
+
+// ══════════════════════════════════════════════════════════════
+//        IDENTIDAD DEL NODO (ECDSA P-256, SIN TOKEN)
+// ══════════════════════════════════════════════════════════════
+//  El alta se hace una sola vez: el nodo ya trae su identidad creada y
+//  la confirma contra el servidor. A partir de ahí cada lectura va firmada
+//  con su clave privada, que NUNCA sale del ESP32.
+bool identAutorizado      = false;  // el panel ya lo aprobó
+bool identRevocado        = false;
+unsigned long ultimoSondeoIdent = 0;
+#define INTERVALO_SONDEO_IDENT 60000UL   // 60 s
+
+// Escapa una cadena para incluirla en JSON (el PEM lleva saltos de línea).
+String jsonCadena(const String& s) {
+  String r;
+  r.reserve(s.length() + 16);
+  for (size_t i = 0; i < s.length(); i++) {
+    char c = s[i];
+    if (c == '"' || c == '\\')        { r += '\\'; r += c; }
+    else if (c == '\n')               { r += "\\n"; }
+    else if (c == '\r')               { r += "\\r"; }
+    else if ((unsigned char)c >= 0x20) { r += c; }
+  }
+  return r;
+}
+
+// ¿El servidor ya confirmó el alta de esta identidad? Se guarda en la NVS
+// para no repetir el alta en cada arranque.
+bool identAltaConfirmada() {
+  Preferences p;
+  p.begin("beestation", true);
+  bool v = p.getBool("id_ok", false);
+  p.end();
+  return v;
+}
+
+void identMarcarAlta(bool ok) {
+  Preferences p;
+  p.begin("beestation", false);
+  p.putBool("id_ok", ok);
+  p.end();
+}
+
+// Añade a la petición las cabeceras firmadas con la clave del nodo.
+// Se firma el SHA-256 del cuerpo; la firma ECDSA (DER) va en hexadecimal.
+bool identFirmarCabeceras(HTTPClient& http, const String& url, const String& cuerpo) {
+  time_t epoch = time(nullptr);
+  if (!identListo || !horaSincronizada(epoch)) return false;
+
+  String ts    = String((long)epoch);
+  String mac   = macNodo();
+  String nonce = nonceAleatorio();
+  String hash  = identSha256Hex((const uint8_t*)cuerpo.c_str(), cuerpo.length());
+  String firma = identFirmarHex(identCadenaCanonica("POST", rutaDeUrl(url), ts, mac, nonce, hash));
+  if (firma.length() < 100) return false;
+
+  http.addHeader("Content-Type", "application/json");
+  http.addHeader("X-BeeStation-Dispositivo", identId());
+  http.addHeader("X-BeeStation-Mac", mac);
+  http.addHeader("X-BeeStation-Timestamp", ts);
+  http.addHeader("X-BeeStation-Nonce", nonce);
+  http.addHeader("X-BeeStation-Firma", firma);
+  return true;
+}
+
+// Base del backend en la LAN: http://<ip>/BeeStation_Sena
+String baseServidor() {
+  String ip = hostGuardado.length() > 0 ? hostGuardado : WiFi.gatewayIP().toString();
+  return "http://" + ip + "/BeeStation_Sena";
+}
+
+// Alta del nodo con prueba de posesión. Devuelve el código HTTP (<=0 error).
+int identEnviarAlta(const String& base) {
+  time_t epoch = time(nullptr);
+  if (!identListo || !horaSincronizada(epoch)) return -1;
+
+  String ts    = String((long)epoch);
+  String mac   = macNodo();
+  String nonce = nonceAleatorio();
+  String firma = identFirmarHex(identCadenaPop(mac, ts, nonce));
+  if (firma.length() < 100) {
+    Serial.println("[ALTA] x No se pudo firmar la prueba de posesion.");
+    return -1;
+  }
+
+  String cuerpo = "{\"identificador\":\"" + identId() + "\"";
+  cuerpo += ",\"mac\":\"" + mac + "\"";
+  cuerpo += ",\"nombre\":\"Nodo " + mac + "\"";
+  cuerpo += ",\"clave_publica\":\"" + jsonCadena(identPublicaPem()) + "\"";
+  cuerpo += ",\"codigo\":\"" + identCodigo() + "\"";
+  cuerpo += ",\"timestamp\":" + ts;
+  cuerpo += ",\"nonce\":\"" + nonce + "\"";
+  cuerpo += ",\"firma\":\"" + firma + "\"}";
+
+  HTTPClient http;
+  http.setReuse(false);
+  http.begin(base + "/api/enroll.php");
+  http.setConnectTimeout(3000);
+  http.setTimeout(8000);
+  http.addHeader("Content-Type", "application/json");
+  int code = http.POST(cuerpo);
+  String respuesta = (code == 200) ? http.getString() : "";
+  http.end();
+
+  if (code == 200 && respuesta.indexOf("\"ok\":true") >= 0) {
+    identMarcarAlta(true);
+    Serial.println("[ALTA] OK: nodo registrado en el servidor.");
+    Serial.printf("[ALTA]   Codigo de vinculacion: %s\n", identCodigo().c_str());
+  } else {
+    Serial.printf("[ALTA] x El servidor no acepto el alta [%d].\n", code);
+  }
+  return code;
+}
+
+// Consulta periódica del estado de autorización.
+bool identConsultarEstado(const String& base) {
+  String url = base + "/api/enroll_estado.php";
+  String cuerpo = "{}";
+
+  HTTPClient http;
+  http.setReuse(false);
+  http.begin(url);
+  http.setConnectTimeout(3000);
+  http.setTimeout(6000);
+  if (!identFirmarCabeceras(http, url, cuerpo)) { http.end(); return false; }
+
+  int code = http.POST(cuerpo);
+  String respuesta = (code == 200) ? http.getString() : "";
+  http.end();
+
+  if (code == 401) {
+    // La identidad no esta registrada (por ejemplo, se recreo la base de
+    // datos). Se olvida el alta para que el siguiente ciclo la repita.
+    identMarcarAlta(false);
+    Serial.println("[AUTH] x El servidor no reconoce este nodo; se reintentara el alta.");
+    return false;
+  }
+  if (code != 200) return false;
+
+  bool autorizado = respuesta.indexOf("\"autorizado\":true") >= 0;
+  identRevocado = respuesta.indexOf("\"estado\":\"revocado\"") >= 0;
+
+  if (autorizado && !identAutorizado) {
+    identAutorizado = true;
+    Serial.println("[AUTH] OK: nodo AUTORIZADO. Enviando telemetria firmada.");
+  } else if (!autorizado && identAutorizado) {
+    identAutorizado = false;
+    Serial.println("[AUTH] AVISO: el nodo ya no esta autorizado.");
+  } else if (identRevocado) {
+    Serial.println("[AUTH] x Nodo REVOCADO. Revisa el panel de dispositivos.");
+  }
+  return true;
+}
+
+// Declaración adelantada: el descubrimiento se implementa más abajo.
+bool descubrirServidor();
+
+// Alta (si hace falta) + consulta de estado. Se llama al arrancar y cada minuto.
+bool identAsegurar() {
+  if (!identListo || WiFi.status() != WL_CONNECTED) return false;
+
+  // La identidad se registra antes de permitir telemetría. Por eso hay que
+  // resolver el servidor aquí: esperar al primer envío dejaría al nodo
+  // pendiente en un ciclo (el envío exige estar autorizado primero).
+  if (hostGuardado.length() == 0) {
+    Serial.println("[ALTA] No hay IP fija. Buscando BeeStation en la red local...");
+    if (!descubrirServidor()) {
+      Serial.println("[ALTA] No se encontró el servidor. Configura su IP en el portal WiFi o por Monitor Serie.");
+      return false;
+    }
+  }
+
+  String base = baseServidor();
+  if (!identAltaConfirmada()) {
+    if (identEnviarAlta(base) != 200) return false;
+  }
+  return identConsultarEstado(base);
+}
+
+// MAC del nodo: identifica al dispositivo ante el servidor.
+String macNodo() {
+  return WiFi.macAddress();
+}
+
+// ── Seguridad del portal cautivo ─────────────────────────────────
+//  · El AP tiene contraseña (derivada de la MAC) para que no quede
+//    abierto a cualquiera que pase por el apiario.
+//  · Las peticiones de guardado exigen un token anti-CSRF, de modo que
+//    una web cualquiera no pueda reconfigurar el nodo con un formulario
+//    automático.
+//  · El texto de las redes WiFi se escapa antes de inyectarlo en el HTML.
+String nombreAP() {
+  return "BeeStation_Config";
+}
+
+// Nombre mDNS propio de cada nodo: con dos o más nodos en la misma
+// LAN, un nombre compartido hace que el segundo no se registre.
+String nombreMdns() {
+  String mac = macNodo();
+  mac.replace(":", "");
+  if (mac.length() < 6) return "beestation";
+  return "beestation-" + mac.substring(mac.length() - 6);
+}
+
+String clavePortal() {
+  String mac = macNodo();
+  mac.replace(":", "");
+  if (mac.length() < 5) return "beestation";
+  return "bee" + mac.substring(mac.length() - 5);
+}
+
+String generarTokenCsrf() {
+  uint8_t aleatorio[16];
+  for (int i = 0; i < 16; i++) {
+    aleatorio[i] = (uint8_t)esp_random();
+  }
+  return hexMayusculas(aleatorio, sizeof(aleatorio));
+}
+
+String escaparHtml(const String& texto) {
+  String r = "";
+  r.reserve(texto.length() + 16);
+  for (size_t i = 0; i < texto.length(); i++) {
+    char c = texto[i];
+    if      (c == '&')  r += "&amp;";
+    else if (c == '<')  r += "&lt;";
+    else if (c == '>')  r += "&gt;";
+    else if (c == '"')  r += "&quot;";
+    else if (c == '\'') r += "&#39;";
+    else                r += c;
+  }
+  return r;
+}
+
+// Una lectura del payload: tipo, valor y, si el reloj está sincronizado,
+// la marca de tiempo de la medición (ts) y un número de secuencia (seq).
+// ts/seq los usa el backend para fechar la medición real y para no
+// duplicar un reenvío posterior (idempotencia).
+//
+// `sufijo` es el índice del sensor ("00".."05") dentro del id_medicion de
+// la medición en curso: los seis sensores comparten los 30 primeros
+// dígitos y cambian los dos últimos. Así el mismo dato enviado en vivo y
+// reenviado después desde la microSD se reconoce como duplicado.
+String lecturaJson(const String& tipo, float valor, long epoch, bool conReloj,
+                   const char* sufijo = nullptr) {
+  String s = "{\"tipo\":\"" + tipo + "\",\"valor\":" + String(valor, 2);
+  if (conReloj) {
+    s += ",\"ts\":" + String(epoch);
+    s += ",\"seq\":" + String(epoch);
+    if (sufijo != nullptr && idMedicionActual.length() == 32) {
+      s += ",\"id_medicion\":\"" + idMedicionActual.substring(0, 30) + sufijo + "\"";
+    }
+  }
+  s += "}";
+  return s;
+}
 
 // ── Intervalo de RECOPILACIÓN de datos ────────────────────────
-// Una lectura cada 5 minutos. La lectura se registra SIEMPRE en
+// Una lectura cada 30 segundos. La lectura se registra SIEMPRE en
 // la microSD (con o sin WiFi) y, sólo si hay red, se sube al
 // servidor. Así el nodo funciona igual de bien offline.
 const unsigned long INTERVALO_LECTURA = 30000;  // 30 segundos
@@ -97,7 +420,8 @@ float ultimaHum      = 0.0;
 float ultimaPresion  = 0.0;
 float ultimoPeso     = 0.0;
 float ultimaLuz      = 0.0;
-float ultimoSonido   = 0.0;
+float ultimoSonido   = 0.0;   // frecuencia dominante estimada (Hz)
+float ultimoSonidoV  = 0.0;   // amplitud pico a pico (V), solo diagnóstico
 unsigned long ultimaLecturaMs = 0;
 
 // ── Último dato SUBIDO al servidor (hora local exacta) ─────────
@@ -120,6 +444,24 @@ String horaLocal(time_t ep) {
 void setup() {
   Serial.begin(115200);
   delay(300);
+
+  // Token anti-CSRF del portal: se genera en cada arranque y caduca con
+  // el reinicio. Sin él, cualquier web podría reconfigurar el nodo.
+  tokenCsrf = generarTokenCsrf();
+
+  // Estado de la cola de subida del datalogger
+  cargarEstadoSubida();
+
+  // ── Identidad criptográfica del nodo (ECDSA P-256) ──────────
+  // Se genera la primera vez y se conserva en la NVS. La clave privada
+  // no se imprime nunca por el puerto serie.
+  if (identIniciar()) {
+    Serial.printf("[IDENTIDAD] Nodo %s\n", identId().c_str());
+    Serial.printf("[IDENTIDAD] Huella  %s\n", identHuellaClave().c_str());
+    Serial.printf("[IDENTIDAD] Codigo de vinculacion: %s\n", identCodigo().c_str());
+  } else {
+    Serial.println("[IDENTIDAD] x No se pudo inicializar la identidad del nodo.");
+  }
 
   Serial.println("INICIANDO SISTEMA...");
 
@@ -276,7 +618,6 @@ void setup() {
   preferences.begin("beestation", true);
   ssidGuardado  = preferences.getString("ssid", "");
   passGuardado  = preferences.getString("password", "");
-  tokenGuardado = preferences.getString("token", "");
   hostGuardado  = preferences.getString("host", "");
   preferences.end();
 
@@ -287,18 +628,16 @@ void setup() {
   if (ssidGuardado != "") {
     Serial.printf("[NVS] SSID guardado : %s\n", ssidGuardado.c_str());
     Serial.printf("[NVS] Host servidor : %s\n", hostGuardado.length() > 0 ? hostGuardado.c_str() : "(auto-detectar gateway)");
-    Serial.printf("[NVS] Token         : %s...%s\n", 
-      tokenGuardado.substring(0, 3).c_str(), 
-      tokenGuardado.substring(max(0, (int)tokenGuardado.length() - 4)).c_str());
+    Serial.println("[NVS] Credencial    : identidad ECDSA propia del nodo");
   } else {
     Serial.println("[NVS] Sin configuración guardada.");
   }
 
   // ── 5. PROTOCOLO DE CONEXIÓN WI-FI ─────────────────────────
-  if (ssidGuardado != "" && tokenGuardado != "") {
+  if (ssidGuardado != "") {
     Serial.printf("\n[WiFi] Conectando a '%s'...\n", ssidGuardado.c_str());
     WiFi.mode(WIFI_STA);
-    WiFi.setHostname("BeeStation-Node");
+    WiFi.setHostname(nombreMdns().c_str());
     WiFi.begin(ssidGuardado.c_str(), passGuardado.c_str());
 
     int intentos = 0;
@@ -340,33 +679,35 @@ void setup() {
       }
 
       // Iniciar mDNS para que el dispositivo sea accesible como beestation.local
-      if (MDNS.begin("beestation")) {
+      if (MDNS.begin(nombreMdns().c_str())) {
         Serial.println("[mDNS] Accesible como → http://beestation.local");
       }
 
-      // Validar token con el servidor antes de empezar a enviar datos
-      if (validarTokenConServidor()) {
-        Serial.println("[AUTH] ✓ Token validado exitosamente con el servidor.");
-        // LED encendido fijo 1 segundo para confirmar conexión exitosa
+      // Identidad del nodo: alta automatica (si hace falta) y consulta de
+      // autorizacion. El nodo ya no depende de un token: su credencial es
+      // su propia clave ECDSA, que nunca sale del ESP32.
+      identAsegurar();
+
+      modoPortalCautivo = false;
+      intentosReconexionConsecutivos = 0;
+
+      // Servidor web en modo estacion: panel de monitoreo en vivo
+      configurarRutasWeb();
+      Serial.println("[WEB] Monitoreo en vivo -> http://" + WiFi.localIP().toString() + "/monitoreo");
+
+      if (identAutorizado) {
+        Serial.println("[AUTH] OK: nodo autorizado. Se enviara telemetria firmada.");
         digitalWrite(LED_STATUS, HIGH);
         delay(1000);
         digitalWrite(LED_STATUS, LOW);
-        modoPortalCautivo = false;
-        intentosReconexionConsecutivos = 0;
-
-        // Servidor web en modo estación: panel de monitoreo en vivo
-        configurarRutasWeb();
-        Serial.println("[WEB] Monitoreo en vivo → http://" + WiFi.localIP().toString() + "/monitoreo");
-        imprimirMenuAyuda();
-        return; // Sale de setup() y entra a loop() en modo envío de datos
       } else {
-        Serial.println("[AUTH] ✗ Token rechazado por el servidor. Abriendo portal cautivo...");
-        // El token fue rechazado: borrar la config guardada y abrir portal
-        preferences.begin("beestation", false);
-        preferences.clear();
-        preferences.end();
-        WiFi.disconnect(true);
+        Serial.println("[AUTH] PENDIENTE: el nodo aun no esta autorizado.");
+        Serial.printf("[AUTH]   Codigo de vinculacion: %s\n", identCodigo().c_str());
+        Serial.println("[AUTH]   Autorizalo en la plataforma -> Nodos IoT y Dispositivos.");
+        Serial.println("[AUTH]   Mientras tanto las lecturas se guardan en la microSD.");
       }
+      imprimirMenuAyuda();
+      return; // Sale de setup() y entra a loop()
     } else {
       Serial.println("\n[WiFi] ✗ No se pudo conectar. Código de fallo: " + String(WiFi.status()));
       Serial.println("[WiFi] Posibles causas:");
@@ -376,7 +717,6 @@ void setup() {
     }
   } else {
     if (ssidGuardado == "") Serial.println("[WiFi] No hay red WiFi configurada.");
-    if (tokenGuardado == "") Serial.println("[WiFi] No hay token de vinculación configurado.");
   }
 
   // ── 6. ACTIVACIÓN DEL PORTAL CAUTIVO ────────────────────────
@@ -403,6 +743,9 @@ void loop() {
     ultimaLecturaPanel = millis();
     cicloNuevo = true;
     leerSensores();
+    // El identificador de la medicion se genera SIEMPRE, haya o no microSD:
+    // el envio en vivo lo usa para que el backend pueda deduplicar.
+    generarIdMedicion();
     guardarRespaldoSD(ultimaTemp, ultimaHum, ultimaPresion,
                       ultimoPeso, ultimoSonido, ultimaLuz);
     imprimirPanelSensores();
@@ -427,9 +770,26 @@ void loop() {
     return;
   }
 
+  // ── 3b. IDENTIDAD Y AUTORIZACIÓN (cada minuto) ──────────────
+  // Es independiente del ciclo de lectura: aunque no toque medir hay que
+  // saber si el nodo ya puede enviar. Mientras no esté autorizado, las
+  // lecturas se siguen guardando en la microSD pero no se envían.
+  if (ultimoSondeoIdent == 0 ||
+      millis() - ultimoSondeoIdent >= INTERVALO_SONDEO_IDENT) {
+    ultimoSondeoIdent = millis();
+    identAsegurar();
+  }
+
   // ── 4. ENVÍO AL SERVIDOR (sólo con lectura nueva + WiFi) ────
   if (!cicloNuevo) {
     delay(20); // Pequeña pausa para no saturar el CPU
+    return;
+  }
+
+  if (!identAutorizado) {
+    Serial.println("[ENVÍO] Nodo aun no autorizado: la lectura queda en la microSD.");
+    digitalWrite(LED_STATUS, LOW);
+    delay(20);
     return;
   }
 
@@ -447,13 +807,22 @@ void loop() {
   // ── Construcción del JSON de telemetría ─────────────────────
   // CORRECCIÓN: El BH1750 mide luminosidad (luxes), NO CO2.
   // Se añade presión barométrica del BME280.
-  String jsonPayload = "{\"token\":\"" + tokenGuardado + "\",\"lecturas\":[";
-  jsonPayload += "{\"tipo\":\"temperatura_interna\",\"valor\":" + String(tempInterna, 2) + "},";
-  jsonPayload += "{\"tipo\":\"humedad_relativa\",\"valor\":" + String(humRelativa, 2) + "},";
-  jsonPayload += "{\"tipo\":\"presion\",\"valor\":" + String(presionAtm, 2) + "},";
-  jsonPayload += "{\"tipo\":\"peso\",\"valor\":" + String(pesoColmena, 2) + "},";
-  jsonPayload += "{\"tipo\":\"sonido\",\"valor\":" + String(nivelSonido, 2) + "},";
-  jsonPayload += "{\"tipo\":\"luminosidad\",\"valor\":" + String(luzAmbiente, 2) + "}";
+  //
+  // La credencial NO viaja en el cuerpo: el nodo firma la peticion con su
+  // clave privada y el servidor la verifica con su clave publica. El
+  // servidor sabe a que colmena pertenece cada lectura por la identidad
+  // del nodo.
+  long epochLectura = (long)time(nullptr);
+  bool hayReloj     = (epochLectura > 1000000);
+
+  bool envioEnVivoOk = false;
+  String jsonPayload = "{\"lecturas\":[";
+  jsonPayload += lecturaJson("temperatura_interna", tempInterna,  epochLectura, hayReloj, "00") + ",";
+  jsonPayload += lecturaJson("humedad_relativa",    humRelativa,  epochLectura, hayReloj, "01") + ",";
+  jsonPayload += lecturaJson("presion",            presionAtm,   epochLectura, hayReloj, "02") + ",";
+  jsonPayload += lecturaJson("peso",               pesoColmena,  epochLectura, hayReloj, "03") + ",";
+  jsonPayload += lecturaJson("sonido",             nivelSonido,  epochLectura, hayReloj, "04") + ",";
+  jsonPayload += lecturaJson("luminosidad",        luzAmbiente,  epochLectura, hayReloj, "05");
   jsonPayload += "]}";
 
   Serial.printf("[ENVÍO] → %s | Temp %.1f°C · Hum %.1f%% · Peso %.2f kg · Luz %.1f lux\n",
@@ -476,19 +845,32 @@ void loop() {
   String serverUrl = "http://" + ipServidor + "/BeeStation_Sena/api/ingest.php";
   Serial.println("[HTTP] Destino: " + serverUrl);
 
-  // ── Envío de Petición HTTP POST ─────────────────────────────
+  // ── Envío de Petición HTTP POST (FIRMADA) ───────────────────
   HTTPClient http;
+  http.setReuse(false);
   http.begin(serverUrl);
-  http.addHeader("Content-Type", "application/json");
-  http.addHeader("X-API-Key", apiKey);
+  http.setConnectTimeout(3000);
   http.setTimeout(8000); // Timeout de 8 segundos
+
+  // Firma ECDSA de la peticion: el servidor verifica la firma con la clave
+  // publica que este nodo registro en el alta. No hay token compartido.
+  if (!identFirmarCabeceras(http, serverUrl, jsonPayload)) {
+    Serial.println("[HTTP] x No se pudo firmar la peticion; la lectura queda en la microSD.");
+    http.end();
+    digitalWrite(LED_STATUS, LOW);
+    return;
+  }
 
   int httpResponseCode = http.POST(jsonPayload);
 
-  if (httpResponseCode > 0) {
+  if (httpResponseCode == 200) {
     String response = http.getString();
-    Serial.printf("[HTTP] Respuesta [%d]: %s\n", httpResponseCode, response.c_str());
-    
+    Serial.printf("[HTTP] Respuesta [200]: %s\n", response.c_str());
+
+    // El backend puede aceptar el envío y aun así descartar parte de los
+    // datos: ok_total = false avisa de que hubo rechazos.
+    bool okTotal = (response.indexOf("\"ok_total\":true") >= 0);
+
     // Parpadeo de éxito: 2 destellos rápidos
     digitalWrite(LED_STATUS, LOW);
     delay(100);
@@ -504,29 +886,62 @@ void loop() {
     ultimaSubidaEpoch = time(nullptr);
     ultimaSubidaMs = millis();
     if (ultimaSubidaEpoch > 1000000) {
-      Serial.printf("[ENV] ✓ Subido a las %s (hora local)\n",
-                    horaLocal(ultimaSubidaEpoch).c_str());
+      Serial.printf("[ENV] ✓ Subido a las %s (hora local)%s\n",
+                    horaLocal(ultimaSubidaEpoch).c_str(),
+                    okTotal ? "" : "  [PARCIAL: el backend rechazó alguna lectura]");
     }
 
     // Reset del contador de reconexión tras envío exitoso
     intentosReconexionConsecutivos = 0;
+    envioEnVivoOk = okTotal; // una respuesta parcial no confirma la fila completa
+
+  } else if (httpResponseCode >= 400) {
+    // ── ERROR DE APLICACIÓN: NO es un envío correcto ──
+    // Antes cualquier código > 0 se contaba como éxito, de modo que un
+    // 401 (firma o token incorrectos) o un 404 (token revocado) se
+    // mosttaban como "datos subidos" mientras no se guardaba NADA.
+    String response = http.getString();
+    Serial.printf("[HTTP] ✗ Rechazado por el servidor [%d]: %s\n",
+                  httpResponseCode, response.c_str());
+
+    if (httpResponseCode == 401) {
+      Serial.println("[HTTP]   La firma no es valida o el nodo esta revocado.");
+      Serial.println("[HTTP]   Se volvera a consultar la autorizacion en el proximo ciclo.");
+      identAutorizado = false;
+      ultimoSondeoIdent = 0;   // fuerza una consulta de estado inmediata
+    } else if (httpResponseCode == 404) {
+      Serial.println("[HTTP]   La colmena ya no existe en la plataforma.");
+    } else if (httpResponseCode == 413) {
+      Serial.println("[HTTP]   Lote demasiado grande: el backend lo ha limitado.");
+    }
+
+    // Parpadeo de error: 5 destellos muy rápidos
+    for (int i = 0; i < 5; i++) {
+      digitalWrite(LED_STATUS, HIGH);
+      delay(50);
+      digitalWrite(LED_STATUS, LOW);
+      delay(50);
+    }
+    intentosReconexionConsecutivos++;
+
   } else {
+    // ── ERROR DE TRANSPORTE (sin respuesta del servidor) ──
     Serial.printf("[HTTP] ✗ Error de transmisión: %s\n", http.errorToString(httpResponseCode).c_str());
     Serial.println("[HTTP] Verifica que Apache/XAMPP esté corriendo y que la IP sea correcta.");
-    
+
     intentosReconexionConsecutivos++;
-    
+
     // Si falla 2 veces consecutivas, podría ser porque la IP del servidor cambió por DHCP.
     // Lanzar un nuevo escaneo de red.
     if (intentosReconexionConsecutivos >= 2 && intentosReconexionConsecutivos < MAX_INTENTOS_ANTES_PORTAL) {
       Serial.println("[AUTO] Múltiples fallos detectados. Probable cambio de IP del servidor por DHCP.");
       if (descubrirServidor()) {
-        // Si el descubrimiento encuentra una IP nueva, resetear el contador 
+        // Si el descubrimiento encuentra una IP nueva, resetear el contador
         // para darle tiempo a probar la nueva IP sin forzar el portal cautivo inmediatamente.
-        intentosReconexionConsecutivos = 0; 
+        intentosReconexionConsecutivos = 0;
       }
     }
-    
+
     // Parpadeo de error: 5 destellos muy rápidos
     for (int i = 0; i < 5; i++) {
       digitalWrite(LED_STATUS, HIGH);
@@ -536,6 +951,15 @@ void loop() {
     }
   }
   http.end();
+
+    // ── COLA OFFLINE ───────────────────────────────────────────────
+    // Si el envio en vivo funciono, la fila actual ya esta confirmada
+    // y se avanza el marcador. Si fallo, se reintentara en el proximo
+    // ciclo con enviarPendientesSD(), que sube los lotes pendientes.
+    if (envioEnVivoOk && sdActivo) {
+      guardarEstadoSubida(archivoSDActivo, registrosSD);
+    }
+    enviarPendientesSD();
 
   // Apagar LED al terminar el ciclo
   digitalWrite(LED_STATUS, LOW);
@@ -614,8 +1038,8 @@ void leerSensores() {
   ultimaHum     = bmeActivo  ? bme.readHumidity()    : 0.0;
   ultimaPresion = bmeActivo  ? (bme.readPressure() / 100.0F) : 0.0;
   ultimaLuz     = bh1750Activo ? lightMeter.readLightLevel() : 0.0;
-  // Frecuencia del tono dominante (Hz) para la alerta de pre-enjambrazón.
-  ultimoSonido  = leerFrecuenciaDominante(50); // ~50 ms de muestreo del MAX4466
+  // Frecuencia dominante (Hz) + amplitud (V) del micrófono.
+  medirAcustica(50, ultimoSonidoV, ultimoSonido); // 50 ms de muestreo
 
   ultimoPeso = 0.0;
   if (hx711Activo && scale.wait_ready_timeout(500)) {
@@ -712,8 +1136,8 @@ void imprimirPanelSensores() {
     Serial.println(lineaCaja("  HX711         ✗ NO DETECTADO  (Peso de la colmena)", "║", "║"));
   }
 
-  snprintf(tmp, sizeof(tmp), "  MAX4466 Son   ✓ ANALÓGICO %8.0f Hz (GPIO%d)",
-           ultimoSonido, MIC_ANALOG);
+  snprintf(tmp, sizeof(tmp), "  MAX4466 Son   ✓ %6.0f Hz  %5.3f V (GPIO%d)",
+           ultimoSonido, ultimoSonidoV, MIC_ANALOG);
   Serial.println(lineaCaja(String(tmp), "║", "║"));
 
   snprintf(tmp, sizeof(tmp), "  microSD       %s Respaldo local",
@@ -781,7 +1205,7 @@ void imprimirMenuAyuda() {
   Serial.println("│  host    → Ver/fijar la IP del servidor (NVS)        │");
   Serial.println("│  datos   → Ver los datos guardados en la microSD     │");
   Serial.println("│  scan    → Escanear redes WiFi disponibles           │");
-  Serial.println("│  test    → Enviar POST de prueba al servidor         │");
+  Serial.println("│  test    → Diagnostico local, sin enviar datos       │");
   Serial.println("│  reset   → Borrar configuración y reiniciar          │");
   Serial.println("│  help    → Mostrar este menú de ayuda                │");
   Serial.println("└─────────────────────────────────────────────────────┘");
@@ -957,7 +1381,7 @@ void comandoStatus() {
     Serial.printf("  Presión     : %.1f hPa\n", ultimaPresion);
     Serial.printf("  Peso        : %.2f\n", ultimoPeso);
     Serial.printf("  Luz         : %.1f lux\n", ultimaLuz);
-    Serial.printf("  Sonido      : %.0f Hz\n", ultimoSonido);
+    Serial.printf("  Sonido      : %.0f Hz (amplitud %.3f V)\n", ultimoSonido, ultimoSonidoV);
   }
 
   // Lecturas en tiempo real
@@ -1000,17 +1424,19 @@ void comandoConfig() {
   preferences.begin("beestation", true);
   String s = preferences.getString("ssid", "(vacío)");
   String p = preferences.getString("password", "");
-  String t = preferences.getString("token", "(vacío)");
   String h = preferences.getString("host", "(auto)");
   preferences.end();
 
   Serial.printf("  SSID       : %s\n", s.c_str());
   Serial.printf("  Contraseña : %s\n", p.length() > 0 ? "••••••••" : "(vacía)");
-  Serial.printf("  Token      : %s\n", t.c_str());
   Serial.printf("  Host       : %s\n", h.length() > 0 ? h.c_str() : "(auto-detect vía gateway)");
-  Serial.printf("  API Key    : %s...%s\n", 
-    String(apiKey).substring(0, 6).c_str(), 
-    String(apiKey).substring(max(0, (int)strlen(apiKey) - 4)).c_str());
+  // La credencial del nodo es su clave ECDSA: la privada nunca se imprime.
+  Serial.printf("  Nodo (id)  : %s\n", identId().c_str());
+  Serial.printf("  Huella     : %s\n", identHuellaClave().c_str());
+  Serial.printf("  Codigo alta: %s\n", identCodigo().c_str());
+  Serial.printf("  Autorizado : %s\n", identAutorizado ? "si" : "no");
+  Serial.println(String("  MAC        : ") + macNodo().c_str());
+  Serial.println(String("  mDNS       : ") + nombreMdns().c_str() + ".local");
   Serial.println();
 }
 
@@ -1043,7 +1469,7 @@ void comandoScan() {
 
 void comandoTest() {
   if (WiFi.status() != WL_CONNECTED) {
-    Serial.println("[TEST] ✗ No hay conexión WiFi activa. Conecta primero a una red.");
+    Serial.println("[TEST] ? No hay conexion WiFi activa. Conecta primero a una red.");
     return;
   }
 
@@ -1052,80 +1478,79 @@ void comandoTest() {
     ipServidor = WiFi.gatewayIP().toString();
   }
 
-  // Test 1: Ping básico (HTTP GET a la raíz)
-  Serial.println("[TEST] 1/3 — Verificando acceso al servidor...");
+  // ── Test 1: el servidor responde ──
+  Serial.println("[TEST] 1/3 - Verificando acceso al servidor...");
   String urlBase = "http://" + ipServidor + "/BeeStation_Sena/";
   HTTPClient http;
+  http.setReuse(false);
   http.begin(urlBase);
   http.setTimeout(5000);
   int code = http.GET();
   if (code > 0) {
-    Serial.printf("[TEST]   ✓ Servidor accesible en %s [HTTP %d]\n", urlBase.c_str(), code);
+    Serial.printf("[TEST]   V Servidor accesible en %s [HTTP %d]\n", urlBase.c_str(), code);
   } else {
-    Serial.printf("[TEST]   ✗ Servidor NO accesible: %s\n", http.errorToString(code).c_str());
-    Serial.println("[TEST]   Verifica que Apache/XAMPP esté ejecutándose.");
+    Serial.printf("[TEST]   ? Servidor NO accesible: %s\n", http.errorToString(code).c_str());
+    Serial.println("[TEST]   Verifica que Apache/XAMPP este ejecutandose.");
     Serial.printf("[TEST]   IP probada: %s\n", ipServidor.c_str());
     http.end();
     return;
   }
   http.end();
 
-  // Test 2: Validar API Key
-  Serial.println("[TEST] 2/3 — Validando API Key...");
-  String urlValidate = "http://" + ipServidor + "/BeeStation_Sena/api/validate_token.php";
-  http.begin(urlValidate);
-  http.addHeader("Content-Type", "application/json");
-  http.addHeader("X-API-Key", apiKey);
+  // ── Test 2: identidad del nodo y autorizacion (firma ECDSA) ──
+  Serial.println("[TEST] 2/3 - Consultando la autorizacion del nodo...");
+  String urlEstado = "http://" + ipServidor + "/BeeStation_Sena/api/enroll_estado.php";
+  String payloadVal = "{}";
+  time_t horaVal = time(nullptr);
+  if (!horaSincronizada(horaVal)) {
+    Serial.println("[TEST] Hora no sincronizada; se omite la consulta firmada.");
+    return;
+  }
+  http.begin(urlEstado);
   http.setTimeout(5000);
-
-  String tokenPayload = "{\"token\":\"" + tokenGuardado + "\"}";
-  code = http.POST(tokenPayload);
-  if (code == 200) {
-    String resp = http.getString();
-    Serial.printf("[TEST]   ✓ Token validado [%d]: %s\n", code, resp.c_str());
-  } else if (code == 401) {
-    Serial.println("[TEST]   ✗ API Key rechazada. Verifica que coincida con config/db.php.");
-  } else if (code == 404) {
-    Serial.println("[TEST]   ✗ Token no encontrado en la base de datos.");
+  if (!identFirmarCabeceras(http, urlEstado, payloadVal)) {
+    Serial.println("[TEST]   x No se pudo firmar: identidad no inicializada.");
+    http.end();
   } else {
-    Serial.printf("[TEST]   ✗ Error inesperado [%d]: %s\n", code, http.errorToString(code).c_str());
+    code = http.POST(payloadVal);
+    if (code == 200) {
+      String resp = http.getString();
+      Serial.printf("[TEST]   V Identidad reconocida [%d]: %s\n", code, resp.c_str());
+    } else if (code == 401) {
+      Serial.println("[TEST]   x El servidor no reconoce este nodo (falta el alta o esta revocado).");
+    } else {
+      Serial.printf("[TEST]   ? Error inesperado [%d]\n", code);
+    }
+    http.end();
   }
-  http.end();
 
-  // Test 3: Enviar datos de prueba
-  Serial.println("[TEST] 3/3 — Enviando telemetría de prueba...");
-  String urlIngest = "http://" + ipServidor + "/BeeStation_Sena/api/ingest.php";
-  http.begin(urlIngest);
-  http.addHeader("Content-Type", "application/json");
-  http.addHeader("X-API-Key", apiKey);
-  http.setTimeout(8000);
-
-  // Leer sensores reales para el test
-  float t = bmeActivo ? bme.readTemperature() : 25.0;
-  float h = bmeActivo ? bme.readHumidity() : 50.0;
-  float p = bmeActivo ? (bme.readPressure() / 100.0F) : 1013.25;
-  float l = bh1750Activo ? lightMeter.readLightLevel() : 100.0;
-  float s = leerFrecuenciaDominante(50);
-
-  String testPayload = "{\"token\":\"" + tokenGuardado + "\",\"lecturas\":[";
-  testPayload += "{\"tipo\":\"temperatura_interna\",\"valor\":" + String(t, 2) + "},";
-  testPayload += "{\"tipo\":\"humedad_relativa\",\"valor\":" + String(h, 2) + "},";
-  testPayload += "{\"tipo\":\"presion\",\"valor\":" + String(p, 2) + "},";
-  testPayload += "{\"tipo\":\"peso\",\"valor\":0.00},";
-  testPayload += "{\"tipo\":\"sonido\",\"valor\":" + String(s, 2) + "},";
-  testPayload += "{\"tipo\":\"luminosidad\",\"valor\":" + String(l, 2) + "}";
-  testPayload += "]}";
-
-  Serial.println("[TEST]   Payload: " + testPayload);
-  code = http.POST(testPayload);
-  if (code > 0) {
-    String resp = http.getString();
-    Serial.printf("[TEST]   Respuesta [%d]: %s\n", code, resp.c_str());
+  // ── Test 3: sensores locales, SIN insertar telemetria falsa ──
+  // Un POST de prueba contaminaba la tabla lectura con 25 C / 50 % / 0 kg
+  // cuando faltaba un sensor. Este comando ahora solo diagnostica: no
+  // escribe en la base de datos ni en la microSD.
+  Serial.println("[TEST] 3/3 - Comprobando sensores locales (no se envia telemetria)...");
+  if (bmeActivo) {
+    Serial.printf("[TEST]   BME280: %.1f C, %.1f %%, %.1f hPa\n",
+      bme.readTemperature(), bme.readHumidity(), bme.readPressure() / 100.0F);
   } else {
-    Serial.printf("[TEST]   ✗ Fallo de envío: %s\n", http.errorToString(code).c_str());
+    Serial.println("[TEST]   BME280: no detectado (no se inventan valores).");
   }
-  http.end();
-  Serial.println("[TEST] Diagnóstico completo.\n");
+  if (bh1750Activo) {
+    Serial.printf("[TEST]   BH1750: %.1f lux\n", lightMeter.readLightLevel());
+  } else {
+    Serial.println("[TEST]   BH1750: no detectado (no se inventan valores).");
+  }
+  if (hx711Activo) {
+    Serial.printf("[TEST]   HX711: ultima lectura %.2f kg (sin enviar)\n", ultimoPeso);
+  } else {
+    Serial.println("[TEST]   HX711: no detectado (no se envia peso 0).");
+  }
+  float s = 0.0f;
+  float sVoltios = 0.0f;
+  medirAcustica(50, sVoltios, s);
+  Serial.printf("[TEST]   MAX4466: %.1f Hz (experimental)\n", s);
+  Serial.println("[TEST]   No se envio telemetria. La ingesta normal sigue siendo la unica via de datos.");
+  Serial.println("[TEST] Diagnostico completo.\n");
 }
 
 void comandoReset() {
@@ -1136,45 +1561,6 @@ void comandoReset() {
   Serial.println("[RESET] Memoria NVS limpia. Reiniciando en 2 segundos...");
   delay(2000);
   ESP.restart();
-}
-
-// ══════════════════════════════════════════════════════════════
-//       VALIDACIÓN PREVIA DEL TOKEN CON EL SERVIDOR
-// ══════════════════════════════════════════════════════════════
-// Envía un POST a /api/validate_token.php antes de iniciar el envío
-// de datos. Si el servidor rechaza el token, retorna false para que
-// setup() active el portal cautivo y permita reconfigurar.
-bool validarTokenConServidor() {
-  String ipServidor = hostGuardado;
-  if (ipServidor == "") {
-    ipServidor = WiFi.gatewayIP().toString();
-  }
-
-  String url = "http://" + ipServidor + "/BeeStation_Sena/api/validate_token.php";
-  Serial.println("[AUTH] Validando token con: " + url);
-
-  HTTPClient http;
-  http.begin(url);
-  http.addHeader("Content-Type", "application/json");
-  http.addHeader("X-API-Key", apiKey);
-  http.setTimeout(8000);
-
-  String payload = "{\"token\":\"" + tokenGuardado + "\"}";
-  int code = http.POST(payload);
-
-  bool valido = false;
-  if (code == 200) {
-    String resp = http.getString();
-    Serial.println("[AUTH] Respuesta: " + resp);
-    valido = resp.indexOf("\"ok\":true") >= 0;
-  } else {
-    // Si no hay red o el servidor no responde, asumimos token válido
-    // para permitir operación offline con respaldo en SD
-    Serial.printf("[AUTH] Servidor no accesible [%d]. Continuando en modo offline.\n", code);
-    valido = true;
-  }
-  http.end();
-  return valido;
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -1223,14 +1609,18 @@ void reconectarWiFi() {
     intentosReconexionConsecutivos = 0;
 
     // Re-iniciar mDNS
-    MDNS.begin("beestation");
+    MDNS.begin(nombreMdns().c_str());
   } else {
     Serial.println();
     if (intentosReconexionConsecutivos >= MAX_INTENTOS_ANTES_PORTAL) {
       Serial.println("[WiFi] ✗ Máximo de intentos alcanzado. Activando Portal Cautivo...");
-      modoPortalCautivo = true;
-      intentosReconexionConsecutivos = 0;
-      iniciarPortalCautivo();
+      // ANTES: al agotar los intentos se abria el portal cautivo, lo que
+      // dejaba al nodo sin red PARA SIEMPRE (el portal no tenia salida).
+      // Ahora el nodo sigue reintentando: una caida del router en campo
+      // ya no mata al dispositivo. El portal se abre solo al arrancar,
+      // cuando falta la configuracion.
+      Serial.println("[WiFi] Se mantienen los reintentos: el nodo no abre el portal por una caida de red.");
+      if (intentosReconexionConsecutivos > 100000) intentosReconexionConsecutivos = 0;
     } else {
       Serial.printf("[WiFi] ✗ Fallo. Próximo intento en %.1f segundos.\n", 
         (1000 * pow(2, min(intentosReconexionConsecutivos, 3))) / 1000.0);
@@ -1239,78 +1629,45 @@ void reconectarWiFi() {
 }
 
 // ══════════════════════════════════════════════════════════════
-//        CÁLCULO ACÚSTICO DE ENJAMBRAZÓN (MAX4466)
+//      ANÁLISIS ACÚSTICO: FRECUENCIA DOMINANTE (MAX4466)
 // ══════════════════════════════════════════════════════════════
-float leerNivelAcustico(unsigned int milliseconds) {
-  unsigned long startMillis = millis();
-  unsigned int signalMax = 0;
-  unsigned int signalMin = 4095; // Resolución de 12 bits
-
-  // Muestreo continuo durante el periodo especificado
-  while (millis() - startMillis < milliseconds) {
-    int sample = analogRead(MIC_ANALOG);
-    if (sample < 4095) { // Descartar lecturas saturadas
-      if (sample > (int)signalMax) signalMax = sample;
-      if (sample < (int)signalMin) signalMin = sample;
-    }
-  }
-
-  unsigned int peakToPeak = signalMax - signalMin;
-  float volts = (peakToPeak * 3.3) / 4095.0;
-  return volts;
-}
-
-// ══════════════════════════════════════════════════════════════
-//   FRECUENCIA DOMINANTE (Hz) DEL MICRÓFONO
-// ══════════════════════════════════════════════════════════════
-// La alerta de pre-enjambrazón del backend (functions.php) y toda la UI
-// esperan una FRECUENCIA en Hz (variable_bioclimatica.sonido = 'Hz'),
-// pero antes el firmware enviaba voltios (0–3.3 V), por lo que la banda
-// de 400–600 Hz nunca podía alcanzarse y la alerta jamás se disparaba.
+// Muestrea el micrófono a ~4 kHz y estima la frecuencia dominante
+// por cruces por cero (ver acustica.h). El backend interpreta
+// `sonido` en Hz, no en voltios: enviar la amplitud impedía que la
+// alerta de enjambrazón (400–600 Hz) se disparara nunca.
 //
-// Aquí se estima el tono dominante contando cruces por cero con histéresis
-// sobre una media DC móvil. Es una estimación ligera y adecuada para un
-// tono continuo (piping); NO sustituye a una FFT.
-// Devuelve 0.0 si la señal es demasiado débil o irregular.
-float leerFrecuenciaDominante(unsigned int milliseconds) {
-  const unsigned long durUs      = (unsigned long)milliseconds * 1000UL;
-  const int           UMBRAL     = 60;   // histéresis en cuentas ADC (0–4095)
-  const unsigned int  MIN_CRUCES = 6;    // cruces mínimos para estimar
+// Devuelve por referencia:
+//   voltios = amplitud pico a pico (solo diagnóstico)
+//   hz      = frecuencia dominante estimada (0 si hay silencio)
+void medirAcustica(unsigned int milliseconds, float &voltios, float &hz) {
+  static int16_t muestras[256];
+  const unsigned long intervaloUs = 250;  // 4 kHz
+  const int maxMuestras = (int)(sizeof(muestras) / sizeof(muestras[0]));
 
-  // Componente DC estimada con una muestra corta (~4 ms).
-  long dcSum = 0; unsigned int dcN = 0;
   unsigned long t0 = micros();
-  while (micros() - t0 < 4000UL) { dcSum += analogRead(MIC_ANALOG); dcN++; }
-  if (dcN == 0) return 0.0;
-  float dc = (float)dcSum / (float)dcN;
+  int n = 0;
+  unsigned long siguiente = t0;
 
-  int estado = 0;                        // 0 = sin definir, 1 = alto, -1 = bajo
-  unsigned long ultimoCruceUs = 0;
-  unsigned long sumaPeriodosUs = 0;
-  unsigned int  cruces = 0;
-  unsigned long inicioUs = micros();
-
-  while (micros() - inicioUs < durUs) {
-    int s = analogRead(MIC_ANALOG);
-    int nuevo = estado;
-    if (s > dc + UMBRAL)      nuevo = 1;
-    else if (s < dc - UMBRAL) nuevo = -1;
-
-    if (nuevo != 0 && nuevo != estado) {
-      unsigned long ahora = micros();
-      if (estado != 0 && ultimoCruceUs != 0) {
-        sumaPeriodosUs += (ahora - ultimoCruceUs); // intervalo entre cruces = medio período
-        cruces++;
-      }
-      ultimoCruceUs = ahora;
-      estado = nuevo;
+  while (n < maxMuestras &&
+         (micros() - t0) < (unsigned long)milliseconds * 1000UL) {
+    unsigned long ahora = micros();
+    if ((long)(ahora - siguiente) >= 0) {
+      muestras[n++] = (int16_t)analogRead(MIC_ANALOG);
+      siguiente += intervaloUs;
     }
   }
+  unsigned long t1 = micros();
 
-  if (cruces < MIN_CRUCES || sumaPeriodosUs == 0) return 0.0;
-  float medioPeriodoUs = (float)sumaPeriodosUs / (float)cruces; // = T/2
-  float freq = 1000000.0 / (2.0 * medioPeriodoUs);              // = 1/T
-  return freq;
+  if (n < ACUSTICA_MIN_MUESTRAS) {
+    voltios = 0.0f;
+    hz = 0.0f;
+    return;
+  }
+
+  // La duración real (no la nominal) absorbe las pausas del WiFi.
+  const float duracion = (t1 - t0) / 1000000.0f;
+  voltios = acusticaAmplitudV(muestras, n, 3.3f);
+  hz = acusticaFrecuenciaHz(muestras, n, duracion);
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -1320,6 +1677,18 @@ float leerFrecuenciaDominante(unsigned int milliseconds) {
 // Se llama en CADA ciclo de recopilación (cada 5 minutos), con o
 // sin WiFi. Un fichero por día (/log_AAAA-MM-DD.csv) y columna de
 // fecha real vía NTP; si aún no hay hora, /log_sin_hora.csv.
+// Genera un identificador de medicion nuevo (128 bits hex). Los seis
+// sensores de este ciclo comparten los 30 primeros digitos y cambian los
+// dos ultimos, de modo que cada fila de `lectura` es unica.
+void generarIdMedicion() {
+  uint8_t azar[16];
+  for (size_t i = 0; i < sizeof(azar); i += 4) {
+    uint32_t v = esp_random();
+    memcpy(azar + i, &v, 4);
+  }
+  idMedicionActual = hexMinusculas(azar, sizeof(azar));
+}
+
 void guardarRespaldoSD(float temp, float hum, float pres, float peso, float s, float l) {
   if (!sdActivo) return;
 
@@ -1336,7 +1705,11 @@ void guardarRespaldoSD(float temp, float hum, float pres, float peso, float s, f
     snprintf(nombreFichero, sizeof(nombreFichero), "/log_%s.csv", dia);
   }
 
-  File dataFile = SD.open(nombreFichero, FILE_WRITE);
+  // IMPORTANTE: FILE_APPEND, nunca FILE_WRITE.
+  // FILE_WRITE abre el fichero en modo "w" (equivalente a O_TRUNC) y lo
+  // BORRABA en cada ciclo: el CSV quedaba siempre con cabecera + 1 fila,
+  // es decir, el "respaldo local" no guardaba nada.
+  File dataFile = SD.open(nombreFichero, FILE_APPEND);
   if (!dataFile) {
     Serial.println("[SD] ✗ Error de acceso a tarjeta.");
     return;
@@ -1344,7 +1717,7 @@ void guardarRespaldoSD(float temp, float hum, float pres, float peso, float s, f
 
   bool ficheroNuevo = (dataFile.size() == 0);
   if (ficheroNuevo) {
-    dataFile.println("Fecha_hora,Millis,Temp,Hum,Presion,Peso,Sonido,Luz");
+    dataFile.println("Fecha_hora,Epoch,Id_medicion,Temp,Hum,Presion,Peso,Sonido_Hz,Luz");
     if (archivoSDActivo != nombreFichero) {
       archivoSDActivo = nombreFichero;
       registrosSD = 0;
@@ -1352,14 +1725,206 @@ void guardarRespaldoSD(float temp, float hum, float pres, float peso, float s, f
     }
   }
 
-  dataFile.printf("%s,%lu,%.2f,%.2f,%.2f,%.2f,%.3f,%.2f\n",
-                  fecha, millis(), temp, hum, pres, peso, s, l);
+  // La segunda columna es el epoch de la medicion: es lo que permite
+  // fechar los datos cuando se recuperan mas tarde y deduplicarlos al
+  // reenviarlos (el backend tiene UNIQUE(id_sensor, seq)).
+  if (idMedicionActual.length() != 32) generarIdMedicion();
+
+  long epochLectura = (long)time(nullptr);
+  dataFile.printf("%s,%ld,%s,%.2f,%.2f,%.2f,%.2f,%.3f,%.2f\n",
+                  fecha, epochLectura, idMedicionActual.c_str(), temp, hum, pres, peso, s, l);
   dataFile.close();
   registrosSD++;
 }
 
 // ── Consulta de los datos YA guardados en la microSD ──────────
 // Ruta del CSV del día en curso (con respaldo si no hay hora).
+// ── Estado de la cola de salida (sobrevive a reinicios) ───────────────
+void cargarEstadoSubida() {
+  preferences.begin("beestation", true);
+  upArchivo = preferences.getString("up_file", "");
+  upLinea   = preferences.getULong("up_line", 0);
+  preferences.end();
+  if (upArchivo.length() > 0) {
+    Serial.printf("[SD] Cola de subida: reanuda en %s linea %lu\n",
+                  upArchivo.c_str(), upLinea);
+  }
+}
+
+void guardarEstadoSubida(const String& archivo, unsigned long linea) {
+  upArchivo = archivo;
+  upLinea   = linea;
+  preferences.begin("beestation", false);
+  preferences.putString("up_file", archivo);
+  preferences.putULong("up_line", linea);
+  preferences.end();
+}
+
+// Divide una linea CSV en campos. Devuelve cuantos encontro.
+int dividirCSV(const String& linea, String campos[], int maxCampos) {
+  int n = 0;
+  int ini = 0;
+  for (int i = 0; i <= linea.length() && n < maxCampos; i++) {
+    if (i == linea.length() || linea[i] == ',') {
+      campos[n++] = linea.substring(ini, i);
+      ini = i + 1;
+    }
+  }
+  return n;
+}
+
+// ── Reenvio de las lecturas pendientes de la microSD ───────────────────
+// El nodo no pierde datos: TODA lectura queda en la tarjeta y se sube
+// cuando hay red. Si el envio en vivo falla, estas lineas se reintentan
+// en los ciclos siguientes hasta que el servidor las confirma.
+bool enviarPendientesSD() {
+  if (!sdActivo || !identAutorizado) return false;
+  if (WiFi.status() != WL_CONNECTED) return false;
+  time_t epochEnvio = time(nullptr);
+  if (!horaSincronizada(epochEnvio)) return false;
+
+  // Ficheros CSV del datalogger, del mas antiguo al mas reciente
+  String archivos[24];
+  int nArchivos = 0;
+  File raiz = SD.open("/");
+  if (!raiz) return false;
+  for (File f = raiz.openNextFile(); f && nArchivos < 24; f = raiz.openNextFile()) {
+    String nombre = f.name();
+    if (!f.isDirectory() && nombre.startsWith("log_") && nombre.endsWith(".csv")) {
+      archivos[nArchivos++] = "/" + nombre;
+    }
+  }
+  raiz.close();
+  if (nArchivos == 0) return false;
+
+  // Punto de reanudacion: el fichero y la linea confirmados
+  int idxIni = 0;
+  unsigned long lineaIni = 0;
+  if (upArchivo.length() > 0) {
+    for (int i = 0; i < nArchivos; i++) {
+      if (archivos[i] == upArchivo) { idxIni = i; lineaIni = upLinea; break; }
+    }
+  }
+
+  for (int nf = idxIni; nf < nArchivos; nf++) {
+    File csv = SD.open(archivos[nf]);
+    if (!csv) continue;
+
+    // Saltar hasta la linea de reanudacion
+    if (nf == idxIni && lineaIni > 0) {
+      unsigned long saltadas = 0;
+      while (csv.available() && saltadas < lineaIni) { csv.readStringUntil('\n'); saltadas++; }
+    }
+
+    // Acumular hasta 30 filas (180 lecturas, por debajo del tope del servidor)
+    String lecturas = "";
+    unsigned long leidas = 0;
+    unsigned long validas = 0;
+    bool filaBloqueada = false;
+    while (csv.available() && leidas < 30) {
+      String linea = csv.readStringUntil('\n');
+      leidas++;
+      linea.trim();
+      if (linea.length() == 0) continue;
+      if (linea.startsWith("Fecha_hora")) continue;   // cabecera
+
+      // Formato nuevo (9 columnas): Fecha,Epoch,Id_medicion,Temp..Luz.
+      // Los CSV grabados por firmware anterior (8 columnas) se aceptan como
+      // legado: no traen id_medicion y se envian por la via (sensor, seq).
+      String c[9];
+      int nc = dividirCSV(linea, c, 9);
+      int base = (nc >= 9) ? 3 : 2;
+      if (nc < 8 || (nc == 8 && c[7].length() == 0)) {
+        leidas--;
+        filaBloqueada = true;
+        break;
+      }
+      long epoch = atol(c[1].c_str());
+      if (epoch <= 0) {
+        leidas--;
+        filaBloqueada = true;
+        break;
+      }
+
+      String idBase = (nc >= 9 && c[2].length() == 32) ? c[2] : "";
+      String ts = ",\"ts\":" + String(epoch) + ",\"seq\":" + String(epoch);
+      const char* tipos[6] = {"temperatura_interna", "humedad_relativa", "presion",
+                              "peso", "sonido", "luminosidad"};
+      const char* sufijos[6] = {"00", "01", "02", "03", "04", "05"};
+      for (int k = 0; k < 6; k++) {
+        String idLectura = "";
+        if (idBase.length() == 32) {
+          // Mismo id de medicion para los 6 sensores, con el ultimo byte
+          // reservado al indice del sensor: 120 bits de entropia unica.
+          idLectura = ",\"id_medicion\":\"" + idBase.substring(0, 30) + sufijos[k] + "\"";
+        }
+        if (validas > 0 || k > 0) lecturas += ",";
+        lecturas += "{\"tipo\":\"" + String(tipos[k]) + "\",\"valor\":" + c[base + k] + ts + idLectura + "}";
+      }
+      validas++;
+    }
+    csv.close();
+
+    if (validas == 0) {
+      if (filaBloqueada) {
+        Serial.printf("[SD] Cola detenida en una fila sin fecha o malformada: %s.\n", archivos[nf].c_str());
+        return false; // conservar fila para diagnóstico/reparación
+      }
+      continue;
+    }
+
+    String payload = "{\"lecturas\":[" + lecturas + "]}";
+    String host = hostGuardado.length() > 0 ? hostGuardado : WiFi.gatewayIP().toString();
+    String url = "http://" + host + "/BeeStation_Sena/api/ingest.php";
+
+    HTTPClient http;
+    http.setReuse(false);
+    http.begin(url);
+    http.setConnectTimeout(3000);
+    http.setTimeout(10000);
+    if (!identFirmarCabeceras(http, url, payload)) {
+      Serial.println("[SD] x No se pudo firmar el lote; se reintentara.");
+      http.end();
+      return false;
+    }
+    int code = http.POST(payload);
+    String respuesta = code == 200 ? http.getString() : "";
+    http.end();
+
+    // Acuse por lectura: el servidor devuelve un estado por cada lectura.
+    // Si atendio TODAS las del lote, la cola avanza aunque alguna fuera
+    // rechazada de forma definitiva (un dato invalido no debe bloquear el
+    // resto de la cola para siempre). Un 401 si obliga a reconsumultar la
+    // autorizacion y reintentar mas tarde.
+    bool okTotal = respuesta.indexOf("\"ok_total\":true") >= 0;
+    int atendidas = 0;
+    int posAcuse = 0;
+    while ((posAcuse = respuesta.indexOf("\"indice\":", posAcuse)) >= 0) {
+      atendidas++;
+      posAcuse += 9;
+    }
+    int esperadas = (int)validas * 6;
+    bool loteConfirmado = okTotal ||
+        (atendidas >= esperadas && respuesta.indexOf("\"estado\":\"rechazada\"") >= 0);
+
+    if (code == 200 && loteConfirmado) {
+      unsigned long nueva = (nf == idxIni ? lineaIni : 0) + leidas;
+      guardarEstadoSubida(archivos[nf], nueva);
+      Serial.printf("[SD] Subidas %lu filas de %s (pendiente cerrada).\n",
+                    validas, archivos[nf].c_str());
+      return true;
+    } else {
+      if (code == 401) {
+        identAutorizado = false;
+        ultimoSondeoIdent = 0;
+      }
+      Serial.printf("[SD] No se pudo subir el lote [%d]; se reintentara.\n", code);
+      return false;
+    }
+  }
+  return false;
+}
+
 String rutaCSVActual() {
   struct tm reloj;
   if (getLocalTime(&reloj, 0)) {
@@ -1451,10 +2016,17 @@ void atenderMonitoreo() {
 }
 
 void iniciarPortalCautivo() {
-  Serial.println("\n[AP] Levantando señal inalámbrica 'BeeStation_Config'...");
-  WiFi.mode(WIFI_AP);
+  Serial.println("\n[AP] Levantando señal inalambrica '" + nombreAP() + "'...");
+
+  // AP_STA y no AP: el nodo conserva la interfaz del router, de modo que
+  // abrir el portal no lo deja sin red y puede volver solo a estacion.
+  WiFi.mode(WIFI_AP_STA);
   WiFi.softAPConfig(apIP, apIP, IPAddress(255, 255, 255, 0));
-  WiFi.softAP("BeeStation_Config");
+
+  // El AP lleva contrasena: antes era una red abierta y cualquiera a
+  // 100 m podia ver el panel y reconfigurar el nodo.
+  String clave = clavePortal();
+  WiFi.softAP(nombreAP().c_str(), clave.c_str());
 
   dnsServer.start(DNS_PORT, "*", apIP);
 
@@ -1472,14 +2044,28 @@ void iniciarPortalCautivo() {
 }
 
 void atenderPortal() {
-  int n = WiFi.scanNetworks();
+  // El escaneo de redes WiFi se cachea 30 s: antes se hacía un
+  // scanNetworks() completo en cada carga de la página (2-4 s de
+  // congelación del nodo) y cambiaba el modo de radio.
+  int n = 0;
   String opcionesWifi = "";
-  if (n == 0) {
-    opcionesWifi = "<option value='' disabled>No se encontraron redes WiFi</option>";
-  } else {
+  unsigned long ahora = millis();
+  if (ahora - ultimoEscaneoWifi > 30000UL || redesCacheadas == 0) {
+    n = WiFi.scanNetworks();
+    redesCacheadas = n;
+    ultimoEscaneoWifi = ahora;
+    listaRedesCache = "";
     for (int i = 0; i < n; ++i) {
-      opcionesWifi += "<option value='" + WiFi.SSID(i) + "'>" + WiFi.SSID(i) + " (" + String(WiFi.RSSI(i)) + " dBm)</option>";
+      // El SSID se escapa: una red con nombre malicioso podría inyectar
+      // JavaScript en el navegador de quien configura el nodo.
+      String ssidSeguro = escaparHtml(WiFi.SSID(i));
+      listaRedesCache += "<option value='" + ssidSeguro + "'>" + ssidSeguro
+                      + " (" + String(WiFi.RSSI(i)) + " dBm)</option>";
     }
+  }
+  opcionesWifi = listaRedesCache;
+  if (redesCacheadas == 0) {
+    opcionesWifi = "<option value='' disabled>No se encontraron redes WiFi</option>";
   }
 
   // Construir indicadores de sensores para inyectar en el HTML
@@ -1494,7 +2080,11 @@ void atenderPortal() {
   htmlFinal.replace("%WIFI_NETWORKS%", opcionesWifi);
   htmlFinal.replace("%SENSOR_STATUS%", sensorStatus);
   htmlFinal.replace("%FIRMWARE_VERSION%", FIRMWARE_VERSION);
-  htmlFinal.replace("%MAC_ADDRESS%", WiFi.macAddress());
+  htmlFinal.replace("%MAC_ADDRESS%", escaparHtml(macNodo()));
+  htmlFinal.replace("%AP_PASSWORD%", escaparHtml(clavePortal()));
+  htmlFinal.replace("%CSRF_TOKEN%", escaparHtml(tokenCsrf));
+  htmlFinal.replace("%CODIGO_ALTA%", escaparHtml(identCodigo()));
+  htmlFinal.replace("%NODO_ID%", escaparHtml(identId()));
   server.send(200, "text/html; charset=utf-8", htmlFinal);
 }
 
@@ -1587,7 +2177,8 @@ void atenderStatusJSON() {
 
   json += ",\"lux\":" + String(ultimaLuz, 1);
   json += ",\"peso\":" + String(ultimoPeso, 2);
-  json += ",\"sonido\":" + String(ultimoSonido, 3);
+  json += ",\"sonido\":" + String(ultimoSonido, 1);
+  json += ",\"sonido_v\":" + String(ultimoSonidoV, 3);
   json += ",\"mic_raw\":" + String(analogRead(MIC_ANALOG));
 
   // Estado de red (informativo en ambos modos)
@@ -1599,36 +2190,76 @@ void atenderStatusJSON() {
   json += "\"servidor\":\"" + hostGuardado + "\"";
   json += "}";
 
+  // Identidad criptografica del nodo: el panel puede mostrarla y avisar si
+  // el nodo aun no ha sido autorizado. Nunca se expone la clave privada.
+  json += ",\"identidad\":{";
+  json += "\"id\":\"" + identId() + "\",";
+  json += "\"huella\":\"" + identHuellaClave() + "\",";
+  // El codigo de alta NO se publica en /status: esa ruta es accesible desde
+  // la LAN sin autenticacion. Solo se muestra en el portal cautivo y el serial.
+  json += "\"autorizado\":" + String(identAutorizado ? "true" : "false") + ",";
+  json += "\"revocado\":" + String(identRevocado ? "true" : "false");
+  json += "}";
+
   json += "}";
 
   server.send(200, "application/json", json);
 }
 
 void procesarGuardado() {
+  // El guardado SOLO es posible en modo portal. Antes la ruta /save
+  // seguía activa en modo estación: cualquiera de la LAN podía
+  // reconfigurar el nodo (secuestro) con un simple POST.
+  if (!modoPortalCautivo) {
+    server.send(403, "text/plain", "El guardado solo esta disponible en el portal cautivo.");
+    return;
+  }
+
+  // Token anti-CSRF: impide que una web cualquiera reconfigure el nodo
+  // mediante un formulario automático.
+  String csrfRecibido = server.arg("csrf");
+  if (tokenCsrf.length() == 0 || csrfRecibido != tokenCsrf) {
+    Serial.println("[PORTAL] x Peticion sin token anti-CSRF valido: rechazada.");
+    server.send(403, "text/plain", "Peticion no valida. Recarga la pagina del portal.");
+    return;
+  }
+
   String nuevoSsid  = server.arg("ssid");
   String nuevoPass  = server.arg("password");
-  String nuevoToken = server.arg("token_vinculacion");
-  String nuevoHost  = server.arg("host_servidor"); 
+  String nuevoHost  = server.arg("host_servidor");
 
-  if (nuevoSsid != "" && nuevoToken != "") {
+  // Validación de longitudes: un campo enorme satura la NVS y un host
+  // con saltos de línea permitiría inyectar cabeceras HTTP.
+  if (nuevoSsid.length() == 0 || nuevoSsid.length() > 32) {
+    server.send(400, "text/plain", "El nombre de la red debe tener entre 1 y 32 caracteres.");
+    return;
+  }
+  if (nuevoPass.length() > 64) {
+    server.send(400, "text/plain", "La contrasena de la red es demasiado larga.");
+    return;
+  }
+  if (nuevoHost.length() > 64) {
+    server.send(400, "text/plain", "La direccion del servidor es demasiado larga.");
+    return;
+  }
+
+  if (nuevoSsid != "") {
     preferences.begin("beestation", false);
     preferences.putString("ssid", nuevoSsid);
     preferences.putString("password", nuevoPass);
-    preferences.putString("token", nuevoToken);
-    preferences.putString("host", nuevoHost); 
+    preferences.putString("host", nuevoHost);
     preferences.end();
 
     Serial.println("\n[PORTAL] ¡Configuración guardada exitosamente!");
     Serial.printf("[PORTAL] SSID  : %s\n", nuevoSsid.c_str());
     Serial.printf("[PORTAL] Host  : %s\n", nuevoHost.length() > 0 ? nuevoHost.c_str() : "(auto)");
-    Serial.printf("[PORTAL] Token : %s\n", nuevoToken.c_str());
 
     String respuesta = "<!DOCTYPE html><html><body style='background:#0B0B0B;color:#FFF;font-family:sans-serif;text-align:center;padding:50px;'>";
     respuesta += "<div style='max-width:400px;margin:0 auto;'>";
     respuesta += "<div style='font-size:3rem;margin-bottom:16px;'>✓</div>";
     respuesta += "<h2 style='color:#22c55e;margin-bottom:12px;'>Configuración Guardada</h2>";
     respuesta += "<p style='color:#999;'>El dispositivo se está reiniciando para conectarse a <strong>" + nuevoSsid + "</strong>...</p>";
-    respuesta += "<p style='color:#666;font-size:0.8rem;margin-top:20px;'>Token: " + nuevoToken + "</p>";
+    respuesta += "<p style='color:#666;font-size:0.8rem;margin-top:20px;'>Identidad ECDSA del nodo conservada en el dispositivo.</p>";
     respuesta += "</div></body></html>";
     server.send(200, "text/html", respuesta);
 
@@ -1637,6 +2268,6 @@ void procesarGuardado() {
     delay(2000);
     ESP.restart();
   } else {
-    server.send(400, "text/plain", "Datos incompletos. Se requiere SSID y Token de vinculación.");
+    server.send(400, "text/plain", "Datos incompletos. Se requiere el nombre de la red (SSID).");
   }
 }

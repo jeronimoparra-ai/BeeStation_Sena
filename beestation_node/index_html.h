@@ -356,6 +356,10 @@ const char PORTAL_HTML[] PROGMEM = R"rawhtml(
       </div>
 
       <form action="/save" method="POST">
+        <!-- Token anti-CSRF: caduca en cada reinicio del nodo. Sin él,
+             una web cualquiera podría reconfigurar el dispositivo. -->
+        <input type="hidden" name="csrf" value="%CSRF_TOKEN%">
+
         <!-- 1. SELECCIÓN DE RED WI-FI -->
         <div class="form-group">
           <label class="form-label" for="ssid">Red WiFi del Apiario</label>
@@ -380,13 +384,20 @@ const char PORTAL_HTML[] PROGMEM = R"rawhtml(
           </span>
         </div>
 
-        <!-- 4. TOKEN DE VINCULACIÓN ÚNICO -->
-        <div class="form-group">
-          <label class="form-label" for="token_vinculacion">Token de Vinculación Único</label>
-          <input type="text" name="token_vinculacion" id="token_vinculacion" class="form-control" placeholder="Ej: BS-ALPHA01-9F2D" required>
-          <span class="helper-text">
-            Copia el token exacto desde la plataforma web BeeStation.
-          </span>
+        <!-- 4. IDENTIDAD DEL NODO (ECDSA P-256)
+             Ya no hay token que copiar: la credencial del nodo es un par de
+             claves generado en el propio ESP32. La clave privada NUNCA sale
+             del dispositivo; el código de alta solo sirve para identificarlo
+             en la plataforma. -->
+        <div class="form-group" style="padding:14px;border:1px solid rgba(34,197,94,.28);border-radius:12px;background:rgba(34,197,94,.06);">
+          <div class="form-label" style="margin-bottom:6px;">Identidad del nodo</div>
+          <div style="font-size:.82rem;line-height:1.7;color:var(--color-text-secondary);">
+            Código de alta: <b style="font-family:monospace;font-size:.95rem;color:#22c55e;">%CODIGO_ALTA%</b><br>
+            Identificador: <b style="font-family:monospace;">%NODO_ID%</b><br>
+            Este nodo genera su propia clave criptográfica (ECDSA P-256) y la
+            clave privada <b>nunca sale del ESP32</b>. No hay ningún token que
+            copiar. Autorízalo en la plataforma con el código de alta.
+          </div>
         </div>
 
         <button type="submit" class="btn-submit">
@@ -394,9 +405,19 @@ const char PORTAL_HTML[] PROGMEM = R"rawhtml(
             <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/>
             <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
           </svg>
-          Vincular Colmena
+          Guardar y conectar
         </button>
       </form>
+
+      <!-- Datos de conexión de este nodo -->
+      <div class="form-group" style="margin-top:18px;padding:14px;border:1px solid rgba(255,255,255,.10);border-radius:12px;">
+        <div class="form-label" style="margin-bottom:6px;">Este dispositivo</div>
+        <div style="font-size:.8rem;line-height:1.7;color:var(--color-text-secondary);">
+          MAC: <b>%MAC_ADDRESS%</b><br>
+          Contraseña de esta red WiFi: <b>%AP_PASSWORD%</b><br>
+          Firmware: <b>%FIRMWARE_VERSION%</b>
+        </div>
+      </div>
     </div>
     <div class="footer-note">ApiTechnology SENA</div>
     <div class="mac-text">MAC: %MAC_ADDRESS%</div>

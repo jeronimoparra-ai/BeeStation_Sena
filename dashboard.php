@@ -5,36 +5,127 @@
     <div class="card empty-state">
         <div class="empty-icon-circle"><i data-lucide="box" class="u-icon-lg"></i></div>
         <h2 class="empty-title">Todavía no tienes ninguna colmena registrada</h2>
-        <p class="empty-desc">Registra un apiario y una colmena en la base de datos para empezar a ver datos aquí.</p>
+        <p class="empty-desc">Crea un apiario y registra una colmena para empezar a ver datos reales.</p>
+        <a href="dispositivos.php" class="btn btn-brand u-mt-2">
+            <i data-lucide="plus"></i> Registrar colmena
+        </a>
     </div>
 
 <?php else:
-    $idColmena = $colmenaActiva['id_colmena'];
+    $idColmena = (int) $colmenaActiva['id_colmena'];
 
     $temp   = ultimaLectura($idColmena, 'temperatura_interna');
-    $tempEx = ultimaLectura($idColmena, 'temperatura_externa');
     $hum    = ultimaLectura($idColmena, 'humedad_relativa');
     $peso   = ultimaLectura($idColmena, 'peso');
     $sonido = ultimaLectura($idColmena, 'sonido');
 
     $flujoDiario = calcularFlujoDiarioPeso($idColmena);
-    $ibb = calcularIBB($idColmena);
-    $deltaT = calcularDeltaT($idColmena);
-    $ev = calcularEV($idColmena);
-    $hMiel = calcularHMiel($idColmena);
-    $alertas = alertasActivas($idColmena, 5);
+    $alertas     = alertasActivas($idColmena, 5);
+    $alertasTotal = contarAlertasActivas($idColmena);
+    // Serie agregada cada 15 min: máximo ~96 puntos en 24 h, no 2.880.
+    $serieTemp   = serieHistoricaAgregada($idColmena, 'temperatura_interna', 24, 15);
 
-    $serieTemp = serieHistorica($idColmena, 'temperatura_interna', 24);
-    $seriePeso = serieHistorica($idColmena, 'peso', 24);
+    $tempFresca   = lecturaReciente($temp, 5);
+    $humFresca    = lecturaReciente($hum, 5);
+    $pesoFresca   = lecturaReciente($peso, 5);
+    $sonidoFresca = lecturaReciente($sonido, 5);
+    $flujoFresco  = $pesoFresca && $flujoDiario !== null;
+
+    $tempOk = $tempFresca && (float) $temp['valor_calibrado'] >= 34 && (float) $temp['valor_calibrado'] <= 36;
+    $humOk  = $humFresca && (float) $hum['valor_calibrado'] >= 50 && (float) $hum['valor_calibrado'] <= 70;
+
+    // La acústica es experimental: no se usa para diagnosticar enjambrazón.
+    $sonidoActivo = $sonidoFresca && (float) $sonido['valor_calibrado'] > 0;
+    $sonidoBanda  = $sonidoActivo
+        && (float) $sonido['valor_calibrado'] >= 400
+        && (float) $sonido['valor_calibrado'] <= 600;
+    $sensoresFrescos = count(array_filter([$tempFresca, $humFresca, $pesoFresca, $sonidoFresca]));
+
+    $ultimaFecha = ultimaConexion($idColmena);
+    $ultimaTexto = $ultimaFecha ? tiempoRelativo($ultimaFecha) : 'sin lecturas';
+
+    if ($espOnline) {
+        $estadoNodo  = 'Nodo en línea';
+        $estadoClase = 'online';
+        $estadoSub   = 'Recibiendo telemetría. Última lectura: ' . $ultimaTexto . '.';
+    } elseif ($espTieneHistorial) {
+        $estadoNodo  = 'Nodo sin reportar';
+        $estadoClase = 'warning';
+        $estadoSub   = 'Última lectura: ' . $ultimaTexto . '. Revisa energía y WiFi.';
+    } else {
+        $estadoNodo  = 'Nodo sin configurar';
+        $estadoClase = 'offline';
+        $estadoSub   = 'Aún no llega telemetría de esta colmena.';
+    }
+
+    // “Qué revisar”: solo reglas que se pueden sostener con los sensores
+    // realmente instalados. Nada de diagnósticos que el hardware no mide.
+    $recomendaciones = [];
+
+    if (!$espOnline) {
+        $recomendaciones[] = [
+            'nivel'  => $espTieneHistorial ? 'attention' : 'info',
+            'icono'  => 'wifi-off',
+            'titulo' => $espTieneHistorial ? 'El nodo dejó de reportar' : 'Nodo pendiente de configuración',
+            'detalle'=> $espTieneHistorial
+                ? 'Última lectura ' . $ultimaTexto . '. Revisa batería, cableado y cobertura WiFi antes de asumir un problema en la colmena.'
+                : 'Enciende el nodo, configura el WiFi desde el portal y autorízalo con su código en Dispositivos.',
+        ];
+    }
+
+    if ($tempFresca && !$tempOk) {
+        $recomendaciones[] = [
+            'nivel'  => 'attention',
+            'icono'  => 'thermometer',
+            'titulo' => 'Temperatura fuera del rango de cría',
+            'detalle'=> 'Lectura actual: ' . number_format((float) $temp['valor_calibrado'], 1) . ' °C. El rango de referencia es 34–36 °C; confirma con una inspección antes de actuar.',
+        ];
+    }
+
+    if ($humFresca && !$humOk) {
+        $recomendaciones[] = [
+            'nivel'  => 'attention',
+            'icono'  => 'droplets',
+            'titulo' => 'Humedad fuera del rango configurado',
+            'detalle'=> 'Lectura actual: ' . number_format((float) $hum['valor_calibrado'], 0) . ' % HR. El rango configurado es 50–70 %; verifica ventilación y entrada de humedad.',
+        ];
+    }
+
+    if ($flujoFresco && $flujoDiario <= -1.5) {
+        $recomendaciones[] = [
+            'nivel'  => 'attention',
+            'icono'  => 'trending-down',
+            'titulo' => 'Caída de peso mayor a 1,5 kg en 24 h',
+            'detalle'=> 'Si la báscula está calibrada, puede ser una cosecha, una salida de enjambre o una pérdida de alimento. Confirma con la bitácora antes de concluir.',
+        ];
+    }
+
+    if ($sonidoBanda) {
+        $recomendaciones[] = [
+            'nivel'  => 'info',
+            'icono'  => 'activity',
+            'titulo' => 'Banda acústica de 400–600 Hz detectada',
+            'detalle'=> 'Es una señal experimental: el método actual no confirma enjambrazón. No abras la colmena solo por este dato; úsalo como contexto.',
+        ];
+    }
+
+    if (!$recomendaciones) {
+        $recomendaciones[] = [
+            'nivel'  => 'info',
+            'icono'  => 'check-circle-2',
+            'titulo' => 'Sin anomalías en las lecturas disponibles',
+            'detalle'=> 'No hay alertas con las variables que están reportando. La ausencia de datos no es un diagnóstico; no reemplaza una inspección presencial.',
+        ];
+    }
 ?>
 
 <div class="page-header">
     <div>
-        <h1 class="page-title">Resumen General</h1>
-        <p class="page-subtitle"><?= htmlspecialchars($colmenaActiva['nombre']) ?> · Estado: <?= htmlspecialchars($colmenaActiva['estado']) ?></p>
+        <h1 class="page-title">Resumen</h1>
+        <p class="page-subtitle"><?= htmlspecialchars($colmenaActiva['nombre']) ?> · <?= htmlspecialchars($colmenaActiva['estado']) ?></p>
     </div>
     <div class="page-header-actions">
-        <span class="text-tertiary text-xs" id="lastUpdate"></span>
+        <span class="text-tertiary text-xs" id="lastUpdate">Actualizado <?= date('H:i') ?></span>
         <button class="btn btn-secondary btn-sm" onclick="location.reload()">
             <i data-lucide="refresh-cw"></i>
             Actualizar
@@ -42,54 +133,44 @@
     </div>
 </div>
 
-<div class="card dashboard-hero animate-fadeUp stagger-1">
-    <div class="hero-copy">
-        <span class="hero-eyebrow">Centro de monitoreo en tiempo real</span>
-        <h2>BeeStation observa la colmena con precisión operativa.</h2>
-        <p class="page-subtitle">Lecturas reales, jerarquía visual clara y estado consolidado de temperatura, humedad, peso, actividad acústica y alertas.</p>
-        <div class="hero-chip-row">
-            <span class="hero-chip">
-                <i data-lucide="hexagon"></i>
-                <?= htmlspecialchars($colmenaActiva['nombre']) ?>
-            </span>
-            <span class="hero-chip">
-                <i data-lucide="wifi"></i>
-                <span id="heroEsp"><?= $espOnline ? 'ESP32 sincronizado' : ($espTieneHistorial ? 'Reconectando…' : 'Sin datos recientes') ?></span>
-            </span>
-            <span class="hero-chip">
-                <i data-lucide="alert-triangle"></i>
-                <span id="heroAlertas"><?= count($alertas) ?> alertas activas</span>
-            </span>
+<!-- Estado operativo: lo primero que debe ver el apicultor -->
+<div class="card status-panel animate-fadeUp">
+    <div class="status-main">
+        <span class="status-dot <?= htmlspecialchars($estadoClase) ?>" id="statusDot"></span>
+        <div>
+            <div class="status-title" id="statusTitle"><?= htmlspecialchars($estadoNodo) ?></div>
+            <div class="status-sub" id="statusSub"><?= htmlspecialchars($estadoSub) ?></div>
         </div>
     </div>
-    <div class="hero-panel">
-        <div class="hero-ring">
-            <div class="hero-kpi">
-                <div class="hero-kpi-value" id="heroIbb"><?= $ibb ? number_format($ibb['valor'], 1) : '—' ?></div>
-                <div class="hero-kpi-label" id="heroIbbLabel"><?= $ibb ? htmlspecialchars($ibb['estado']) : 'IBB pendiente' ?></div>
-            </div>
-        </div>
+    <div class="status-item">
+        <span>Última lectura</span>
+        <strong id="statusLast"><?= $ultimaFecha ? htmlspecialchars(date('d/m H:i', strtotime($ultimaFecha))) : 'Sin datos' ?></strong>
+    </div>
+    <div class="status-item">
+        <span>Alertas activas</span>
+        <strong id="statusAlerts"><?= $alertasTotal ?></strong>
+    </div>
+    <div class="status-item">
+        <span>Sensores con datos recientes</span>
+        <strong id="statusSensors"><?= $sensoresFrescos ?> de 4</strong>
     </div>
 </div>
 
-<!-- Metric Cards -->
+<!-- Métricas núcleo: solo lo que el nodo básico mide de verdad -->
 <div class="grid-4-cols dashboard-metrics">
 
-    <!-- Temperatura -->
-    <div data-metric="temp" class="card metric-card animate-fadeUp stagger-1 <?= ($temp && $temp['valor_calibrado'] >= 34 && $temp['valor_calibrado'] <= 36) ? 'success' : ($temp ? 'warning' : '') ?>">
-        <div class="metric-icon <?= ($temp && $temp['valor_calibrado'] >= 34 && $temp['valor_calibrado'] <= 36) ? 'success' : 'warning' ?>">
+    <div data-metric="temp" class="card metric-card animate-fadeUp <?= $temp ? ($tempFresca ? ($tempOk ? 'success' : 'warning') : 'stale') : '' ?>">
+        <div class="metric-icon <?= $temp ? ($tempFresca ? ($tempOk ? 'success' : 'warning') : 'neutral') : 'neutral' ?>">
             <i data-lucide="thermometer"></i>
         </div>
-        <div class="metric-header"><i data-lucide="thermometer"></i> Temperatura Interna</div>
+        <div class="metric-header"><i data-lucide="thermometer"></i> Temperatura interna</div>
         <?php if ($temp): ?>
             <div class="metric-value">
-                <span data-countup="<?= number_format($temp['valor_calibrado'], 1, '.', '') ?>" data-decimals="1"><?= number_format($temp['valor_calibrado'], 1) ?></span>
+                <span data-countup="<?= number_format((float) $temp['valor_calibrado'], 1, '.', '') ?>" data-decimals="1"><?= number_format((float) $temp['valor_calibrado'], 1) ?></span>
                 <span class="metric-unit">°C</span>
             </div>
             <div class="metric-footer">
-                <span class="badge <?= ($temp['valor_calibrado'] >= 34 && $temp['valor_calibrado'] <= 36) ? 'badge-success' : 'badge-warning' ?>">
-                    <?= ($temp['valor_calibrado'] >= 34 && $temp['valor_calibrado'] <= 36) ? 'Rango óptimo' : 'Fuera de rango' ?>
-                </span>
+                <span class="badge <?= !$tempFresca ? 'badge-neutral' : ($tempOk ? 'badge-success' : 'badge-warning') ?>"><?= !$tempFresca ? 'Dato antiguo' : ($tempOk ? 'Rango de cría' : 'Fuera de rango') ?></span>
                 <span class="metric-time text-tertiary text-xs"><?= horaSubida($temp['fecha_hora']) ?> · <?= tiempoRelativo($temp['fecha_hora']) ?></span>
             </div>
         <?php else: ?>
@@ -98,21 +179,18 @@
         <?php endif; ?>
     </div>
 
-    <!-- Humedad -->
-    <div data-metric="hum" class="card metric-card animate-fadeUp stagger-2 <?= ($hum && $hum['valor_calibrado'] >= 50 && $hum['valor_calibrado'] <= 70) ? 'success' : ($hum ? 'warning' : '') ?>">
-        <div class="metric-icon <?= ($hum && $hum['valor_calibrado'] >= 50 && $hum['valor_calibrado'] <= 70) ? 'success' : 'warning' ?>">
+    <div data-metric="hum" class="card metric-card animate-fadeUp <?= $hum ? ($humFresca ? ($humOk ? 'success' : 'warning') : 'stale') : '' ?>">
+        <div class="metric-icon <?= $hum ? ($humFresca ? ($humOk ? 'success' : 'warning') : 'neutral') : 'neutral' ?>">
             <i data-lucide="droplets"></i>
         </div>
-        <div class="metric-header"><i data-lucide="droplets"></i> Humedad Relativa</div>
+        <div class="metric-header"><i data-lucide="droplets"></i> Humedad relativa</div>
         <?php if ($hum): ?>
             <div class="metric-value">
-                <span data-countup="<?= number_format($hum['valor_calibrado'], 0, '.', '') ?>" data-decimals="0"><?= number_format($hum['valor_calibrado'], 0) ?></span>
+                <span data-countup="<?= number_format((float) $hum['valor_calibrado'], 0, '.', '') ?>" data-decimals="0"><?= number_format((float) $hum['valor_calibrado'], 0) ?></span>
                 <span class="metric-unit">% HR</span>
             </div>
             <div class="metric-footer">
-                <span class="badge <?= ($hum['valor_calibrado'] >= 50 && $hum['valor_calibrado'] <= 70) ? 'badge-success' : 'badge-warning' ?>">
-                    <?= ($hum['valor_calibrado'] >= 50 && $hum['valor_calibrado'] <= 70) ? 'Normal' : 'Atención' ?>
-                </span>
+                <span class="badge <?= !$humFresca ? 'badge-neutral' : ($humOk ? 'badge-success' : 'badge-warning') ?>"><?= !$humFresca ? 'Dato antiguo' : ($humOk ? 'Normal' : 'Atención') ?></span>
                 <span class="metric-time text-tertiary text-xs"><?= horaSubida($hum['fecha_hora']) ?> · <?= tiempoRelativo($hum['fecha_hora']) ?></span>
             </div>
         <?php else: ?>
@@ -121,21 +199,18 @@
         <?php endif; ?>
     </div>
 
-    <!-- Peso -->
-    <div data-metric="peso" class="card metric-card animate-fadeUp stagger-3 brand">
-        <div class="metric-icon brand">
-            <i data-lucide="scale"></i>
-        </div>
-        <div class="metric-header"><i data-lucide="scale"></i> Peso de la Colmena</div>
+    <div data-metric="peso" class="card metric-card animate-fadeUp <?= $peso ? ($pesoFresca ? 'brand' : 'stale') : '' ?>">
+        <div class="metric-icon <?= $pesoFresca ? 'brand' : 'neutral' ?>"><i data-lucide="scale"></i></div>
+        <div class="metric-header"><i data-lucide="scale"></i> Peso de la colmena</div>
         <?php if ($peso): ?>
             <div class="metric-value">
-                <span data-countup="<?= number_format($peso['valor_calibrado'], 1, '.', '') ?>" data-decimals="1"><?= number_format($peso['valor_calibrado'], 1) ?></span>
+                <span data-countup="<?= number_format((float) $peso['valor_calibrado'], 1, '.', '') ?>" data-decimals="1"><?= number_format((float) $peso['valor_calibrado'], 1) ?></span>
                 <span class="metric-unit">kg</span>
             </div>
             <div class="metric-footer">
-                <span class="badge badge-brand">Flujo néctar</span>
+                <span class="badge <?= $pesoFresca ? 'badge-brand' : 'badge-neutral' ?>"><?= $pesoFresca ? 'Balance 24 h' : 'Dato antiguo' ?></span>
                 <span class="text-secondary text-xs" id="f-flujo">
-                    <?= $flujoDiario !== null ? (($flujoDiario >= 0 ? '+' : '') . $flujoDiario . ' kg/día') : 'Calculando…' ?>
+                    <?= $flujoFresco ? (($flujoDiario >= 0 ? '+' : '') . $flujoDiario . ' kg') : 'Sin datos recientes' ?>
                 </span>
                 <span class="metric-time text-tertiary text-xs"><?= horaSubida($peso['fecha_hora']) ?> · <?= tiempoRelativo($peso['fecha_hora']) ?></span>
             </div>
@@ -145,139 +220,84 @@
         <?php endif; ?>
     </div>
 
-    <!-- Acústica -->
-    <div data-metric="sonido" class="card metric-card animate-fadeUp stagger-4 <?= ($sonido && $sonido['valor_calibrado'] >= 400 && $sonido['valor_calibrado'] <= 600) ? 'critical' : 'success' ?>">
-        <div class="metric-icon <?= ($sonido && $sonido['valor_calibrado'] >= 400 && $sonido['valor_calibrado'] <= 600) ? 'critical' : 'success' ?>">
+    <div data-metric="sonido" class="card metric-card animate-fadeUp <?= $sonido && !$sonidoFresca ? 'stale' : '' ?>">
+        <div class="metric-icon neutral">
             <i data-lucide="activity"></i>
         </div>
-        <div class="metric-header"><i data-lucide="activity"></i> Actividad Acústica</div>
+        <div class="metric-header">
+            <i data-lucide="activity"></i> Actividad acústica
+            <span class="badge badge-experimental u-ml-1">experimental</span>
+        </div>
         <?php if ($sonido): ?>
             <div class="metric-value">
-                <span data-countup="<?= number_format($sonido['valor_calibrado'], 0, '.', '') ?>" data-decimals="0"><?= number_format($sonido['valor_calibrado'], 0) ?></span>
+                <span data-countup="<?= number_format((float) $sonido['valor_calibrado'], 0, '.', '') ?>" data-decimals="0"><?= number_format((float) $sonido['valor_calibrado'], 0) ?></span>
                 <span class="metric-unit">Hz</span>
             </div>
             <div class="metric-footer">
-                <span class="badge <?= ($sonido['valor_calibrado'] >= 400 && $sonido['valor_calibrado'] <= 600) ? 'badge-critical' : 'badge-success' ?>">
-                    <?= ($sonido['valor_calibrado'] >= 400 && $sonido['valor_calibrado'] <= 600) ? 'Zona de alerta' : 'Normal' ?>
-                </span>
+                <?php if ((float) $sonido['valor_calibrado'] <= 0): ?>
+                    <span class="badge badge-neutral">Sin actividad</span>
+                <?php elseif (!$sonidoFresca): ?>
+                    <span class="badge badge-neutral">Dato antiguo</span>
+                <?php elseif ($sonidoBanda): ?>
+                    <span class="badge badge-neutral">Banda de referencia</span>
+                <?php else: ?>
+                    <span class="badge badge-neutral">Fuera de banda de referencia</span>
+                <?php endif; ?>
                 <span class="metric-time text-tertiary text-xs"><?= horaSubida($sonido['fecha_hora']) ?> · <?= tiempoRelativo($sonido['fecha_hora']) ?></span>
             </div>
         <?php else: ?>
             <div class="metric-value metric-empty">—<span class="metric-unit">Hz</span></div>
-            <div class="metric-footer"><span class="badge badge-neutral">Sin datos</span></div>
+            <div class="metric-footer"><span class="badge badge-neutral">Sin actividad</span></div>
         <?php endif; ?>
     </div>
 
 </div>
 
-<!-- Indicadores Analíticos -->
-<h2 class="page-subtitle u-mb-3 u-mt-4">Indicadores Analíticos</h2>
-<div class="grid-3-cols dashboard-metrics">
-
-    <!-- Delta T -->
-    <div class="card metric-card animate-fadeUp stagger-5 <?= ($deltaT && $deltaT['estado'] === 'Normal') ? 'success' : ($deltaT ? 'critical' : '') ?>">
-        <div class="metric-icon <?= ($deltaT && $deltaT['estado'] === 'Normal') ? 'success' : 'critical' ?>">
-            <i data-lucide="thermometer"></i>
-        </div>
-        <div class="metric-header"><i data-lucide="thermometer"></i> Delta T (Interior - Exterior)</div>
-        <?php if ($deltaT): ?>
-            <div class="metric-value">
-                <span id="v-deltat" data-countup="<?= number_format($deltaT['valor'], 1, '.', '') ?>" data-decimals="1"><?= number_format($deltaT['valor'], 1) ?></span>
-                <span class="metric-unit">°C</span>
-            </div>
-            <div class="metric-footer">
-                <span id="b-deltat" class="badge <?= ($deltaT['estado'] === 'Normal') ? 'badge-success' : 'badge-critical' ?>">
-                    <?= htmlspecialchars($deltaT['estado']) ?>
-                </span>
-                <span class="text-tertiary text-xs" id="f-deltat">Actual</span>
-            </div>
-        <?php else: ?>
-            <div class="metric-value metric-empty">—<span class="metric-unit">°C</span></div>
-            <div class="metric-footer"><span class="badge badge-neutral">Sin datos</span></div>
-        <?php endif; ?>
-    </div>
-
-    <!-- Humedad Miel -->
-    <div class="card metric-card animate-fadeUp stagger-6 <?= ($hMiel && $hMiel['estado'] === 'Lista para cosecha') ? 'success' : ($hMiel ? 'warning' : '') ?>">
-        <div class="metric-icon <?= ($hMiel && $hMiel['estado'] === 'Lista para cosecha') ? 'success' : 'warning' ?>">
-            <i data-lucide="droplet"></i>
-        </div>
-        <div class="metric-header"><i data-lucide="droplet"></i> Humedad de Miel</div>
-        <?php if ($hMiel): ?>
-            <div class="metric-value">
-                <span id="v-hmiel" data-countup="<?= number_format($hMiel['valor'], 1, '.', '') ?>" data-decimals="1"><?= number_format($hMiel['valor'], 1) ?></span>
-                <span class="metric-unit">%</span>
-            </div>
-            <div class="metric-footer">
-                <span id="b-hmiel" class="badge <?= ($hMiel['estado'] === 'Lista para cosecha') ? 'badge-success' : 'badge-warning' ?>">
-                    <?= htmlspecialchars($hMiel['estado']) ?>
-                </span>
-                <span class="text-tertiary text-xs" id="f-hmiel">Actual</span>
-            </div>
-        <?php else: ?>
-            <div class="metric-value metric-empty">—<span class="metric-unit">%</span></div>
-            <div class="metric-footer"><span class="badge badge-neutral">Sin datos</span></div>
-        <?php endif; ?>
-    </div>
-
-    <!-- Eficiencia de Ventilación (EV) -->
-    <div class="card animate-fadeUp stagger-6">
-        <div class="card-header card-header-compact">
-            <div class="card-title">Eficiencia Ventilación</div>
-            <?php if ($ev): ?>
-                <span id="evBadge" class="badge <?= $ev['valor'] >= 50 ? 'badge-success' : 'badge-warning' ?>">
-                    <?= htmlspecialchars($ev['estado']) ?>
-                </span>
-            <?php endif; ?>
-        </div>
-        <?php if ($ev): ?>
-            <div class="ibb-gauge">
-                <div class="ibb-bar">
-                    <div class="ibb-fill" id="evBar" data-progress="<?= $ev['valor'] ?>"></div>
-                </div>
-                <div class="ibb-value" id="evValue"><?= $ev['valor'] ?></div>
-            </div>
-            <p class="text-xs text-secondary ibb-note">Porcentaje EV (basado en CO₂)</p>
-        <?php else: ?>
-            <p class="text-secondary text-sm">Sin datos de CO₂.</p>
-        <?php endif; ?>
-    </div>
-
-</div>
-
-<!-- Chart + Alerts -->
 <div class="dashboard-insights-grid">
 
-    <!-- Chart Card -->
-    <div class="card animate-fadeUp stagger-5">
-        <div class="card-header">
+    <div class="card animate-fadeUp">
+        <div class="card-header card-header-chart">
             <div>
-                <div class="card-title">Temperatura vs Peso · 24 h</div>
-                <div class="page-subtitle chart-note"><?= htmlspecialchars($colmenaActiva['nombre']) ?> · Datos reales del sistema</div>
+                <div class="card-title" id="tempChartTitle">Temperatura interna · 24 h</div>
+                <div class="page-subtitle chart-note" id="tempChartNote">Promedio cada 15 minutos · datos reales</div>
+            </div>
+            <div class="chart-period-control">
+                <label for="tempPeriod">Período</label>
+                <select class="form-control" id="tempPeriod" aria-label="Período de temperatura">
+                    <option value="24" selected>24 horas</option>
+                    <option value="48">48 horas</option>
+                    <option value="168">7 días</option>
+                    <option value="720">30 días</option>
+                </select>
             </div>
         </div>
-        <?php if (count($serieTemp) > 0 || count($seriePeso) > 0): ?>
-            <div class="chart-shell-sm"><canvas id="tempWeightChart"></canvas></div>
-        <?php else: ?>
-            <div class="empty-state compact">
-                <div class="empty-icon-circle"><i data-lucide="line-chart" class="u-icon-lg"></i></div>
-                <p class="empty-desc">Aún no hay lecturas registradas en las últimas 24 horas. El gráfico se llenará automáticamente cuando el ESP32 empiece a enviar datos.</p>
+        <div class="chart-shell-sm" id="tempChartShell"<?= count($serieTemp) === 0 ? ' style="display:none"' : '' ?>><canvas id="tempChart" aria-label="Serie de temperatura interna de las últimas 24 horas"></canvas></div>
+        <div class="empty-state compact" id="tempChartEmpty" role="status"<?= count($serieTemp) > 0 ? ' style="display:none"' : '' ?>>
+            <div class="empty-icon-circle"><i data-lucide="line-chart" class="u-icon-lg"></i></div>
+            <p class="empty-desc">Aún no hay lecturas en las últimas 24 horas. El gráfico aparecerá cuando el nodo envíe datos.</p>
+        </div>
+        <details class="chart-table" id="tempChartTable"<?= count($serieTemp) === 0 ? ' style="display:none"' : '' ?>>
+            <summary>Ver tabla de datos</summary>
+            <div class="table-wrap">
+                <table class="data-table">
+                    <thead><tr><th>Fecha y hora del cubo</th><th>Temperatura media (°C)</th><th>Muestras</th></tr></thead>
+                    <tbody><?php foreach ($serieTemp as $p): ?>
+                        <tr><td><?= date('d/m/Y H:i', strtotime($p['fecha_hora'])) ?></td><td><?= number_format((float) $p['valor'], 1) ?></td><td><?= (int) $p['muestras'] ?></td></tr>
+                    <?php endforeach; ?></tbody>
+                </table>
             </div>
-        <?php endif; ?>
+        </details>
     </div>
 
-    <!-- Alerts + IBB -->
     <div class="stack">
 
-        <!-- Alerts -->
-        <div class="card animate-fadeUp stagger-6 stack-fill">
+        <div class="card animate-fadeUp stack-fill">
             <div class="card-header">
                 <div class="card-title alert-title-row">
                     Alertas
-                    <span id="alertCount" class="badge <?= count($alertas) > 0 ? 'badge-critical' : 'badge-neutral' ?>"><?= count($alertas) ?> activas</span>
+                    <span id="alertCount" class="badge <?= $alertasTotal > 0 ? 'badge-critical' : 'badge-neutral' ?>"><?= $alertasTotal ?> activas</span>
                 </div>
             </div>
-
             <ul class="alert-list" id="alertList"<?= count($alertas) === 0 ? ' style="display:none"' : '' ?>>
                 <?php foreach ($alertas as $al): ?>
                 <li class="alert-item">
@@ -296,93 +316,107 @@
             </p>
         </div>
 
-        <!-- IBB -->
-        <div class="card animate-fadeUp stagger-6">
+        <div class="card animate-fadeUp">
             <div class="card-header card-header-compact">
-                <div class="card-title">Bienestar (IBB)</div>
-                <?php if ($ibb): ?>
-                    <span id="ibbBadge" class="badge <?= $ibb['valor'] >= 85 ? 'badge-success' : ($ibb['valor'] >= 50 ? 'badge-warning' : 'badge-critical') ?>">
-                        <?= htmlspecialchars($ibb['estado']) ?>
-                    </span>
-                <?php endif; ?>
+                <div class="card-title">Qué revisar</div>
             </div>
-            <?php if ($ibb): ?>
-                <div class="ibb-gauge">
-                    <div class="ibb-bar">
-                        <div class="ibb-fill" id="ibbBar" data-progress="<?= $ibb['valor'] ?>"></div>
+            <ul class="ops-list">
+                <?php foreach ($recomendaciones as $r): ?>
+                <li class="ops-item <?= htmlspecialchars($r['nivel']) ?>">
+                    <i data-lucide="<?= htmlspecialchars($r['icono']) ?>"></i>
+                    <div>
+                        <strong><?= htmlspecialchars($r['titulo']) ?></strong>
+                        <span><?= htmlspecialchars($r['detalle']) ?></span>
                     </div>
-                    <div class="ibb-value" id="ibbValue"><?= $ibb['valor'] ?></div>
-                </div>
-                <p class="text-xs text-secondary ibb-note">Índice 0–100 basado en T°, humedad y CO₂</p>
-            <?php else: ?>
-                <p class="text-secondary text-sm">Sin datos suficientes para calcular el IBB.</p>
-            <?php endif; ?>
+                </li>
+                <?php endforeach; ?>
+            </ul>
         </div>
 
     </div>
 </div>
 
-<button class="btn-floating" title="Ayuda"><i data-lucide="help-circle"></i></button>
+<div class="scope-note u-mt-4">
+    <strong>Alcance de esta versión:</strong> el panel muestra temperatura, humedad, peso y actividad acústica.
+    El IBB, la eficiencia de ventilación y el ΔT requieren sensores de CO₂ y temperatura exterior que este nodo no tiene;
+    no se muestran para no inventar un diagnóstico. El peso es una tendencia del HX711 sin calibración validada, y la
+    actividad acústica es experimental: no confirma enjambrazón. <a href="sensores.php">Ver inventario de sensores</a>.
+</div>
 
-<?php if (count($serieTemp) > 0 || count($seriePeso) > 0): ?>
 <script>
 document.addEventListener('DOMContentLoaded', () => {
-    const ctx = document.getElementById('tempWeightChart').getContext('2d');
+    const canvas = document.getElementById('tempChart');
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
     const colors = window.BeeStationTheme.chartColors();
     const gradientBrand = ctx.createLinearGradient(0, 0, 0, 280);
     gradientBrand.addColorStop(0, colors.brandAreaStrong);
     gradientBrand.addColorStop(1, colors.brandAreaSoft);
 
-    // Datos REALES provenientes de PHP (no se inventa nada aquí)
-    const tempLabels = <?= json_encode(array_map(fn($r) => date('H:i', strtotime($r['fecha_hora'])), $serieTemp)) ?>;
-    const tempData    = <?= json_encode(array_map(fn($r) => (float) $r['valor_calibrado'], $serieTemp)) ?>;
-    const pesoLabels  = <?= json_encode(array_map(fn($r) => date('H:i', strtotime($r['fecha_hora'])), $seriePeso)) ?>;
-    const pesoData    = <?= json_encode(array_map(fn($r) => (float) $r['valor_calibrado'], $seriePeso)) ?>;
+    const labels = <?= json_encode(array_map(fn($r) => date('d/m/Y H:i', strtotime($r['fecha_hora'])), $serieTemp)) ?>;
+    const data   = <?= json_encode(array_map(fn($r) => (float) $r['valor'], $serieTemp)) ?>;
 
-    const labels = tempLabels.length ? tempLabels : pesoLabels;
-
-    window.tempWeightChart = new Chart(ctx, {
+    window.tempChart = new Chart(ctx, {
         type: 'line',
         data: {
             labels: labels,
-            datasets: [
-                {
-                    label: 'Temperatura (°C)',
-                    data: tempData,
-                    borderColor: colors.brand,
-                    backgroundColor: gradientBrand,
-                    borderWidth: 2, yAxisID: 'y', tension: 0.4, fill: true,
-                    pointRadius: 0, pointHoverRadius: 5, pointHoverBackgroundColor: colors.brand
-                },
-                {
-                    label: 'Peso (kg)',
-                    data: pesoData,
-                    borderColor: colors.success,
-                    borderWidth: 2, borderDash: [4,4], yAxisID: 'y1', tension: 0.4, fill: false,
-                    pointRadius: 0, pointHoverRadius: 5, pointHoverBackgroundColor: colors.success
-                }
-            ]
+            datasets: [{
+                label: 'Temperatura (°C)',
+                data: data,
+                borderColor: colors.brand,
+                backgroundColor: gradientBrand,
+                borderWidth: 2.5,
+                tension: 0.35,
+                fill: true,
+                pointRadius: data.length === 1 ? 5 : 0,
+                pointBackgroundColor: colors.brand,
+                pointHoverRadius: 5,
+                pointHoverBackgroundColor: colors.brand
+            }]
         },
         options: {
-            responsive: true, maintainAspectRatio: false,
+            responsive: true,
+            maintainAspectRatio: false,
+            animation: false,
             interaction: { mode: 'index', intersect: false },
             plugins: {
-                legend: {
-                    position: 'bottom',
-                    labels: { usePointStyle: true, padding: 16, color: colors.textSecondary, font: { family: 'Inter', size: 12 } }
+                legend: { display: false },
+                tooltip: {
+                    callbacks: {
+                        title: (items) => items[0]?.label || '',
+                        label: (item) => item.parsed.y.toFixed(1) + ' °C'
+                    }
                 }
             },
             scales: {
-                x: { grid: { display: false }, ticks: { color: colors.textSecondary, font: { family: 'IBM Plex Mono', size: 11 }, autoSkip: false, callback: function (v) { const l = this.getLabelForValue(v); return (typeof l === 'string' && l.slice(-3) === ':00') ? l : ''; } } },
-                y:  { type: 'linear', position: 'left',  title: { display: true, text: '°C', color: colors.textSecondary, font: { family: 'Inter', size: 11 } }, ticks: { color: colors.textSecondary }, grid: { color: colors.grid } },
-                y1: { type: 'linear', position: 'right', title: { display: true, text: 'kg', color: colors.textSecondary, font: { family: 'Inter', size: 11 } }, ticks: { color: colors.textSecondary }, grid: { drawOnChartArea: false } }
+                x: {
+                    offset: data.length === 1,
+                    grid: { display: false },
+                    ticks: {
+                        color: colors.textSecondary,
+                        font: { family: 'Inter', size: 11 },
+                        maxTicksLimit: 8
+                    }
+                },
+                y: {
+                    suggestedMin: 25,
+                    suggestedMax: 40,
+                    title: {
+                        display: true,
+                        text: '°C',
+                        color: colors.textSecondary,
+                        font: { family: 'Inter', size: 11 }
+                    },
+                    ticks: { color: colors.textSecondary },
+                    grid: { color: colors.grid }
+                }
             }
         }
     });
 });
 </script>
-<?php endif; ?>
 
+<script src="js/historico-graficas.js"></script>
 <script src="js/actualizar-dashboard.js"></script>
 
 <?php endif; ?>

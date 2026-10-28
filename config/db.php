@@ -1,39 +1,104 @@
 <?php
 /**
  * config/db.php
- * Conexión real a MySQL/MariaDB mediante PDO.
- * Ajusta estas 4 constantes según tu entorno (XAMPP, servidor SENA, etc.)
+ * ----------------------------------------------------------------
+ * Configuración de la aplicación. Este archivo NO contiene secretos.
+ *
+ * La API ya no usa una clave global: cada nodo ESP32 firma sus
+ * peticiones con el secreto de SU colmena (ver includes/firma.php),
+ * de modo que no existe ninguna API Key que compilar en el firmware
+ * ni que rotear en bloque.
+ *
+ * Los valores reales (usuario y contraseña de MySQL) viven en
+ *   config/db.local.php   → fuera del control de versiones
+ * o en variables de entorno (DB_HOST, DB_NAME, DB_USER, DB_PASS).
+ *
+ * Instalación nueva:
+ *   1) copia config/db.example.php  →  config/db.local.php
+ *   2) ajusta los valores
+ * ----------------------------------------------------------------
  */
 
-// Zona horaria de la aplicación. DEBE coincidir con la del servidor MySQL
-// (America/Bogota, UTC-5) para que las comparaciones NOW() de SQL y las
-// marcas de tiempo de PHP (time(), strtotime(), date()) sean coherentes.
+// Zona horaria de la aplicación. Debe coincidir con la que fija la
+// conexión PDO (SET time_zone = '-05:00') para que las comparaciones
+// NOW() de SQL y las marcas de tiempo de PHP sean coherentes.
 date_default_timezone_set('America/Bogota');
 
-// Se pueden sobreescribir por variables de entorno para no dejar las
-// credenciales ni la clave en el repositorio. En XAMPP/Apache:
-//   SetEnv BEESTATION_DB_PASS "tu_clave"
-//   SetEnv BEESTATION_API_KEY "tu_clave_secreta"
-define('DB_HOST', getenv('BEESTATION_DB_HOST') ?: '127.0.0.1');
-define('DB_NAME', getenv('BEESTATION_DB_NAME') ?: 'beestation_sena');
-define('DB_USER', getenv('BEESTATION_DB_USER') ?: 'root');
-define('DB_PASS', getenv('BEESTATION_DB_PASS') ?: '');   // pon aquí la clave real de tu MySQL/MariaDB
+$configLocal = __DIR__ . '/db.local.php';
+$config = is_file($configLocal) ? (array) require $configLocal : [];
 
-// ── SEGURIDAD API (ESP32 -> api/ingest.php) ──────────────────
-// Clave precompartida requerida en el header 'X-API-Key' de cada POST.
-// Cámbiala por una cadena segura y configúrala idéntica en el firmware del ESP32.
-define('BEESTATION_API_KEY', getenv('BEESTATION_API_KEY') ?: 'ba20858ed12a853bbcaafec2d9c753db0ad9f7e60022d6e1a3f94f978743808a');
+// ── Modo de base de datos AISLADA ───────────────────────────────────────────
+//
+//  Con BEE_DB_AISLADA=1 la configuración se toma EXCLUSIVAMENTE de las
+//  variables de entorno y se ignora config/db.local.php (que contiene las
+//  credenciales de la base de datos real).
+//
+//  Es lo que usa la batería de pruebas para garantizar que NINGUNA prueba
+//  escribe en la base de datos de producción. Además, en este modo se
+//  exige que el nombre de la base termine en "_prueba" o "_test": si no,
+//  la aplicación se niega a arrancar en lugar de arriesgar la base real.
+$beeDbAislada = in_array(
+    strtolower(trim((string) (getenv('BEE_DB_AISLADA') ?: ''))),
+    ['1', 'true', 'si', 'yes', 'on'],
+    true
+);
+
+$resolver = function (string $clave, string $defecto) use ($config, $beeDbAislada): string {
+    if (!$beeDbAislada && isset($config[$clave]) && (string) $config[$clave] !== '') {
+        return (string) $config[$clave];
+    }
+    $entorno = getenv($clave);
+    return ($entorno === false || $entorno === '') ? $defecto : (string) $entorno;
+};
+
+define('DB_HOST', $resolver('DB_HOST', '127.0.0.1'));
+define('DB_NAME', $resolver('DB_NAME', 'beestation_sena'));
+define('DB_USER', $resolver('DB_USER', ''));
+define('DB_PASS', $resolver('DB_PASS', ''));
+// Puerto: 3306 por defecto (MySQL/MariaDB estandar). Se puede cambiar por
+// entorno o en db.local.php, lo que permite trabajar contra una instancia
+// de pruebas AISLADA (p. ej. 3399) sin tocar la base de datos real.
+define('DB_PORT', (int) $resolver('DB_PORT', '3306'));
+
+if ($beeDbAislada && !preg_match('/(_prueba|_test)$/i', DB_NAME)) {
+    throw new RuntimeException(
+        'BEE_DB_AISLADA exige que el nombre de la base termine en "_prueba" '
+        . 'o "_test". Se ha recibido "' . DB_NAME . '": no se permite operar '
+        . 'en modo aislado sobre una base de datos real.'
+    );
+}
 
 function getPDO(): PDO {
     static $pdo = null;
     if ($pdo === null) {
-        $dsn = "mysql:host=" . DB_HOST . ";dbname=" . DB_NAME . ";charset=utf8mb4";
+        if (DB_USER === '') {
+            throw new RuntimeException('Database credentials are not configured.');
+        }
+        $production = strtolower((string) (getenv('APP_ENV') ?: '')) === 'production';
+        if ($production && (strtolower(DB_USER) === 'root' || DB_PASS === '')) {
+            throw new RuntimeException('Production database configuration is unsafe.');
+        }
+        $dsn = "mysql:host=" . DB_HOST . ";port=" . DB_PORT . ";dbname=" . DB_NAME . ";charset=utf8mb4";
         $options = [
             PDO::ATTR_ERRMODE            => PDO::ERRMODE_EXCEPTION,
             PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
             PDO::ATTR_EMULATE_PREPARES   => false,
         ];
-        $pdo = new PDO($dsn, DB_USER, DB_PASS, $options);
+        try {
+            $pdo = new PDO($dsn, DB_USER, DB_PASS, $options);
+
+        // Modo estricto: un dato fuera de rango se rechaza con error en
+        // lugar de truncarse en silencio (p. ej. un token de 60 chars
+        // que antes se guardaba como de 50).
+        $pdo->exec("SET SESSION sql_mode = 'STRICT_TRANS_TABLES,NO_ENGINE_SUBSTITUTION,NO_ZERO_DATE,NO_ZERO_IN_DATE'");
+
+        // Zona horaria fija de la sesión: independiente de la del SO del
+        // servidor, para que las ventanas de 5 min / 24 h no se corran.
+        $pdo->exec("SET time_zone = '-05:00'");
+        } catch (PDOException $e) {
+            error_log('BeeStation: database connection/setup failed.');
+            throw new RuntimeException('Database is temporarily unavailable.');
+        }
     }
     return $pdo;
 }

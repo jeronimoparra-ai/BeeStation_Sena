@@ -3,6 +3,6 @@
     </div> <!-- end app-container -->
     <?php if (basename($_SERVER['PHP_SELF']) !== 'login.php'): ?>
     <?php endif; ?>
-    <script src="js/app.js"></script>
+    <script src="js/app.js?v=<?= filemtime(__DIR__ . '/../js/app.js') ?>"></script>
 </body>
 </html>

@@ -1,11 +1,6 @@
 <?php
 // conectar_dispositivo.php
-if (session_status() === PHP_SESSION_NONE) {
-    session_start();
-}
-
-require_once __DIR__ . '/config/db.php';
-require_once __DIR__ . '/includes/functions.php';
+require_once __DIR__ . '/includes/auth.php';
 
 if (!isset($_SESSION['id_usuario'])) {
     header("Location: login.php");
@@ -27,7 +22,7 @@ if (isset($_GET['check'])) {
     $conectado = false;
     $ultima_fecha = null;
     $nombre_colmena = "";
-    $intento_fallido = null;
+    $pendientes = 0;
 
     if ($id_colmena > 0) {
         $conectado = dispositivoConectado($id_colmena, 10);
@@ -35,29 +30,13 @@ if (isset($_GET['check'])) {
         $nombre_colmena = $colmenaActiva['nombre'];
 
         if (!$conectado) {
-            $stmtFallo = $pdo->prepare("
-                SELECT token_recibido, fecha_hora
-                FROM intento_vinculacion
-                WHERE resultado = 'token_invalido'
-                  AND fecha_hora >= (NOW() - INTERVAL 10 MINUTE)
-                ORDER BY fecha_hora DESC
-                LIMIT 1
-            ");
-            $stmtFallo->execute();
-            $fallo = $stmtFallo->fetch();
-
-            if ($fallo) {
-                $tk = $fallo['token_recibido'];
-                $tokenParcial = strlen($tk) > 6
-                    ? substr($tk, 0, 3) . str_repeat('•', max(0, strlen($tk) - 6)) . substr($tk, -3)
-                    : $tk;
-
-                $intento_fallido = [
-                    'token_parcial' => htmlspecialchars($tokenParcial),
-                    'coincide' => hash_equals((string)$colmenaActiva['token_vinculacion'], (string)$tk),
-                    'hace' => tiempoRelativo($fallo['fecha_hora'])
-                ];
-            }
+            // Nodos registrados que aun no se han autorizado. Solo se expone
+            // el NUMERO: el codigo de alta lo conoce unicamente el dispositivo
+            // (en la base solo hay su hash) y lo introduce el usuario en
+            // dispositivos.php. Asi no se filtra la MAC de nodos ajenos.
+            $stmtPend = $pdo->prepare("SELECT COUNT(*) AS total FROM dispositivo WHERE estado = 'pendiente'");
+            $stmtPend->execute();
+            $pendientes = (int) $stmtPend->fetch()['total'];
         }
     }
 
@@ -65,7 +44,7 @@ if (isset($_GET['check'])) {
         'conectado' => $conectado,
         'ultima_conexion' => $ultima_fecha ? tiempoRelativo($ultima_fecha) : 'sin conexión',
         'nombre_colmena' => htmlspecialchars($nombre_colmena),
-        'intento_fallido' => $intento_fallido
+        'pendientes' => $pendientes
     ]);
     exit;
 }
@@ -95,8 +74,9 @@ if ($id_colmena > 0 && dispositivoTieneHistorial($id_colmena)) {
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>BeeStation — Sincronizando Colmena</title>
-    <link rel="stylesheet" href="css/style.css">
-    <link rel="stylesheet" href="css/style-premium.css">
+    <link rel="stylesheet" href="css/fonts.css?v=<?= filemtime(__DIR__ . '/css/fonts.css') ?>">
+    <link rel="stylesheet" href="css/style.css?v=<?= filemtime(__DIR__ . '/css/style.css') ?>">
+    <link rel="stylesheet" href="css/style-premium.css?v=<?= filemtime(__DIR__ . '/css/style-premium.css') ?>">
     <style>
         @keyframes radar-pulse {
             0% { transform: scale(0.95); opacity: 0.8; }
@@ -135,6 +115,19 @@ if ($id_colmena > 0 && dispositivoTieneHistorial($id_colmena)) {
             padding: 1px 6px;
             border-radius: 6px;
         }
+
+        /* Accesibilidad: quien pide menos movimiento no debe ver pulsos ni
+           parpadeos infinitos. Las animaciones decorativas se desactivan. */
+        @media (prefers-reduced-motion: reduce) {
+            .radar-glow,
+            .loader-dots span,
+            .animate-fadeUp,
+            .animate-fadeIn {
+                animation: none !important;
+                transition: none !important;
+            }
+            .loader-dots span { opacity: 1; }
+        }
     </style>
 </head>
 <body class="connect-body">
@@ -155,9 +148,9 @@ if ($id_colmena > 0 && dispositivoTieneHistorial($id_colmena)) {
 
             <p id="connect-copy-text" class="connect-copy">
                 El sistema está buscando transmisiones de tu colmena
-                <strong><?= $colmenaActiva ? htmlspecialchars($colmenaActiva['nombre']) : 'sin nombre'; ?></strong>
-                con el token:
-                <code><?= $colmenaActiva ? htmlspecialchars($colmenaActiva['token_vinculacion']) : 'N/A'; ?></code>.
+                <strong><?= $colmenaActiva ? htmlspecialchars($colmenaActiva['nombre']) : 'sin nombre'; ?></strong>.
+                El nodo se identifica con su propia clave ECDSA:
+                <strong>no utiliza API Key ni hay un token que copiar</strong>.
             </p>
 
             <div id="connect-loader" class="loader-dots text-brand u-mb-3" style="font-size: 1.5rem; display: flex; justify-content: center; align-items: center; gap: 4px;">
@@ -186,7 +179,11 @@ if ($id_colmena > 0 && dispositivoTieneHistorial($id_colmena)) {
                 </svg>
                 <div>
                     <strong style="display: block; margin-bottom: 2px;">¿Cómo iniciar la conexión?</strong>
-                    Enciende tu ESP32, conéctate desde tu celular al WiFi <strong>`BeeStation_Config`</strong> y completa el formulario del portal cautivo local para inyectar este token único. Si el token quedó mal escrito, el ESP32 reabrirá esta red automáticamente y mostrará el motivo del fallo en el propio portal.
+                    Enciende tu ESP32 y conéctate desde el celular al WiFi <strong>BeeStation_Config</strong>.
+                    En el portal cautivo elige tu red y guarda: el nodo crea su propia identidad y se
+                    registra solo. Después entra en <strong>Dispositivos → Nodos IoT</strong> e introduce el
+                    código de 8 caracteres (<code>XXXX-XXXX</code>) que el nodo muestra en el monitor serie.
+                    Hasta que lo autorices, el nodo guarda las lecturas en su microSD pero no envía nada.
                 </div>
             </div>
 
@@ -215,14 +212,13 @@ if ($id_colmena > 0 && dispositivoTieneHistorial($id_colmena)) {
         const diagBox = document.getElementById('diag-box');
         const diagText = document.getElementById('diag-text');
 
-        function mostrarDiagnostico(info) {
-            if (!info) {
+        function mostrarDiagnostico(pendientes) {
+            if (!pendientes || pendientes <= 0) {
                 diagBox.classList.remove('show');
                 return;
             }
-            diagText.innerHTML = info.coincide
-                ? `Tu ESP32 está enviando el token correcto (<code>${info.token_parcial}</code>) pero el servidor lo rechazó hace ${info.hace}. Es posible que el token haya sido revocado.`
-                : `Detectamos un intento de vinculación reciente con un token distinto (<code>${info.token_parcial}</code>) hace ${info.hace}. Revisa que copiaste el token exacto de esta colmena en el portal del ESP32.`;
+            diagText.innerHTML = `Hay <code>${pendientes}</code> nodo(s) registrado(s) esperando autorización. ` +
+                `Introduce su código de 8 caracteres en <strong>Dispositivos → Nodos IoT</strong> y elige la colmena.`;
             diagBox.classList.add('show');
         }
 
@@ -251,7 +247,7 @@ if ($id_colmena > 0 && dispositivoTieneHistorial($id_colmena)) {
 
                         setTimeout(() => { window.location.href = 'dashboard.php'; }, 1500);
                     } else {
-                        mostrarDiagnostico(data.intento_fallido);
+                        mostrarDiagnostico(data.pendientes);
                         setTimeout(verificarEstadoConexion, 2000);
                     }
                 })

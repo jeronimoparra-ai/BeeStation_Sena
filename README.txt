@@ -34,26 +34,20 @@ Abre config/db.php y ajusta:
   define('DB_NAME', 'beestation_sena');
   define('DB_USER', 'root');
   define('DB_PASS', '');   <-- pon tu clave real aquí
-  define('BEESTATION_API_KEY', 'CAMBIAR_ESTA_CLAVE_ANTES_DE_PRODUCCION'); <-- clave secreta para el ESP32
+  // La API ya no usa clave global: cada colmena firma con su token. para el ESP32
 
-1.4 Generar la contraseña real del usuario admin
+1.4 Restablecer la contraseña del usuario admin
 ----------------------------------------------------
-El schema.sql trae un usuario admin@beestation.io con una
-contraseña de relleno que NO va a funcionar. Genera la real así:
+El schema.sql no incluye credenciales utilizables. La contraseña
+se guarda como hash bcrypt: no se puede recuperar, solo restablecer.
+Hazlo desde la consola (nunca por HTTP):
 
-  a) Crea un archivo temporal generar_clave.php con este contenido:
+  $env:BEESTATION_RESET_EMAIL    = "admin@beestation.io"
+  $env:BEESTATION_RESET_PASSWORD = "una-clave-de-12-o-mas"
+  php tools/restablecer-clave.php
 
-     <?php
-     echo password_hash("TU_CLAVE_AQUI", PASSWORD_DEFAULT);
-     ?>
-
-  b) Ábrelo en el navegador, copia el texto que aparece (empieza
-     con $2y$10$...)
-
-  c) En phpMyAdmin, ve a la tabla `usuario`, edita el registro de
-     admin@beestation.io y pega ese texto en el campo `contrasena`.
-
-  d) Borra el archivo generar_clave.php por seguridad.
+Borra las variables de entorno al terminar. Al entrar, cambia la
+clave por una tuya desde la interfaz.
 
 1.5 Copiar el proyecto al servidor
 ---------------------------------------
@@ -67,7 +61,7 @@ tu servidor (por ejemplo htdocs/ en XAMPP) y accede desde:
 2. CÓMO FUNCIONA EL FLUJO DE DATOS (de principio a fin)
 ============================================================
 
-  ESP32 con sensores  --(POST JSON + X-API-Key)-->  api/ingest.php
+  ESP32 con sensores  --(POST JSON + firma HMAC)-->  api/ingest.php
                                                          |
                                                          v
                                                Se guarda en tabla `lectura`
@@ -106,7 +100,7 @@ const char* password = "TU_CLAVE_WIFI";
 const char* serverUrl = "http://192.168.1.100/BeeStation/api/ingest.php";
 // Cambia 192.168.1.100 por la IP real de tu servidor en la red
 
-// ⚠️ API Key: debe coincidir exactamente con BEESTATION_API_KEY en config/db.php
+// La peticion se firma con el token de vinculacion de la colmena.
 const char* apiKey    = "CAMBIAR_ESTA_CLAVE_ANTES_DE_PRODUCCION";
 
 const int ID_COLMENA = 1; // debe existir en la tabla `colmena`
@@ -127,7 +121,7 @@ void loop() {
     http.begin(serverUrl);
     http.addHeader("Content-Type", "application/json");
     // Header de autenticación requerido por api/ingest.php
-    http.addHeader("X-API-Key", apiKey);
+    http.addHeader("X-BeeStation-Signature", firma);
 
     // ⚠️ Reemplaza estos valores por las lecturas REALES de tus
     // sensores (DHT22, HX711, MAX9814, MQ-135, INA219), no dejes números fijos.
@@ -180,7 +174,7 @@ verificar que todo el flujo funciona antes de conectar el hardware:
 
   curl -X POST http://localhost/BeeStation/api/ingest.php \
     -H "Content-Type: application/json" \
-    -H "X-API-Key: CAMBIAR_ESTA_CLAVE_ANTES_DE_PRODUCCION" \
+    -H "X-BeeStation-Signature: <firma HMAC-SHA256>" \
     -d "{\"id_colmena\":1,\"lecturas\":[{\"tipo\":\"temperatura_interna\",\"valor\":35.2},{\"tipo\":\"humedad_relativa\",\"valor\":65},{\"tipo\":\"peso\",\"valor\":28.5},{\"tipo\":\"sonido\",\"valor\":280},{\"tipo\":\"co2\",\"valor\":2100}]}"
 
 Después de ejecutar esto, entra al dashboard y verás los datos

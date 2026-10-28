@@ -9,6 +9,11 @@
  * Lo consume js/actualizar-dashboard.js cada 10 s para que la
  * dashboard se refresque sola sin recargar la página.
  */
+// Este endpoint debe responder JSON cuando caduca la sesión, sin heredar
+// la redirección HTML que usa el control de acceso de las páginas.
+if (!defined('BEESTATION_API_CONTEXT')) {
+    define('BEESTATION_API_CONTEXT', true);
+}
 require_once __DIR__ . '/../includes/auth.php';
 
 // XAMPP trae serialize_precision=100 y json_encode imprime 0.47 como
@@ -45,13 +50,22 @@ function empaquetarLectura(?array $lectura): ?array
         'fecha'    => $lectura['fecha_hora'],
         'subida'   => horaSubida($lectura['fecha_hora']),
         'relativo' => tiempoRelativo($lectura['fecha_hora']),
+        'fresca'   => lecturaReciente($lectura, 5),
+        'edad_min' => edadLecturaMinutos($lectura),
     ];
 }
 
 $alertas = alertasActivas($idColmena, 10);
 
-$serieTemp = serieHistorica($idColmena, 'temperatura_interna', 24);
-$seriePeso = serieHistorica($idColmena, 'peso', 24);
+$serieTemp = serieHistoricaAgregada($idColmena, 'temperatura_interna', 24, 15);
+$stmtTempInvalida = getPDO()->prepare("
+    SELECT MAX(l.fecha_hora) AS fecha_hora
+    FROM lectura l
+    INNER JOIN sensor s ON l.id_sensor = s.id_sensor
+    WHERE s.id_colmena = ? AND s.tipo = 'temperatura_interna' AND l.es_valida = 0
+");
+$stmtTempInvalida->execute([$idColmena]);
+$ultimaTempInvalida = $stmtTempInvalida->fetchColumn();
 
 $respuesta = [
     'ok'     => true,
@@ -64,11 +78,7 @@ $respuesta = [
         'sonido' => empaquetarLectura(ultimaLectura($idColmena, 'sonido')),
     ],
     'flujo'       => calcularFlujoDiarioPeso($idColmena),
-    'ibb'         => calcularIBB($idColmena),
-    'delta_t'     => calcularDeltaT($idColmena),
-    'h_miel'      => calcularHMiel($idColmena),
-    'ev'          => calcularEV($idColmena),
-    'alertas_total' => count($alertas),
+    'alertas_total' => contarAlertasActivas($idColmena),
     'alertas'     => array_map(static function (array $a): array {
         $nivel = (int) $a['nivel'];
         return [
@@ -81,12 +91,12 @@ $respuesta = [
         ];
     }, $alertas),
     'serie_temp' => [
-        'labels' => array_map(static fn($r) => date('H:i', strtotime($r['fecha_hora'])), $serieTemp),
-        'data'   => array_map(static fn($r) => (float) $r['valor_calibrado'], $serieTemp),
-    ],
-    'serie_peso' => [
-        'labels' => array_map(static fn($r) => date('H:i', strtotime($r['fecha_hora'])), $seriePeso),
-        'data'   => array_map(static fn($r) => (float) $r['valor_calibrado'], $seriePeso),
+        'labels' => array_map(static fn($r) => date('d/m/Y H:i', strtotime($r['fecha_hora'])), $serieTemp),
+        'data'   => array_map(static fn($r) => (float) $r['valor'], $serieTemp),
+        'muestras' => array_map(static fn($r) => (int) $r['muestras'], $serieTemp),
+        'ultima_invalida' => $ultimaTempInvalida
+            ? date('d/m/Y H:i', strtotime((string) $ultimaTempInvalida))
+            : null,
     ],
 ];
 

@@ -1,10 +1,10 @@
 <?php
 require_once __DIR__ . '/includes/auth.php';
 
-// Forzar nueva sesión siempre que se acceda al login
+// Una sesión autenticada no necesita volver a entrar al formulario.
 if (isset($_SESSION['id_usuario'])) {
-    session_unset();
-    session_destroy();
+    header('Location: dashboard.php');
+    exit;
 }
 
 $error = '';
@@ -14,11 +14,18 @@ elseif ($hora >= 12 && $hora < 19) $saludo = 'Buenas tardes';
 else $saludo = 'Buenas noches';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $correo = trim($_POST['email'] ?? '');
-    $clave  = $_POST['password'] ?? '';
+    if (!validarCsrfSesion($_POST['csrf'] ?? null)) {
+        $error = 'La sesión del formulario expiró. Recarga e inténtalo de nuevo.';
+    } else {
+    $correoEntrada = $_POST['email'] ?? null;
+    $claveEntrada = $_POST['password'] ?? null;
+    $correo = is_string($correoEntrada) ? trim($correoEntrada) : '';
+    $clave = is_string($claveEntrada) ? $claveEntrada : '';
     $usuario = intentarLogin($correo, $clave);
 
     if ($usuario) {
+        session_regenerate_id(true);
+        unset($_SESSION['csrf']);
         $_SESSION['id_usuario']   = $usuario['id_usuario'];
         $_SESSION['nombre']       = $usuario['nombre'];
         $_SESSION['correo']       = $usuario['correo'];
@@ -39,6 +46,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     } else {
         $error = 'Correo o contraseña incorrectos.';
     }
+    }
 }
 ?>
 <!DOCTYPE html>
@@ -47,11 +55,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Iniciar Sesión — BeeStation</title>
-  <meta name="description" content="Accede a tu plataforma BeeStation para monitoreo inteligente de colmenas con lectura en tiempo real.">
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="css/login-redesign.css">
+  <meta name="description" content="Accede a BeeStation para registrar temperatura, humedad, peso y actividad acústica de tus colmenas.">
+  <link rel="preload" href="assets/fonts/manrope-latin.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="assets/fonts/bricolage-grotesque-latin.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="css/fonts.css?v=<?= filemtime(__DIR__ . '/css/fonts.css') ?>">
+  <link rel="stylesheet" href="css/login-redesign.css?v=<?= filemtime(__DIR__ . '/css/login-redesign.css') ?>">
   <script>
     if (localStorage.getItem('beestation-dark') === 'true') {
         document.documentElement.classList.add('dark');
@@ -83,16 +91,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         <!-- Headline -->
         <h1 class="ls-headline">
-          Monitoreo inteligente<br>
-          para colmenas con<br>
-          <span class="accent">lectura en tiempo real.</span>
+          Monitoreo periódico<br>
+          para colmenas,<br>
+          <span class="accent">sin abrirlas.</span>
         </h1>
 
         <!-- Sub-copy -->
         <p class="ls-sub">
-          Plataforma IoT diseñada para brindar control,
-          análisis y alertas en tiempo real del estado
-          de tus colmenas.
+          Plataforma IoT para registrar temperatura, humedad, peso
+          y actividad acústica. Los indicadores dependen de los
+          sensores instalados y de la frescura de los datos.
         </p>
 
         <!-- Bee photo -->
@@ -107,7 +115,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             <svg viewBox="0 0 24 24" aria-hidden="true">
               <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
             </svg>
-            <span class="ls-card-label">Lecturas<br>en tiempo real</span>
+            <span class="ls-card-label">Lecturas<br>periódicas</span>
           </div>
           <div class="ls-card">
             <!-- Wifi icon -->
@@ -125,7 +133,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
               <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
               <polyline points="9 12 11 14 15 10"/>
             </svg>
-            <span class="ls-card-label">Seguridad<br>avanzada</span>
+            <span class="ls-card-label">Acceso<br>con sesión</span>
           </div>
           <div class="ls-card">
             <!-- Bar chart icon -->
@@ -190,6 +198,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         <!-- Form -->
         <form action="login.php" method="POST" id="loginForm" novalidate>
+          <input type="hidden" name="csrf" value="<?= htmlspecialchars(tokenCsrfSesion(), ENT_QUOTES, 'UTF-8') ?>">
 
           <!-- Correo electrónico -->
           <div class="ls-field-group">
@@ -243,15 +252,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 </svg>
               </button>
             </div>
-          </div>
-
-          <!-- Remember + Forgot -->
-          <div class="ls-form-options">
-            <label class="ls-remember">
-              <input type="checkbox" name="remember" id="rememberMe" checked>
-              <span>Recordarme</span>
-            </label>
-            <a href="#" class="ls-forgot">¿Olvidaste tu contraseña?</a>
           </div>
 
           <!-- Submit -->
@@ -316,7 +316,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     });
   </script>
 
-  <script src="https://unpkg.com/lucide@latest"></script>
-  <script src="js/app.js"></script>
+  <script src="assets/vendor/lucide.min.js"></script>
+  <script src="js/app.js?v=<?= filemtime(__DIR__ . '/js/app.js') ?>"></script>
 </body>
 </html>
