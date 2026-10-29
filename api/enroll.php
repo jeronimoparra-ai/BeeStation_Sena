@@ -56,7 +56,21 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
 }
 
 // ── 2. Leer y validar el cuerpo ─────────────────────────────────
-$cuerpoCrudo = file_get_contents('php://input');
+// Mitigación de seguridad: limitar el tamaño del cuerpo antes de leerlo
+// para evitar agotamiento de memoria con peticiones enormes (endpoint público).
+$maxBytesCuerpo = 1024 * 1024; // 1 MiB
+$contentLength = (int) ($_SERVER['CONTENT_LENGTH'] ?? 0);
+if ($contentLength > $maxBytesCuerpo) {
+    http_response_code(413);
+    echo json_encode(['ok' => false, 'error' => 'Cuerpo de peticion demasiado grande']);
+    exit;
+}
+$cuerpoCrudo = file_get_contents('php://input', false, null, 0, $maxBytesCuerpo);
+if ($cuerpoCrudo === false) {
+    http_response_code(400);
+    echo json_encode(['ok' => false, 'error' => 'No se pudo leer el cuerpo de la peticion']);
+    exit;
+}
 $body = json_decode((string) $cuerpoCrudo, true);
 if (!is_array($body)) {
     http_response_code(400);
