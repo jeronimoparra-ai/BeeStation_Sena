@@ -5,12 +5,17 @@
 -- Sistema sin roles: se elimina por completo la tabla rol y la columna id_rol.
 -- ============================================================
 
--- Instalación limpia no destructiva: no elimina una base ya existente.
-CREATE DATABASE IF NOT EXISTS beestation_sena CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-USE beestation_sena;
+-- Instalación no destructiva e idempotente.
+--   Este archivo NO crea ni selecciona la base de datos: el nombre lo
+--   decide quien instala, para que nunca se aplique por error a otra base
+--   de la misma instancia. Uso:
+--       mysql -u USUARIO -p NOMBRE_BASE < database/schema.sql
+--   Las tablas usan CREATE TABLE IF NOT EXISTS, así que puede ejecutarse
+--   sobre una base existente sin destruir datos (no altera tablas ya creadas).
+--   Para pruebas aisladas: php tools/migrar-pruebas.php
 
 -- ── USUARIOS ──────────────────────────────────────────────────
-CREATE TABLE usuario (
+CREATE TABLE IF NOT EXISTS usuario (
     id_usuario INT AUTO_INCREMENT PRIMARY KEY,
     nombre VARCHAR(100) NOT NULL,
     correo VARCHAR(150) NOT NULL UNIQUE,
@@ -19,7 +24,7 @@ CREATE TABLE usuario (
 ) ENGINE=InnoDB;
 
 -- ── APIARIOS Y COLMENAS ───────────────────────────────────────
-CREATE TABLE apiario (
+CREATE TABLE IF NOT EXISTS apiario (
     id_apiario INT AUTO_INCREMENT PRIMARY KEY,
     nombre VARCHAR(100) NOT NULL,
     ubicacion VARCHAR(255),
@@ -29,7 +34,7 @@ CREATE TABLE apiario (
     FOREIGN KEY (id_usuario) REFERENCES usuario(id_usuario)
 ) ENGINE=InnoDB;
 
-CREATE TABLE colmena (
+CREATE TABLE IF NOT EXISTS colmena (
     id_colmena INT AUTO_INCREMENT PRIMARY KEY,
     nombre VARCHAR(100) NOT NULL,
     especie VARCHAR(100) DEFAULT 'Apis mellifera',
@@ -46,7 +51,7 @@ CREATE TABLE colmena (
 ) ENGINE=InnoDB;
 
 -- ── VARIABLES BIOCLIMÁTICAS ───────────────────────────────────
-CREATE TABLE variable_bioclimatica (
+CREATE TABLE IF NOT EXISTS variable_bioclimatica (
     id_variable INT AUTO_INCREMENT PRIMARY KEY,
     nombre VARCHAR(50) NOT NULL,
     unidad_medida VARCHAR(20) NOT NULL,
@@ -72,7 +77,7 @@ INSERT INTO variable_bioclimatica (
 ('luminosidad', 'lux', 50, 20000, 10, 60000, 0, 100000);
 
 -- ── SENSORES ──────────────────────────────────────────────────
-CREATE TABLE sensor (
+CREATE TABLE IF NOT EXISTS sensor (
     id_sensor INT AUTO_INCREMENT PRIMARY KEY,
     tipo VARCHAR(50) NOT NULL,
     modelo VARCHAR(50) NOT NULL,
@@ -89,7 +94,7 @@ CREATE TABLE sensor (
 ) ENGINE=InnoDB;
 
 -- ── CALIBRACIÓN ───────────────────────────────────────────────
-CREATE TABLE calibracion (
+CREATE TABLE IF NOT EXISTS calibracion (
     id_calibracion INT AUTO_INCREMENT PRIMARY KEY,
     fecha_calibracion DATETIME DEFAULT CURRENT_TIMESTAMP,
     valor_referencia FLOAT,
@@ -100,11 +105,13 @@ CREATE TABLE calibracion (
     resultado VARCHAR(50),
     proxima_calibracion DATE,
     id_sensor INT NOT NULL,
+    -- Indice compuesto: cubre la FK y las consultas de historico por sensor.
+    INDEX idx_sensor_cal (id_sensor, id_calibracion),
     FOREIGN KEY (id_sensor) REFERENCES sensor(id_sensor)
 ) ENGINE=InnoDB;
 
 -- ── LECTURAS ───────────────────────────────────────────────────
-CREATE TABLE lectura (
+CREATE TABLE IF NOT EXISTS lectura (
     id_lectura BIGINT AUTO_INCREMENT PRIMARY KEY,
     valor_bruto FLOAT NOT NULL,
     valor_calibrado FLOAT NOT NULL,
@@ -120,12 +127,13 @@ CREATE TABLE lectura (
     id_sensor INT NOT NULL,
     FOREIGN KEY (id_sensor) REFERENCES sensor(id_sensor),
     INDEX idx_sensor_fecha (id_sensor, fecha_hora),
+    INDEX idx_fecha (fecha_hora),
     UNIQUE KEY uq_sensor_seq (id_sensor, seq),
     UNIQUE KEY uq_lectura_id_medicion (id_medicion)
 ) ENGINE=InnoDB;
 
 -- ── INDICADORES CALCULADOS ─────────────────────────────────────
-CREATE TABLE indicador (
+CREATE TABLE IF NOT EXISTS indicador (
     id_indicador BIGINT AUTO_INCREMENT PRIMARY KEY,
     tipo VARCHAR(30) NOT NULL,
     valor FLOAT NOT NULL,
@@ -138,7 +146,7 @@ CREATE TABLE indicador (
 ) ENGINE=InnoDB;
 
 -- ── ALERTAS ───────────────────────────────────────────────────
-CREATE TABLE alerta (
+CREATE TABLE IF NOT EXISTS alerta (
     id_alerta INT AUTO_INCREMENT PRIMARY KEY,
     tipo VARCHAR(50) NOT NULL,
     nivel TINYINT NOT NULL,
@@ -147,11 +155,12 @@ CREATE TABLE alerta (
     estado ENUM('activa','atendida','descartada') DEFAULT 'activa',
     id_indicador BIGINT,
     id_usuario INT,
+    INDEX idx_estado_fecha (estado, fecha_hora),
     FOREIGN KEY (id_indicador) REFERENCES indicador(id_indicador),
     FOREIGN KEY (id_usuario) REFERENCES usuario(id_usuario)
 ) ENGINE=InnoDB;
 
-CREATE TABLE intento_vinculacion (
+CREATE TABLE IF NOT EXISTS intento_vinculacion (
     id_intento BIGINT AUTO_INCREMENT PRIMARY KEY,
     token_recibido VARCHAR(128) NOT NULL,
     ip_origen VARCHAR(45) NULL,
@@ -160,7 +169,7 @@ CREATE TABLE intento_vinculacion (
     INDEX idx_intento_resultado_fecha (resultado, fecha_hora)
 ) ENGINE=InnoDB;
 
-CREATE TABLE lote_ingesta (
+CREATE TABLE IF NOT EXISTS lote_ingesta (
     id_lote BIGINT AUTO_INCREMENT PRIMARY KEY,
     identificador VARCHAR(64) NOT NULL,
     lote VARCHAR(64) NULL,
@@ -176,7 +185,7 @@ CREATE TABLE lote_ingesta (
 -- ── IDENTIDAD DE DISPOSITIVOS (ECDSA P-256) ────────────────────
 -- Cada nodo genera su propia clave. La privada nunca sale del ESP32; aqui
 -- solo se guarda la publica (SPKI PEM) y la huella SHA-256 de sus bytes.
-CREATE TABLE dispositivo (
+CREATE TABLE IF NOT EXISTS dispositivo (
     id_dispositivo   INT AUTO_INCREMENT PRIMARY KEY,
     identificador     CHAR(32) NOT NULL,
     mac               VARCHAR(17) NOT NULL,
@@ -207,7 +216,7 @@ CREATE TABLE dispositivo (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Anti-replay del esquema ECDSA (separado del HMAC heredado).
-CREATE TABLE nonce_dispositivo (
+CREATE TABLE IF NOT EXISTS nonce_dispositivo (
     identificador CHAR(32) NOT NULL,
     nonce         CHAR(32) NOT NULL,
     creado_en     DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -215,7 +224,7 @@ CREATE TABLE nonce_dispositivo (
     KEY idx_nonce_dispositivo_fecha (creado_en)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
-CREATE TABLE nonce_peticion (
+CREATE TABLE IF NOT EXISTS nonce_peticion (
     mac VARCHAR(17) NOT NULL,
     nonce CHAR(32) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
     creado_en DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
