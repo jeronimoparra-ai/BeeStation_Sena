@@ -414,7 +414,7 @@ require_once __DIR__ . '/includes/header.php';
                                 <strong>Enciende el nodo:</strong> El ESP32 crea la red Wi-Fi <strong>`BeeStation_Config`</strong>. Conéctate desde tu celular.
                             </li>
                             <li style="margin-bottom: 8px;">
-                                <strong>Configura la red:</strong> En el portal cautivo elige la Wi-Fi de tu finca y escribe la contraseña. El nodo <strong>no pide ningún token</strong>: genera su propia clave.
+                                <strong>Configura la red:</strong> En el portal cautivo elige la Wi-Fi de tu finca y escribe la contraseña. No ingreses API Key ni token: el nodo genera su propia clave ECDSA y busca el servidor automáticamente. También puedes indicar la IP del servidor en el portal.
                             </li>
                             <li style="margin-bottom: 8px;">
                                 <strong>Anota el código:</strong> El monitor Serie (115200) muestra un identificador y un <strong>código de alta de 8 caracteres</strong>.

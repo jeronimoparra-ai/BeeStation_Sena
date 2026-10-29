@@ -149,8 +149,8 @@ if ($id_colmena > 0 && dispositivoTieneHistorial($id_colmena)) {
             <p id="connect-copy-text" class="connect-copy">
                 El sistema está buscando transmisiones de tu colmena
                 <strong><?= $colmenaActiva ? htmlspecialchars($colmenaActiva['nombre']) : 'sin nombre'; ?></strong>.
-                La credencial del nodo es su propia clave criptográfica, así que
-                <strong>no hay ningún token que copiar</strong>.
+                El nodo se identifica con su propia clave ECDSA:
+                <strong>no utiliza API Key ni hay un token que copiar</strong>.
             </p>
 
             <div id="connect-loader" class="loader-dots text-brand u-mb-3" style="font-size: 1.5rem; display: flex; justify-content: center; align-items: center; gap: 4px;">

@@ -23,8 +23,8 @@
 #include "acustica.h"        // Frecuencia dominante del micrófono (Hz)
 
 // ── VERSIÓN DEL FIRMWARE ──────────────────────────────────────
-#define FIRMWARE_VERSION "3.2.0"
-#define FIRMWARE_DATE    "2026-10-21"
+#define FIRMWARE_VERSION "3.2.1"
+#define FIRMWARE_DATE    "2026-10-23"
 
 // ── DEFINICIÓN DE PINES FÍSICOS (Según tu Plano Eléctrico) ────
 // Bus I2C (compartido por BME280 y BH1750)
@@ -292,9 +292,24 @@ bool identConsultarEstado(const String& base) {
   return true;
 }
 
+// Declaración adelantada: el descubrimiento se implementa más abajo.
+bool descubrirServidor();
+
 // Alta (si hace falta) + consulta de estado. Se llama al arrancar y cada minuto.
 bool identAsegurar() {
   if (!identListo || WiFi.status() != WL_CONNECTED) return false;
+
+  // La identidad se registra antes de permitir telemetría. Por eso hay que
+  // resolver el servidor aquí: esperar al primer envío dejaría al nodo
+  // pendiente en un ciclo (el envío exige estar autorizado primero).
+  if (hostGuardado.length() == 0) {
+    Serial.println("[ALTA] No hay IP fija. Buscando BeeStation en la red local...");
+    if (!descubrirServidor()) {
+      Serial.println("[ALTA] No se encontró el servidor. Configura su IP en el portal WiFi o por Monitor Serie.");
+      return false;
+    }
+  }
+
   String base = baseServidor();
   if (!identAltaConfirmada()) {
     if (identEnviarAlta(base) != 200) return false;

@@ -73,7 +73,21 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
 //
 //  La presencia de la cabecera X-BeeStation-Dispositivo selecciona el
 //  esquema; si no está, se usa el heredado.
-$cuerpoCrudo = file_get_contents('php://input');
+// Mitigación de seguridad: limitar el tamaño del cuerpo antes de leerlo
+// para evitar agotamiento de memoria con peticiones enormes.
+$maxBytesCuerpo = 1024 * 1024; // 1 MiB
+$contentLength = (int) ($_SERVER['CONTENT_LENGTH'] ?? 0);
+if ($contentLength > $maxBytesCuerpo) {
+    http_response_code(413);
+    echo json_encode(['ok' => false, 'error' => 'Cuerpo de peticion demasiado grande']);
+    exit;
+}
+$cuerpoCrudo = file_get_contents('php://input', false, null, 0, $maxBytesCuerpo);
+if ($cuerpoCrudo === false) {
+    http_response_code(400);
+    echo json_encode(['ok' => false, 'error' => 'No se pudo leer el cuerpo de la peticion']);
+    exit;
+}
 $rutaPeticion = parse_url($_SERVER['REQUEST_URI'] ?? '', PHP_URL_PATH) ?: '/';
 $nodo = null;
 $esquema = 'hmac';
@@ -112,6 +126,10 @@ if (trim((string) ($_SERVER['HTTP_X_BEESTATION_DISPOSITIVO'] ?? '')) !== '') {
     }
     firmaRegistrarContacto((int) $nodo['id_colmena'], $nodo['mac']);
 }
+
+// La identidad de la colmena la determina la firma, no el cuerpo.
+$id_colmena = (int) $nodo['id_colmena'];
+$colmena    = ['nombre' => $nodo['nombre']];
 
 // La identidad de la colmena la determina la firma, no el cuerpo.
 $id_colmena = (int) $nodo['id_colmena'];
@@ -251,8 +269,16 @@ foreach ($body['lecturas'] as $l) {
 
     // Marca de tiempo y número de secuencia opcionales (habilitan el reenvío
     // offline con fecha real de medición e inserción idempotente).
+    // Mitigación de seguridad: validar rangos para evitar fechas inválidas
+    // (negativas o demasiado futuras) y secuencias no positivas.
     $ts  = isset($l['ts'])  ? (int) $l['ts']  : null;
     $seq = isset($l['seq']) ? (int) $l['seq'] : null;
+    if ($ts !== null && ($ts <= 0 || $ts > time() + 86400)) {
+        $ts = null;
+    }
+    if ($seq !== null && $seq <= 0) {
+        $seq = null;
+    }
 
     if ($ts !== null && $ts > 0) {
         $stmtIns = $pdo->prepare("

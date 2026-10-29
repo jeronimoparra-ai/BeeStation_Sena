@@ -10,7 +10,7 @@
 <br>
 
 ![estado](https://img.shields.io/badge/estado-en_desarrollo-F5A623?style=for-the-badge&labelColor=1a1a1a)
-![firmware](https://img.shields.io/badge/firmware-v3.2.0-1a1a1a?style=for-the-badge&labelColor=F5A623)
+![firmware](https://img.shields.io/badge/firmware-v3.2.1-1a1a1a?style=for-the-badge&labelColor=F5A623)
 ![php](https://img.shields.io/badge/PHP-8.2-1a1a1a?style=for-the-badge&logo=php&logoColor=F5A623)
 ![mariadb](https://img.shields.io/badge/MariaDB-10.4-1a1a1a?style=for-the-badge&logo=mariadb&logoColor=F5A623)
 ![esp32](https://img.shields.io/badge/ESP32-DevKit-000000?style=for-the-badge&logo=espressif&logoColor=F5A623)
@@ -122,7 +122,7 @@ flowchart LR
 
 ## 🔧 Hardware
 
-**Placa:** ESP32 Dev Module | **Firmware:** `beestation_node/` v3.2.0
+**Placa:** ESP32 Dev Module | **Firmware:** `beestation_node/` v3.2.1
 
 | Módulo | Modelo | Interfaz | Pines GPIO | Función |
 |---|:-:|:-:|:-:|---|
@@ -164,7 +164,7 @@ arduino-cli compile --fqbn esp32:esp32:esp32 beestation_node
 
 ## Sensores y disponibilidad
 
-El nodo físico con firmware **3.2.0** envía `temperatura_interna` (°C), `humedad_relativa` (%HR), `presion` (hPa), `peso` (kg), `sonido` (Hz estimados) y `luminosidad` (lux). No envía CO₂, `temperatura_externa` ni `energia`.
+El nodo físico con firmware **3.2.1** envía `temperatura_interna` (°C), `humedad_relativa` (%HR), `presion` (hPa), `peso` (kg), `sonido` (Hz estimados) y `luminosidad` (lux). No envía CO₂, `temperatura_externa` ni `energia`.
 
 | Estado | Variables y funciones |
 |---|---|
@@ -414,7 +414,7 @@ BeeStation_Sena/
 │   ├── functions.php           # Consultas, frescura e indicadores (no todos disponibles en campo)
 │   ├── auth.php / header.php / sidebar.php / footer.php
 ├── 🐝 beestation_node/
-│   ├── beestation_node.ino     # Firmware ESP32 v3.2.0
+│   ├── beestation_node.ino     # Firmware ESP32 v3.2.1
 │   ├── identidad_ecdsa.h       # Identidad ECDSA P-256 + firma de peticiones
 │   ├── util_hex.h              # Hexadecimal (mayúsculas/minúsculas)
 │   └── index_html.h            # HTML del portal cautivo
@@ -441,7 +441,7 @@ BeeStation_Sena/
 - [x] Estructura de alertas persistidas en la tabla `alerta`; la alerta acústica está desactivada
 - [x] Esquema preparado para energía (`energia`, INA219); hardware no instalado
 - [x] Sistema de roles eliminado del esquema (ya no quedan restos)
-- [x] **Firmware ESP32 v3.2.0** completo: portal cautivo, NVS, reset de fábrica, backoff
+- [x] **Firmware ESP32 v3.2.1**: identidad ECDSA sin API Key y descubrimiento del servidor antes del alta
 - [x] Compilación verificada con `esp32:esp32@3.3.12` y las 4 bibliotecas de la guía
 - [x] Zona horaria sincronizada entre PHP y MySQL (`America/Bogota`)
 
