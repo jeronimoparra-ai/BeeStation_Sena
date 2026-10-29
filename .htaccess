@@ -68,3 +68,8 @@ RedirectMatch 404 "(?i)(?:^|/)(?:config|database|beestation_node|tools|docs|scri
     php_value post_max_size 4M
     php_value upload_max_filesize 2M
 </IfModule>
+
+# Mantener las credenciales locales y de ejemplo fuera del alcance HTTP.
+<FilesMatch "^(db\.php|db\.local\.php|db\.example\.php)$">
+    Require all denied
+</FilesMatch>

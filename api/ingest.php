@@ -131,10 +131,6 @@ if (trim((string) ($_SERVER['HTTP_X_BEESTATION_DISPOSITIVO'] ?? '')) !== '') {
 $id_colmena = (int) $nodo['id_colmena'];
 $colmena    = ['nombre' => $nodo['nombre']];
 
-// La identidad de la colmena la determina la firma, no el cuerpo.
-$id_colmena = (int) $nodo['id_colmena'];
-$colmena    = ['nombre' => $nodo['nombre']];
-
 // ── 3. LECTURA Y DECODIFICACIÓN DEL PAYLOAD JSON ─────────────────────────────
 $body = json_decode($cuerpoCrudo, true);
 
