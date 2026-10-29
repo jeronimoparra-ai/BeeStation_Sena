@@ -111,7 +111,15 @@ Los bundles son locales: el panel no necesita salida a internet.
 
 ---
 
-## 6. Recomendaciones antes de producción
+## 7. Re-verificación post-cambios (2026-10-29, commit `d956836`)
+
+- **JS de terceros:** SHA-256 sin cambios, idénticos a las publicaciones oficiales de Chart.js 4.4.7 y Lucide 0.468.0.
+- **Copia desplegada:** `diff -rq` entre repo y `htdocs` sin diferencias de contenido (incluye `ingest.php` y `enroll.php` con las mitigaciones).
+- **Firmware:** binario con `3.2.1`, endpoints y cabeceras esperadas, sin secretos embebidos.
+- **Base de datos:** `scripts/verificar-esquema.php` → OK (173 definiciones). Una sola base (`beestation_sena`); respaldos en `~/backups/`.
+- **Prueba de carga (Apache Bench):** `login.php` GET 200 req/20 conc → 1 477 req/s, 0 fallos; `api/ingest.php` POST 100 req/20 conc → 1 884 req/s, 0 fallos. El servidor no se saturó bajo carga moderada.
+- **Prueba multi-modelo (Orca):** se lanzaron 3 agentes con proveedores distintos (Gemini, Claude, Codex) en terminales paralelas con prompts de tráfico HTTP y entradas malformadas. Los terminales se cerraron antes de que los agentes terminaran de responder (agentes interactivos, no por lotes), por lo que la evidencia cualitativa no se recogió; la prueba objetiva con `ab` sustituye la conclusión de saturación.
+- **Credencial:** `admin@beestation.io` con contraseña `senasoft2026` (hash bcrypt `$2y$12$`), login verificado end-to-end. **Pendiente:** rate limiting en `login.php` (H5) y cambio por una contraseña fuerte antes de producción.
 
 1. **Usuario MySQL dedicado** (no `root`), con contraseña, y `APP_ENV=production`; `config/db.php` ya rechaza `root` o contraseña vacía en producción.
 2. **Ejecutar `php scripts/verificar-esquema.php` en cada despliegue** y antes de migrar datos reales.
