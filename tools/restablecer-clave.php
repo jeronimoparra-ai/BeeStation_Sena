@@ -24,20 +24,26 @@ if (PHP_SAPI !== 'cli') {
 }
 
 require_once __DIR__ . '/../config/db.php';
+require_once __DIR__ . '/../includes/password.php';
 
-$correo = trim((string) getenv('BEESTATION_RESET_EMAIL'));
+$correo = strtolower(trim((string) getenv('BEESTATION_RESET_EMAIL')));
 $clave  = (string) getenv('BEESTATION_RESET_PASSWORD');
 
-if ($correo === '' || !filter_var($correo, FILTER_VALIDATE_EMAIL)
-    || strlen($correo) > 150 || strlen($clave) < 12 || strlen($clave) > 1024) {
-    fwrite(STDERR, "Define BEESTATION_RESET_EMAIL y BEESTATION_RESET_PASSWORD (mínimo 12 caracteres).\n");
+if ($correo === '' || !filter_var($correo, FILTER_VALIDATE_EMAIL) || strlen($correo) > 150) {
+    fwrite(STDERR, "Define BEESTATION_RESET_EMAIL con un correo electrónico válido.\n");
+    exit(2);
+}
+
+$valClave = validarPasswordSegura($clave);
+if (!$valClave['valida']) {
+    fwrite(STDERR, "Error en contraseña: " . $valClave['error'] . "\n");
     exit(2);
 }
 
 try {
     $pdo = getPDO();
     $stmt = $pdo->prepare('UPDATE usuario SET contrasena = ? WHERE correo = ?');
-    $stmt->execute([password_hash($clave, PASSWORD_DEFAULT), $correo]);
+    $stmt->execute([hashearPasswordSegura($clave), $correo]);
 
     if ($stmt->rowCount() !== 1) {
         fwrite(STDERR, "No existe una cuenta con ese correo. No se modificó nada.\n");

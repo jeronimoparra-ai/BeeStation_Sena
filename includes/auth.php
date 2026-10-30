@@ -33,4 +33,5 @@ function validarCsrfSesion(mixed $token): bool {
 }
 
 require_once __DIR__ . '/../config/db.php';
+require_once __DIR__ . '/password.php';
 require_once __DIR__ . '/functions.php';

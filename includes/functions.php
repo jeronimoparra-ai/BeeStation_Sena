@@ -67,12 +67,15 @@ function intentarLogin(string $correo, string $clave): ?array {
 }
 
 /**
- * Registra un nuevo usuario en la base de datos con contraseña hash bcrypt.
+ * Registra un nuevo usuario en la base de datos con contraseña hash segura.
  *
+ * Utiliza la política centralizada (Argon2id con fallback a Bcrypt de 72 bytes).
  * Sin sistema de roles ni privilegios administrativos.
  * Maneja de forma segura duplicados y errores sin filtrar datos de la BD.
  */
 function registrarUsuario(string $nombre, string $correo, string $clave): array {
+    require_once __DIR__ . '/password.php';
+
     $nombre = trim($nombre);
     $correo = strtolower(trim($correo));
 
@@ -84,8 +87,9 @@ function registrarUsuario(string $nombre, string $correo, string $clave): array 
         return ['ok' => false, 'error' => 'El correo electrónico no es válido.'];
     }
 
-    if (strlen($clave) < 12 || strlen($clave) > 1024) {
-        return ['ok' => false, 'error' => 'La contraseña debe tener al menos 12 caracteres.'];
+    $valClave = validarPasswordSegura($clave);
+    if (!$valClave['valida']) {
+        return ['ok' => false, 'error' => $valClave['error']];
     }
 
     try {
@@ -98,7 +102,7 @@ function registrarUsuario(string $nombre, string $correo, string $clave): array 
             return ['ok' => false, 'error' => 'Ya existe una cuenta registrada con este correo electrónico.'];
         }
 
-        $hash = password_hash($clave, PASSWORD_DEFAULT);
+        $hash = hashearPasswordSegura($clave);
         $stmtInsert = $pdo->prepare('INSERT INTO usuario (nombre, correo, contrasena) VALUES (?, ?, ?)');
         $stmtInsert->execute([$nombre, $correo, $hash]);
 

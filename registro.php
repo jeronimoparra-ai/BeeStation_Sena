@@ -26,6 +26,7 @@ if (isset($_SESSION['id_usuario'])) {
     exit;
 }
 
+$politicaPassword = obtenerPoliticaPassword();
 $error = '';
 $exito = '';
 
@@ -76,13 +77,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $clave  = is_string($claveRaw) ? $claveRaw : '';
         $conf   = is_string($claveConf) ? $claveConf : '';
 
-        // Validaciones en servidor
+        // Validaciones en servidor mediante política centralizada
+        $valClave = validarPasswordSegura($clave);
+
         if (mb_strlen($nombre, 'UTF-8') < 2 || mb_strlen($nombre, 'UTF-8') > 100) {
             $error = 'El nombre completo debe contener entre 2 y 100 caracteres.';
         } elseif (!filter_var($email, FILTER_VALIDATE_EMAIL) || strlen($email) > 150) {
             $error = 'Por favor, ingresa un correo electrónico válido.';
-        } elseif (strlen($clave) < 12 || strlen($clave) > 1024) {
-            $error = 'La contraseña debe tener al menos 12 caracteres por motivos de seguridad.';
+        } elseif (!$valClave['valida']) {
+            $error = $valClave['error'];
         } elseif ($clave !== $conf) {
             $error = 'Las contraseñas no coinciden. Por favor, asegúrate de ingresarlas iguales.';
         } else {
@@ -351,7 +354,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             <ul class="ls-pw-rules" id="pwRules">
               <li id="ruleLength">
                 <svg viewBox="0 0 24 24" fill="none" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
-                <span>Mínimo 12 caracteres</span>
+                <span>Mínimo 12 caracteres (máximo <?= (int)$politicaPassword['max_bytes'] ?> bytes)</span>
               </li>
               <li id="ruleLetters">
                 <svg viewBox="0 0 24 24" fill="none" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
@@ -461,12 +464,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     const ruleLetters    = document.getElementById('ruleLetters');
     const ruleNumbers    = document.getElementById('ruleNumbers');
     const pwMatchMsg     = document.getElementById('pwMatchMsg');
+    const MAX_BYTES      = <?= (int)$politicaPassword['max_bytes'] ?>;
 
     const updateStrength = () => {
       const val = pwInput.value;
       const len = val.length;
+      const byteLen = new TextEncoder().encode(val).length;
 
-      const hasLen = len >= 12;
+      const hasLen = len >= 12 && byteLen <= MAX_BYTES;
       const hasUpper = /[A-Z]/.test(val);
       const hasLower = /[a-z]/.test(val);
       const hasNumOrSym = /[0-9!@#$%^&*(),.?":{}|<>]/.test(val);
@@ -488,7 +493,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       seg3.className = 'ls-strength-segment';
       strengthLabel.className = 'ls-strength-label';
 
-      if (len === 0) {
+      if (byteLen > MAX_BYTES) {
+        seg1.classList.add('active-weak');
+        strengthLabel.classList.add('weak');
+        strengthLabel.textContent = `Excede límite (${byteLen}/${MAX_BYTES} bytes)`;
+      } else if (len === 0) {
         strengthLabel.textContent = 'Mínimo 12 caracteres';
       } else if (score <= 1) {
         seg1.classList.add('active-weak');

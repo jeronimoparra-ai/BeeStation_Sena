@@ -7,14 +7,20 @@ if (PHP_SAPI !== 'cli') {
 }
 
 require_once __DIR__ . '/../config/db.php';
+require_once __DIR__ . '/../includes/password.php';
 
 $nombre = trim((string) getenv('BEESTATION_BOOTSTRAP_NAME'));
-$correo = trim((string) getenv('BEESTATION_BOOTSTRAP_EMAIL'));
+$correo = strtolower(trim((string) getenv('BEESTATION_BOOTSTRAP_EMAIL')));
 $clave = (string) getenv('BEESTATION_BOOTSTRAP_PASSWORD');
 
-if ($nombre === '' || strlen($nombre) > 100 || !filter_var($correo, FILTER_VALIDATE_EMAIL)
-    || strlen($correo) > 150 || strlen($clave) < 12 || strlen($clave) > 1024) {
-    fwrite(STDERR, "Configura BEESTATION_BOOTSTRAP_NAME, BEESTATION_BOOTSTRAP_EMAIL y una contraseña de al menos 12 caracteres.\n");
+if (mb_strlen($nombre, 'UTF-8') < 2 || mb_strlen($nombre, 'UTF-8') > 100 || !filter_var($correo, FILTER_VALIDATE_EMAIL) || strlen($correo) > 150) {
+    fwrite(STDERR, "Configura BEESTATION_BOOTSTRAP_NAME (2-100 caracteres) y BEESTATION_BOOTSTRAP_EMAIL válido.\n");
+    exit(2);
+}
+
+$valClave = validarPasswordSegura($clave);
+if (!$valClave['valida']) {
+    fwrite(STDERR, "Error en contraseña: " . $valClave['error'] . "\n");
     exit(2);
 }
 
@@ -28,7 +34,7 @@ try {
     }
 
     $insert = $pdo->prepare('INSERT INTO usuario (nombre, correo, contrasena) VALUES (?, ?, ?)');
-    $insert->execute([$nombre, $correo, password_hash($clave, PASSWORD_DEFAULT)]);
+    $insert->execute([$nombre, $correo, hashearPasswordSegura($clave)]);
     fwrite(STDOUT, "Cuenta inicial creada. Elimina las variables de entorno de este proceso.\n");
 } catch (Throwable $e) {
     error_log('BeeStation: initial account provisioning failed.');
