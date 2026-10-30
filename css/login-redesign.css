@@ -576,6 +576,184 @@ body.login-page {
   .ls-left { width: 100%; min-height: 260px; }
   .ls-form-wrap { padding: 32px 24px; max-width: 100%; }
 }
-. l s - l e f t - i n n e r   {   p a d d i n g - b o t t o m :   3 0 p x ;   }  
- . l s - f o r m - w r a p   {   p a d d i n g - t o p :   2 8 p x ;   p a d d i n g - b o t t o m :   2 8 p x ;   }  
- 
+
+/* ── Success banner ── */
+.ls-success-msg {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(16, 185, 129, 0.1);
+  border: 1px solid rgba(16, 185, 129, 0.3);
+  border-radius: 10px;
+  padding: 10px 14px;
+  margin-bottom: 16px;
+  font-size: 13px;
+  color: #065F46;
+}
+.ls-success-msg svg {
+  width: 16px; height: 16px;
+  stroke: #10B981; stroke-width: 2; fill: none;
+  flex-shrink: 0;
+}
+
+/* ── Switch link (Login <-> Registro) ── */
+.ls-switch-link {
+  margin-top: 18px;
+  text-align: center;
+  font-size: 13px;
+  color: var(--gray-text);
+}
+.ls-switch-link a {
+  color: var(--yellow);
+  font-weight: 700;
+  text-decoration: none;
+  transition: color 0.15s;
+}
+.ls-switch-link a:hover {
+  color: #D97706;
+  text-decoration: underline;
+}
+
+/* ── Password strength meter ── */
+.ls-strength-meter {
+  margin-top: 7px;
+  margin-bottom: 4px;
+}
+.ls-strength-track {
+  display: flex;
+  height: 4px;
+  gap: 4px;
+  border-radius: 2px;
+  overflow: hidden;
+  background: rgba(0, 0, 0, 0.08);
+}
+.ls-strength-segment {
+  flex: 1;
+  height: 100%;
+  border-radius: 2px;
+  background: transparent;
+  transition: background-color 0.25s ease;
+}
+.ls-strength-segment.active-weak { background: #EF4444; }
+.ls-strength-segment.active-medium { background: #F59E0B; }
+.ls-strength-segment.active-strong { background: #10B981; }
+
+.ls-strength-text {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 5px;
+  font-size: 11.5px;
+  color: var(--gray-text);
+}
+.ls-strength-label {
+  font-weight: 700;
+}
+.ls-strength-label.weak { color: #EF4444; }
+.ls-strength-label.medium { color: #F59E0B; }
+.ls-strength-label.strong { color: #10B981; }
+
+/* ── Password requirements checklist ── */
+.ls-pw-rules {
+  margin-top: 6px;
+  font-size: 11.5px;
+  color: var(--gray-text);
+  line-height: 1.45;
+  list-style: none;
+  padding: 0;
+}
+.ls-pw-rules li {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 2px;
+  transition: color 0.2s ease;
+}
+.ls-pw-rules li svg {
+  width: 12px;
+  height: 12px;
+  stroke: #9CA3AF;
+  flex-shrink: 0;
+  transition: stroke 0.2s ease;
+}
+.ls-pw-rules li.valid {
+  color: #10B981;
+}
+.ls-pw-rules li.valid svg {
+  stroke: #10B981;
+}
+
+/* ── Password match indicator ── */
+.ls-pw-match {
+  font-size: 11.5px;
+  margin-top: 5px;
+  display: none;
+}
+.ls-pw-match.mismatch {
+  display: block;
+  color: #EF4444;
+}
+.ls-pw-match.match {
+  display: block;
+  color: #10B981;
+}
+
+/* ── Allow scrolling in right panel for registration ── */
+.ls-right {
+  overflow-y: auto !important;
+  max-height: 100% !important;
+}
+
+/* ── Dark mode support for login & register ── */
+html.dark body.login-page {
+  background: #111112;
+}
+html.dark .ls-right {
+  background: rgba(28, 28, 30, 0.88);
+}
+html.dark .ls-right::before {
+  opacity: 0.04;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='80' height='70'%3E%3Cpolygon points='40,2 78,22 78,48 40,68 2,48 2,22' fill='none' stroke='%23FFF' stroke-width='1.5'/%3E%3C/svg%3E");
+}
+html.dark .ls-title {
+  color: #F3F4F6;
+}
+html.dark .ls-subtitle,
+html.dark .ls-switch-link,
+html.dark .ls-strength-text,
+html.dark .ls-pw-rules,
+html.dark .auth-greeting {
+  color: #9CA3AF;
+}
+html.dark .ls-label {
+  color: #E5E7EB;
+}
+html.dark .ls-input {
+  background: #242426;
+  border-color: #38383A;
+  color: #F3F4F6;
+}
+html.dark .ls-input:focus {
+  background: #2C2C2E;
+  border-color: var(--yellow);
+}
+html.dark .ls-theme-btn {
+  background: #242426;
+  border-color: #38383A;
+}
+html.dark .ls-theme-btn svg {
+  stroke: #E5E7EB;
+}
+html.dark .ls-strength-track {
+  background: rgba(255, 255, 255, 0.12);
+}
+html.dark .ls-success-msg {
+  background: rgba(16, 185, 129, 0.15);
+  border-color: rgba(16, 185, 129, 0.35);
+  color: #34D399;
+}
+html.dark .ls-error-msg {
+  background: rgba(239, 68, 68, 0.15);
+  border-color: rgba(239, 68, 68, 0.35);
+  color: #F87171;
+}

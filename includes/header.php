@@ -49,7 +49,7 @@ else $saludo = 'Buenas noches';
     <script src="assets/vendor/chart.umd.min.js"></script>
 </head>
 <body>
-    <?php if (basename($_SERVER['PHP_SELF']) !== 'login.php'): ?>
+    <?php if (!in_array(basename($_SERVER['PHP_SELF']), ['login.php', 'registro.php'], true)): ?>
     <div class="app-container">
         <?php include 'sidebar.php'; ?>
 

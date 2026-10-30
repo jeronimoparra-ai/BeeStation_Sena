@@ -13,7 +13,7 @@
 // redirigir a login.php cuando no hay sesión de navegador.
 if (!defined('BEESTATION_API_CONTEXT')) {
     $current_page = basename($_SERVER['PHP_SELF']);
-    if (!isset($_SESSION['id_usuario']) && $current_page !== 'login.php') {
+    if (!isset($_SESSION['id_usuario']) && !in_array($current_page, ['login.php', 'registro.php'], true)) {
         header("Location: login.php");
         exit;
     }
@@ -64,6 +64,56 @@ function intentarLogin(string $correo, string $clave): ?array {
         return $user;
     }
     return null;
+}
+
+/**
+ * Registra un nuevo usuario en la base de datos con contraseña hash bcrypt.
+ *
+ * Sin sistema de roles ni privilegios administrativos.
+ * Maneja de forma segura duplicados y errores sin filtrar datos de la BD.
+ */
+function registrarUsuario(string $nombre, string $correo, string $clave): array {
+    $nombre = trim($nombre);
+    $correo = strtolower(trim($correo));
+
+    if (mb_strlen($nombre, 'UTF-8') < 2 || mb_strlen($nombre, 'UTF-8') > 100) {
+        return ['ok' => false, 'error' => 'El nombre completo debe tener entre 2 y 100 caracteres.'];
+    }
+
+    if (!filter_var($correo, FILTER_VALIDATE_EMAIL) || strlen($correo) > 150) {
+        return ['ok' => false, 'error' => 'El correo electrónico no es válido.'];
+    }
+
+    if (strlen($clave) < 12 || strlen($clave) > 1024) {
+        return ['ok' => false, 'error' => 'La contraseña debe tener al menos 12 caracteres.'];
+    }
+
+    try {
+        $pdo = getPDO();
+
+        // Comprobación previa de unicidad
+        $stmtCheck = $pdo->prepare('SELECT 1 FROM usuario WHERE correo = ? LIMIT 1');
+        $stmtCheck->execute([$correo]);
+        if ($stmtCheck->fetchColumn()) {
+            return ['ok' => false, 'error' => 'Ya existe una cuenta registrada con este correo electrónico.'];
+        }
+
+        $hash = password_hash($clave, PASSWORD_DEFAULT);
+        $stmtInsert = $pdo->prepare('INSERT INTO usuario (nombre, correo, contrasena) VALUES (?, ?, ?)');
+        $stmtInsert->execute([$nombre, $correo, $hash]);
+
+        $idUsuario = (int) $pdo->lastInsertId();
+        return ['ok' => true, 'id_usuario' => $idUsuario, 'correo' => $correo, 'nombre' => $nombre];
+    } catch (PDOException $e) {
+        // Manejo de carrera concurrente donde se inserta el mismo correo simultáneamente
+        if ($e->getCode() === '23000' || ($e->errorInfo[1] ?? 0) === 1062) {
+            return ['ok' => false, 'error' => 'Ya existe una cuenta registrada con este correo electrónico.'];
+        }
+        error_log('BeeStation Registro Error: ' . $e->getMessage());
+        return ['ok' => false, 'error' => 'Ocurrió un error al procesar el registro. Inténtalo de nuevo más tarde.'];
+    } finally {
+        unset($clave);
+    }
 }
 
 /**

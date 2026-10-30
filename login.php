@@ -8,6 +8,10 @@ if (isset($_SESSION['id_usuario'])) {
 }
 
 $error = '';
+$exito = '';
+if (isset($_GET['registrado']) && $_GET['registrado'] === '1') {
+    $exito = '¡Cuenta creada exitosamente! Ingresa tus credenciales para acceder a BeeStation.';
+}
 $hora = (int) date('H');
 if ($hora >= 5 && $hora < 12) $saludo = 'Buenos días';
 elseif ($hora >= 12 && $hora < 19) $saludo = 'Buenas tardes';
@@ -196,6 +200,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
           </div>
         <?php endif; ?>
 
+        <!-- Success message (PHP) -->
+        <?php if ($exito): ?>
+          <div class="ls-success-msg" role="status">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
+              <polyline points="22 4 12 14.01 9 11.01"/>
+            </svg>
+            <span><?= htmlspecialchars($exito) ?></span>
+          </div>
+        <?php endif; ?>
+
         <!-- Form -->
         <form action="login.php" method="POST" id="loginForm" novalidate>
           <input type="hidden" name="csrf" value="<?= htmlspecialchars(tokenCsrfSesion(), ENT_QUOTES, 'UTF-8') ?>">
@@ -217,7 +232,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 id="emailInput"
                 class="ls-input"
                 placeholder="admin"
-                value="<?= htmlspecialchars($_POST['email'] ?? '') ?>"
+                value="<?= htmlspecialchars($_POST['email'] ?? $_GET['email'] ?? '') ?>"
                 autocomplete="email"
                 required
               >
@@ -265,6 +280,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
           </button>
 
         </form>
+
+        <!-- Enlace a registro -->
+        <div class="ls-switch-link">
+          ¿No tienes una cuenta? <a href="registro.php">Regístrate aquí</a>
+        </div>
 
         <!-- Footer institucional -->
         <!-- NOTA: la frase de "cifrado de extremo a extremo" se omite porque el
