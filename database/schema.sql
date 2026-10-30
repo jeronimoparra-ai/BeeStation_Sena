@@ -54,6 +54,7 @@ CREATE TABLE IF NOT EXISTS colmena (
 CREATE TABLE IF NOT EXISTS variable_bioclimatica (
     id_variable INT AUTO_INCREMENT PRIMARY KEY,
     nombre VARCHAR(50) NOT NULL,
+    UNIQUE KEY uq_variable_bioclimatica_nombre (nombre),
     unidad_medida VARCHAR(20) NOT NULL,
     optimo_min FLOAT,
     optimo_max FLOAT,
@@ -74,7 +75,15 @@ INSERT INTO variable_bioclimatica (
 ('co2', 'ppm', 2000, 4000, 1000, 6000, 500, 10000),
 ('energia', 'V', 3.7, 4.2, 3.0, 4.2, 2.8, 4.2),
 ('presion', 'hPa', 980, 1040, 950, 1060, 900, 1080),
-('luminosidad', 'lux', 50, 20000, 10, 60000, 0, 100000);
+('luminosidad', 'lux', 50, 20000, 10, 60000, 0, 100000)
+ON DUPLICATE KEY UPDATE
+    unidad_medida   = VALUES(unidad_medida),
+    optimo_min      = VALUES(optimo_min),
+    optimo_max      = VALUES(optimo_max),
+    alerta_min      = VALUES(alerta_min),
+    alerta_max      = VALUES(alerta_max),
+    critico_min     = VALUES(critico_min),
+    critico_max     = VALUES(critico_max);
 
 -- ── SENSORES ──────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS sensor (

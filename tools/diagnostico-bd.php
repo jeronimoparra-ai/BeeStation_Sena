@@ -19,7 +19,7 @@ if (PHP_SAPI !== 'cli') {
     exit;
 }
 
-// ── Tablas esperadas según database/beestation_sena.sql ──
+// ── Tablas esperadas según database/schema.sql ──
 $expectedTables = [
     'usuario',
     'apiario',
@@ -357,7 +357,7 @@ $statusLabels  = ['ok' => '✅ Todo correcto', 'warn' => '⚠️ Conexión OK �
       <?php if (!empty($missingTables)): ?>
         <div style="margin-top:1rem; padding:.75rem 1rem; background:#261212; border-radius:8px; font-size:.82rem; color:#f87171;">
           ⚠️ Tablas faltantes: <strong><?= htmlspecialchars(implode(', ', $missingTables)) ?></strong>
-          <br><small style="color:#a17070">Importa el esquema desde <code>database/beestation_sena.sql</code></small>
+          <br><small style="color:#a17070">Importa el esquema desde <code>database/schema.sql</code></small>
         </div>
       <?php endif; ?>
     </div>
