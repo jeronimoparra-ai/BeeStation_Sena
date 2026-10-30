@@ -7,7 +7,7 @@
  * Arquitectura:
  * - Valida entradas estrictamente en servidor con PHP.
  * - Validación CSRF de sesión obligatoria.
- * - Hash criptográfico con password_hash(..., PASSWORD_DEFAULT).
+ * - Hash criptográfico centralizado con Bcrypt costo 12 (máx. 72 bytes, mín. 12 caracteres).
  * - Protección contra fuerza bruta / rate-limiting en sesión e IP.
  * - Campo honeypot anti-bots / anti-spam.
  * - Sin sistema de roles: los nuevos usuarios no reciben privilegios
@@ -468,10 +468,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     const updateStrength = () => {
       const val = pwInput.value;
-      const len = val.length;
-      const byteLen = new TextEncoder().encode(val).length;
+      const charCount = Array.from(val).length; // Conteo exacto de caracteres Unicode (mb_strlen)
+      const byteLen = new TextEncoder().encode(val).length; // Conteo exacto de bytes reales (strlen)
 
-      const hasLen = len >= 12 && byteLen <= MAX_BYTES;
+      const hasLen = charCount >= 12 && byteLen <= MAX_BYTES;
       const hasUpper = /[A-Z]/.test(val);
       const hasLower = /[a-z]/.test(val);
       const hasNumOrSym = /[0-9!@#$%^&*(),.?":{}|<>]/.test(val);
@@ -497,7 +497,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         seg1.classList.add('active-weak');
         strengthLabel.classList.add('weak');
         strengthLabel.textContent = `Excede límite (${byteLen}/${MAX_BYTES} bytes)`;
-      } else if (len === 0) {
+      } else if (charCount === 0) {
         strengthLabel.textContent = 'Mínimo 12 caracteres';
       } else if (score <= 1) {
         seg1.classList.add('active-weak');

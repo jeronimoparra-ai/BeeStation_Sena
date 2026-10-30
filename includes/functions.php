@@ -69,9 +69,9 @@ function intentarLogin(string $correo, string $clave): ?array {
 /**
  * Registra un nuevo usuario en la base de datos con contraseña hash segura.
  *
- * Utiliza la política centralizada (Argon2id con fallback a Bcrypt de 72 bytes).
+ * Utiliza la política centralizada unificada (Bcrypt costo 12, máx. 72 bytes).
  * Sin sistema de roles ni privilegios administrativos.
- * Maneja de forma segura duplicados y errores sin filtrar datos de la BD.
+ * Maneja de forma segura errores de hashing y duplicados sin filtrar datos de la BD.
  */
 function registrarUsuario(string $nombre, string $correo, string $clave): array {
     require_once __DIR__ . '/password.php';
@@ -92,6 +92,16 @@ function registrarUsuario(string $nombre, string $correo, string $clave): array 
         return ['ok' => false, 'error' => $valClave['error']];
     }
 
+    // Generación segura del hash con captura controlada de excepciones (A-1)
+    try {
+        $hash = hashearPasswordSegura($clave);
+    } catch (InvalidArgumentException $e) {
+        return ['ok' => false, 'error' => $e->getMessage()];
+    } catch (Throwable $e) {
+        error_log('BeeStation: Error al generar hash de contrasena: ' . get_class($e) . ': ' . $e->getMessage());
+        return ['ok' => false, 'error' => 'No fue posible procesar la contraseña de forma segura. Inténtalo de nuevo.'];
+    }
+
     try {
         $pdo = getPDO();
 
@@ -102,7 +112,6 @@ function registrarUsuario(string $nombre, string $correo, string $clave): array 
             return ['ok' => false, 'error' => 'Ya existe una cuenta registrada con este correo electrónico.'];
         }
 
-        $hash = hashearPasswordSegura($clave);
         $stmtInsert = $pdo->prepare('INSERT INTO usuario (nombre, correo, contrasena) VALUES (?, ?, ?)');
         $stmtInsert->execute([$nombre, $correo, $hash]);
 
@@ -115,6 +124,9 @@ function registrarUsuario(string $nombre, string $correo, string $clave): array 
         }
         error_log('BeeStation Registro Error: ' . $e->getMessage());
         return ['ok' => false, 'error' => 'Ocurrió un error al procesar el registro. Inténtalo de nuevo más tarde.'];
+    } catch (Throwable $e) {
+        error_log('BeeStation Registro Error inesperado: ' . get_class($e) . ': ' . $e->getMessage());
+        return ['ok' => false, 'error' => 'Ocurrió un error inesperado al procesar el registro. Inténtalo de nuevo más tarde.'];
     } finally {
         unset($clave);
     }

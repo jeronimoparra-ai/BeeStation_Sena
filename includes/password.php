@@ -4,78 +4,60 @@
  * ----------------------------------------------------------------
  * Política centralizada de hash y validación de contraseñas de BeeStation.
  *
- * Arquitectura de seguridad:
- *   1. Detección en tiempo de ejecución:
- *      - Argon2id (PASSWORD_ARGON2ID): Si está compilado en PHP (password_algos()),
- *        se utiliza con parámetros acordes a OWASP:
- *        memory_cost = 65536 KiB (64 MiB), time_cost = 3, threads = 1.
- *        Límite: mínimo 12 caracteres, máximo 1024 bytes.
- *      - Bcrypt (PASSWORD_BCRYPT): Si Argon2id no está disponible en el entorno,
- *        se utiliza explícitamente PASSWORD_BCRYPT con costo 12.
- *        Límite: mínimo 12 caracteres, máximo estricto de 72 bytes (strlen).
- *        Rechaza cualquier entrada > 72 bytes sin truncamiento (previene colisiones
- *        y ambigüedades por truncamiento silencioso).
+ * Decisión de arquitectura (Compatibilidad unificada de runtimes):
+ *   - Algoritmo único obligatorio: PASSWORD_BCRYPT.
+ *   - Costo bcrypt: 12.
+ *   - Longitud mínima: 12 caracteres Unicode (evaluada con mb_strlen).
+ *   - Longitud máxima técnica: 72 bytes reales (evaluada con strlen).
+ *   - Codificación obligatoria: UTF-8 válido (mb_check_encoding).
+ *   - Sin truncamiento: Cualquier entrada > 72 bytes es rechazada de inmediato.
+ *   - Sin trim(): Preserva espacios iniciales, internos y finales.
  *
- *   2. Validación rigurosa:
- *      - Longitud mínima evaluada en caracteres Unicode con mb_strlen().
- *      - Longitud técnica máxima evaluada en bytes reales con strlen().
- *      - Rechazo de codificaciones no válidas con mb_check_encoding().
- *      - No se aplica trim() ni se eliminan espacios internos.
- *      - Confirmación exacta de contraseñas.
+ * Justificación de algoritmo único:
+ *   En entornos heterogéneos (por ejemplo, PHP CLI 8.5 con Argon2id vs
+ *   XAMPP Apache PHP 8.2 sin libargon compilada), la selección automática
+ *   provocaba que cuentas creadas por CLI no pudieran autenticarse en Apache.
+ *   Al fijar PASSWORD_BCRYPT con costo 12, se garantiza que cualquier hash
+ *   generado por cualquier proceso de BeeStation sea 100% verificable en
+ *   todos los entornos (CLI, Apache, PHP-FPM y Hostinger).
  *
- *   3. Compatibilidad:
- *      - password_verify() resuelve de forma transparente cualquier hash
- *        existente ($2y$, $argon2id$, etc.), preservando cuentas previas
- *        como admin@beestation.io sin necesidad de migración ni restablecimiento.
+ * Adopción futura de Argon2id:
+ *   Argon2id se evaluará cuando TODOS los runtimes (CLI de desarrollo, servidor
+ *   local, CLI de producción y Apache/PHP-FPM en Hostinger) dispongan
+ *   demostradamente de libargon/Sodium, y se haya medido el consumo de memoria
+ *   bajo concurrencia. Hasta entonces, Bcrypt costo 12 es el estándar único.
  * ----------------------------------------------------------------
  */
 declare(strict_types=1);
 
 /**
- * Devuelve la configuración de la política de contraseñas según el entorno.
+ * Devuelve la configuración estricta de la política de contraseñas.
+ * Idéntica para todos los runtimes y entornos.
  *
  * @return array{
  *     algoritmo: string,
- *     algo_const: string|int,
+ *     algo_const: int|string,
+ *     cost: int,
  *     min_caracteres: int,
  *     max_bytes: int,
- *     opciones: array<string, int>
+ *     opciones: array{cost: int}
  * }
  */
 function obtenerPoliticaPassword(): array {
-    static $config = null;
-    if ($config !== null) {
-        return $config;
+    if (!defined('PASSWORD_BCRYPT')) {
+        throw new RuntimeException('El entorno PHP no dispone del algoritmo PASSWORD_BCRYPT.');
     }
 
-    $algosDisponibles = function_exists('password_algos') ? password_algos() : [];
-    $tieneArgon2id = defined('PASSWORD_ARGON2ID') && in_array(PASSWORD_ARGON2ID, $algosDisponibles, true);
-
-    if ($tieneArgon2id) {
-        $config = [
-            'algoritmo'      => 'argon2id',
-            'algo_const'     => PASSWORD_ARGON2ID,
-            'min_caracteres' => 12,
-            'max_bytes'      => 1024,
-            'opciones'       => [
-                'memory_cost' => 65536,
-                'time_cost'   => 3,
-                'threads'     => 1,
-            ],
-        ];
-    } else {
-        $config = [
-            'algoritmo'      => 'bcrypt',
-            'algo_const'     => PASSWORD_BCRYPT,
-            'min_caracteres' => 12,
-            'max_bytes'      => 72,
-            'opciones'       => [
-                'cost' => 12,
-            ],
-        ];
-    }
-
-    return $config;
+    return [
+        'algoritmo'      => 'bcrypt',
+        'algo_const'     => PASSWORD_BCRYPT,
+        'cost'           => 12,
+        'min_caracteres' => 12,
+        'max_bytes'      => 72,
+        'opciones'       => [
+            'cost' => 12,
+        ],
+    ];
 }
 
 /**
@@ -112,18 +94,16 @@ function validarPasswordSegura(mixed $clave): array {
         ];
     }
 
-    // Longitud máxima técnica en bytes (strlen)
+    // Longitud máxima técnica en bytes reales (strlen) para Bcrypt
     $numBytes = strlen($clave);
     if ($numBytes > $politica['max_bytes']) {
-        if ($politica['algoritmo'] === 'bcrypt') {
-            return [
-                'valida' => false,
-                'error'  => sprintf('La contraseña excede el límite máximo de %d bytes permitido por el algoritmo de seguridad actual (longitud recibida: %d bytes).', $politica['max_bytes'], $numBytes),
-            ];
-        }
         return [
             'valida' => false,
-            'error'  => sprintf('La contraseña supera el límite máximo permitido de %d bytes.', $politica['max_bytes']),
+            'error'  => sprintf(
+                'La contraseña excede el límite máximo de %d bytes permitido por el algoritmo de seguridad (longitud recibida: %d bytes).',
+                $politica['max_bytes'],
+                $numBytes
+            ),
         ];
     }
 
@@ -134,10 +114,10 @@ function validarPasswordSegura(mixed $clave): array {
 }
 
 /**
- * Genera un hash seguro para la contraseña según la política activa.
+ * Genera un hash Bcrypt costo 12 según la política centralizada.
  *
  * @param string $clave Contraseña en texto plano.
- * @return string Hash resultante.
+ * @return string Hash resultante ($2y$12$...).
  * @throws InvalidArgumentException Si la contraseña no cumple la política.
  * @throws RuntimeException Si el motor PHP falla al calcular el hash.
  */
