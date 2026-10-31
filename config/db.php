@@ -24,6 +24,20 @@
 // NOW() de SQL y las marcas de tiempo de PHP sean coherentes.
 date_default_timezone_set('America/Bogota');
 
+// ── Errores en producción ────────────────────────────────────────────────────
+// En producción ningún detalle técnico debe llegar al navegador: los errores
+// se registran en el log del servidor y el visitante recibe un mensaje
+// genérico. En desarrollo se respeta lo que diga php.ini.
+if (!defined('BEE_PRODUCCION')) {
+    $appEnv = strtolower(trim((string) (getenv('APP_ENV') ?: '')));
+    define('BEE_PRODUCCION', $appEnv === 'production');
+    if (BEE_PRODUCCION) {
+        ini_set('display_errors', '0');
+        ini_set('display_startup_errors', '0');
+        ini_set('log_errors', '1');
+    }
+}
+
 $configLocal = __DIR__ . '/db.local.php';
 $config = is_file($configLocal) ? (array) require $configLocal : [];
 
@@ -74,7 +88,7 @@ function getPDO(): PDO {
         if (DB_USER === '') {
             throw new RuntimeException('Database credentials are not configured.');
         }
-        $production = strtolower((string) (getenv('APP_ENV') ?: '')) === 'production';
+        $production = BEE_PRODUCCION;
         if ($production && (strtolower(DB_USER) === 'root' || DB_PASS === '')) {
             throw new RuntimeException('Production database configuration is unsafe.');
         }

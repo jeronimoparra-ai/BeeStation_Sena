@@ -15,22 +15,27 @@ DirectoryIndex index.php
 # --- Rutas que nunca deben servirse por HTTP ---
 #  .git/.svn/.hg  -> historial del repositorio
 #  config/        -> credenciales de base de datos
+#  includes/      -> bibliotecas internas (solo deben incluirse desde PHP)
 #  database/      -> esquema y volcados de datos
 #  beestation_node/ -> firmware (contiene secretos del nodo)
 #  tools/         -> utilidades de diagnostico
 #  docs/          -> documentacion interna
 #  scripts/       -> lanzadores
+#  tests/         -> pruebas automatizadas
+#  tasks/         -> notas de planificacion internas
+#  .opencode/.vscode/.idea/.agents/.claude -> configuracion de herramientas
 #
 #  En .htaccess las reglas de reescritura se evalúan sobre la ruta
 #  RELATIVA al directorio, a diferencia de RedirectMatch (que usa la
 #  ruta completa y por eso no alcanzaba con el prefijo /BeeStation_Sena).
+#  No se bloquea ".well-known" porque lo necesita la validación HTTPS.
 <IfModule mod_rewrite.c>
     RewriteEngine On
     RewriteBase /
-    RewriteRule ^(?:config|database|beestation_node|tools|docs|scripts|tests|\.git|\.svn|\.hg)(?:/|$) - [F,L]
+    RewriteRule ^(?:config|includes|database|beestation_node|tools|docs|scripts|tests|tasks|\.opencode|\.vscode|\.idea|\.agents|\.claude|\.git|\.svn|\.hg)(?:/|$) - [F,L]
 </IfModule>
 # Bloqueo independiente de mod_rewrite, valido tambien desde subdirectorios.
-RedirectMatch 404 "(?i)(?:^|/)(?:config|database|beestation_node|tools|docs|scripts|tests|\.git|\.svn|\.hg)(?:/|$)"
+RedirectMatch 404 "(?i)(?:^|/)(?:config|includes|database|beestation_node|tools|docs|scripts|tests|tasks|\.opencode|\.vscode|\.idea|\.agents|\.claude|\.git|\.svn|\.hg)(?:/|$)"
 
 # --- Archivos sueltos que nunca deben servirse ---
 #  Nota: los nombres se acotan con su extension para no capturar por
