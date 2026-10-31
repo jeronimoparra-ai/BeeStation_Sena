@@ -1,0 +1,119 @@
+{
+  // BeeStation_Sena — configuración de proyecto OpenCode v2.
+  // Reglas de Git/BD: ver AGENTS.md. Estado: docs/ESTADO-ACTUAL-AUDITORIA.md.
+  "$schema": "https://opencode.ai/config.json",
+
+  "permissions": [
+    // Base: el trabajo normal no pide aprobación.
+    { "action": "shell", "resource": "*", "effect": "allow" },
+
+    // --- Aprobación explícita: commits, BD y escrituras externas ---
+    { "action": "shell", "resource": "git add *", "effect": "ask" },
+    { "action": "shell", "resource": "git commit *", "effect": "ask" },
+    { "action": "shell", "resource": "git stash *", "effect": "ask" },
+    { "action": "shell", "resource": "mariadb *", "effect": "ask" },
+    { "action": "shell", "resource": "mysql *", "effect": "ask" },
+    { "action": "shell", "resource": "mysqldump *", "effect": "ask" },
+    { "action": "shell", "resource": "php tools/migrar*", "effect": "ask" },
+    { "action": "shell", "resource": "php tools/verificar*", "effect": "ask" },
+    { "action": "shell", "resource": "php scripts/verificar*", "effect": "ask" },
+    { "action": "external_directory", "resource": "*", "effect": "ask" },
+    { "action": "external_directory", "resource": "/tmp/opencode/*", "effect": "allow" },
+    { "action": "external_directory", "resource": "~/backups/*", "effect": "allow" },
+
+    // --- Denegaciones duras (última regla que coincide gana) ---
+    { "action": "shell", "resource": "git push *", "effect": "deny" },
+    { "action": "shell", "resource": "git push", "effect": "deny" },
+    { "action": "shell", "resource": "git reset --hard *", "effect": "deny" },
+    { "action": "shell", "resource": "git clean *", "effect": "deny" },
+    { "action": "shell", "resource": "git checkout -- *", "effect": "deny" },
+    { "action": "shell", "resource": "git restore *", "effect": "deny" },
+    { "action": "shell", "resource": "git stash drop *", "effect": "deny" },
+    { "action": "shell", "resource": "git stash clear *", "effect": "deny" },
+    { "action": "shell", "resource": "git rebase *", "effect": "deny" },
+    { "action": "shell", "resource": "git filter-branch *", "effect": "deny" },
+    { "action": "shell", "resource": "rm -rf *", "effect": "deny" },
+    { "action": "shell", "resource": "rm -fr *", "effect": "deny" },
+    { "action": "shell", "resource": "sudo *", "effect": "deny" },
+    { "action": "shell", "resource": "DROP DATABASE *", "effect": "deny" },
+    { "action": "shell", "resource": "DROP TABLE *", "effect": "deny" },
+    { "action": "shell", "resource": "TRUNCATE *", "effect": "deny" },
+
+    // --- Credenciales: nunca editar ni leer secretos locales ---
+    { "action": "edit", "resource": "config/db.local.php", "effect": "deny" },
+    { "action": "read", "resource": "config/db.local.php", "effect": "deny" },
+    { "action": "edit", "resource": "**/.env", "effect": "deny" },
+    { "action": "edit", "resource": "**/.env.*", "effect": "deny" }
+  ],
+
+  "policies": [
+    // Denegacion dura: no la puede anular un "allow always" guardado.
+    { "action": "tool.use", "resource": "shell:git push *", "effect": "deny" },
+    { "action": "tool.use", "resource": "shell:git push", "effect": "deny" },
+    { "action": "tool.use", "resource": "shell:git reset --hard *", "effect": "deny" },
+    { "action": "tool.use", "resource": "shell:git clean *", "effect": "deny" },
+    { "action": "tool.use", "resource": "shell:git stash drop *", "effect": "deny" },
+    { "action": "tool.use", "resource": "shell:git stash clear *", "effect": "deny" },
+    { "action": "tool.use", "resource": "shell:rm -rf *", "effect": "deny" },
+    { "action": "tool.use", "resource": "shell:rm -fr *", "effect": "deny" }
+  ],
+
+  "agents": {
+    // Auditores de solo lectura. Reportan defectos; no implementan correcciones.
+    "auditor-php": {
+      "description": "Audita arquitectura PHP, PDO, sesiones y manejo de errores (solo lectura).",
+      "mode": "subagent",
+      "system": "Eres auditor de BeeStation_Sena. Trabajas en solo lectura. Revisa estructura PHP, reutilización, validaciones, manejo de errores, consultas PDO, sesiones y compatibilidad. Reporta hallazgos con archivo:línea, severidad y evidencia. No edites archivos ni ejecutes cambios.",
+      "permissions": [
+        { "action": "shell", "resource": "*", "effect": "deny" },
+        { "action": "shell", "resource": "git diff *", "effect": "allow" },
+        { "action": "shell", "resource": "git log *", "effect": "allow" },
+        { "action": "shell", "resource": "git show *", "effect": "allow" },
+        { "action": "shell", "resource": "git status *", "effect": "allow" },
+        { "action": "edit", "resource": "*", "effect": "deny" }
+      ]
+    },
+
+    "auditor-seguridad": {
+      "description": "Audita autenticación, autorización por propietario, CSRF, XSS e inyección (solo lectura).",
+      "mode": "subagent",
+      "system": "Eres auditor de seguridad de BeeStation_Sena. Trabajas en solo lectura. Revisa autenticación, autorización por propietario, CSRF, XSS, inyección SQL, control de acceso, rate limiting, sesiones y exposición de credenciales. Reporta con archivo:línea, severidad, evidencia y remediación propuesta. No edites archivos.",
+      "permissions": [
+        { "action": "shell", "resource": "*", "effect": "deny" },
+        { "action": "shell", "resource": "git diff *", "effect": "allow" },
+        { "action": "shell", "resource": "git log *", "effect": "allow" },
+        { "action": "shell", "resource": "git show *", "effect": "allow" },
+        { "action": "shell", "resource": "git status *", "effect": "allow" },
+        { "action": "edit", "resource": "*", "effect": "deny" }
+      ]
+    },
+
+    "auditor-datos": {
+      "description": "Audita esquema, índices, integridad referencial y migraciones (solo lectura).",
+      "mode": "subagent",
+      "system": "Eres auditor de base de datos de BeeStation_Sena. Trabajas en solo lectura: no ejecutes DDL ni DML. Revisa esquema canónico, integridad referencial, claves e índices, migraciones, consultas e integridad histórica. Distingue compatibilidad demostrada, razonada y no verificada. Reporta con archivo:línea y evidencia.",
+      "permissions": [
+        { "action": "shell", "resource": "*", "effect": "deny" },
+        { "action": "shell", "resource": "git diff *", "effect": "allow" },
+        { "action": "shell", "resource": "git log *", "effect": "allow" },
+        { "action": "shell", "resource": "git show *", "effect": "allow" },
+        { "action": "shell", "resource": "git status *", "effect": "allow" },
+        { "action": "edit", "resource": "*", "effect": "deny" }
+      ]
+    },
+
+    "auditor-firmware": {
+      "description": "Audita ESP32, API, nonces, anti-replay y TLS (solo lectura).",
+      "mode": "subagent",
+      "system": "Eres auditor de firmware y API de BeeStation_Sena. Trabajas en solo lectura. Revisa autenticación ESP32, nonces, anti-replay, integridad de solicitudes, límites de cuerpo, TLS/certificados, manejo de errores y compatibilidad firmware-API. Reporta con archivo:línea y severidad. No edites archivos.",
+      "permissions": [
+        { "action": "shell", "resource": "*", "effect": "deny" },
+        { "action": "shell", "resource": "git diff *", "effect": "allow" },
+        { "action": "shell", "resource": "git log *", "effect": "allow" },
+        { "action": "shell", "resource": "git show *", "effect": "allow" },
+        { "action": "shell", "resource": "git status *", "effect": "allow" },
+        { "action": "edit", "resource": "*", "effect": "deny" }
+      ]
+    }
+  }
+}
