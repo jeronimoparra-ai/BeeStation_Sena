@@ -474,6 +474,6 @@ foreach ($soloEsquema as $linea) {
 foreach ($soloReal as $linea) {
     echo "  [sobra en la base real] $linea\n";
 }
-echo "\nCorrige la diferencia con una migracion en database/migrations/ ".
-     "o actualizando database/schema.sql, y vuelve a ejecutar la verificacion.\n";
+echo "\nCorrige la diferencia actualizando database/schema.sql ".
+     "(esquema unico, sin migraciones) y vuelve a ejecutar la verificacion.\n";
 exit(1);

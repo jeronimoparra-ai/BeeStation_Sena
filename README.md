@@ -326,7 +326,7 @@ erDiagram
 - El sistema de roles (`rol` y `usuario.id_rol`) **fue eliminado del diseño**: todos los usuarios autenticados tienen el mismo nivel de acceso.
 - El modelo completo se diseñó en notación Chen con 12 entidades; la implementación usa este esquema simplificado.
 - El campo de precisión se llama `precision_valor` para evitar la palabra reservada `precision`.
-- El esquema versionado es **`database/schema.sql`** (instalación limpia) más las migraciones de `database/migrations/`. El dump completo del entorno de desarrollo **no se versiona** porque contiene hashes de contraseñas y tokens de vinculación; cada instalación genera el suyo fuera del repositorio.
+- El esquema versionado es **`database/schema.sql`** (instalación única, base nueva y vacía). No hay migraciones sueltas: todo el esquema consolidado vive en ese archivo. El dump completo del entorno de desarrollo **no se versiona** porque contiene hashes de contraseñas y tokens de vinculación; cada instalación genera el suyo fuera del repositorio.
 
 </details>
 

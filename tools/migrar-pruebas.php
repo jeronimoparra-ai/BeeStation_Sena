@@ -180,18 +180,74 @@ foreach ($resumenEsquema['fallaron'] as $fallo) {
 }
 
 // --- Migraciones ------------------------------------------------------------
-$migraciones = glob($raiz . '/database/migrations/*.sql');
-sort($migraciones);
+// A partir de la consolidacion (Mision 10.2) no existe la carpeta
+// database/migrations/: todo el esquema vive en database/schema.sql.
+// No se aplican migraciones sueltas sobre una instalacion nueva.
 
-foreach ($migraciones as $ruta) {
-    $nombreMig = basename($ruta);
-    $sentencias = sqlSentencias(file_get_contents($ruta));
-    $resumen = sqlEjecutar($pdo, $sentencias, $nombreMig);
-    $estado = $resumen['fallaron'] ? '[ERROR] ' : '[OK]    ';
-    echo "  $estado $nombreMig ({$resumen['ok']} ok, {$resumen['ya_existia']} ya existian)\n";
-    foreach ($resumen['fallaron'] as $fallo) {
+// --- Verificacion posterior de invariantes de la migracion 010 --------------
+// Un "Duplicate key name" solo prueba que el nombre esta ocupado, no que el
+// indice sea UNIQUE ni que tenga la definicion correcta. El indice se verifica
+// siempre contra information_schema, venga del esquema consolidado o de una
+// instalacion previa.
+function verificarIndiceVariableBioclimatica(PDO $pdo): array {
+    $errores = [];
+
+    $existe = (int) $pdo->query(
+        "SELECT COUNT(*) FROM information_schema.TABLES
+         WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'variable_bioclimatica'"
+    )->fetchColumn();
+    if ($existe === 0) {
+        return ["No existe la tabla variable_bioclimatica."];
+    }
+
+    $filas = $pdo->query(
+        "SELECT INDEX_NAME, NON_UNIQUE, SEQ_IN_INDEX, COLUMN_NAME, SUB_PART, INDEX_TYPE
+         FROM information_schema.STATISTICS
+         WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'variable_bioclimatica'
+         ORDER BY INDEX_NAME, SEQ_IN_INDEX"
+    )->fetchAll();
+
+    $indices = [];
+    foreach ($filas as $fila) {
+        $indices[strtolower($fila['INDEX_NAME'])][] = $fila;
+    }
+
+    $def = $indices['uq_variable_bioclimatica_nombre'] ?? null;
+    if ($def === null) {
+        return ["Falta el indice 'uq_variable_bioclimatica_nombre'."];
+    }
+    if (count($def) !== 1) {
+        $errores[] = 'El indice es compuesto (' . count($def) . ' columnas).';
+        return $errores;
+    }
+
+    $col = $def[0];
+    if ((int) $col['NON_UNIQUE'] !== 0) {
+        $errores[] = 'El indice no es UNIQUE.';
+    }
+    if ($col['COLUMN_NAME'] !== 'nombre') {
+        $errores[] = "El indice no usa la columna 'nombre'.";
+    }
+    if ($col['SUB_PART'] !== null) {
+        $errores[] = 'El indice usa prefijo (' . $col['SUB_PART'] . ').';
+    }
+    if (strtoupper((string) $col['INDEX_TYPE']) !== 'BTREE') {
+        $errores[] = 'El tipo de indice no es BTREE.';
+    }
+
+    return $errores;
+}
+
+$fallosInvariantes = verificarIndiceVariableBioclimatica($pdo);
+if ($fallosInvariantes) {
+    echo "\n[ERROR] El indice uq_variable_bioclimatica_nombre no cumple su invariante:\n";
+    foreach ($fallosInvariantes as $fallo) {
         echo "           -> $fallo\n";
     }
+    echo "  Un 'Duplicate key name' NO demuestra que el indice sea correcto.\n";
+} else {
+    echo "\n[OK] Indice uq_variable_bioclimatica_nombre verificado "
+       . "(UNIQUE, una columna 'nombre', sin prefijo, BTREE).\n";
 }
 
 // --- Resumen ----------------------------------------------------------------
@@ -202,3 +258,10 @@ foreach ($tablas as $tabla) {
 }
 
 echo "\nMigración de pruebas completada.\n";
+
+// La herramienta devuelve error si el invariante de la migracion 010 no se
+// cumple, para que el runner no pueda "aprobar" un indice homonimo incorrecto.
+if ($fallosInvariantes) {
+    exit(1);
+}
+exit(0);
