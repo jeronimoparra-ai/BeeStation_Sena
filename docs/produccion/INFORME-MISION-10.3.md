@@ -1,7 +1,7 @@
 # Informe de Misión 10.3 — Validación final de schema.sql
 
 - **Fecha:** 2026-10-31
-- **Repositorio:** `/home/andresdev/BeeStation_Sena-official`, rama `main`, HEAD `8cee2c5`
+- **Repositorio:** raíz local del repositorio BeeStation_Sena, rama `main`, HEAD `8cee2c5`
 - **Modo:** validación. Sin DDL/DML, sin commits, sin push, sin acceso a Hostinger.
 
 ---

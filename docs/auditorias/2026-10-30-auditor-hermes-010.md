@@ -33,7 +33,7 @@ Sin embargo, tres hallazgos requieren resolución antes de producción:
 
 | Dato | Valor |
 |---|---|
-| Ruta inspeccionada | `/home/andresdev/BeeStation_Sena-official` |
+| Ruta inspeccionada | raíz local del repositorio BeeStation_Sena |
 | Rama | `main` |
 | HEAD | `8cee2c50a11b53aaee22434b7472736ea2921802` |
 | origin/main | `0698155043dca88ade4a7f7d46893d0dd846625a` |

@@ -19,7 +19,8 @@
  *   2. Carga database/schema.sql sustituyendo el nombre de la base por
  *      el de pruebas, de modo que el esquema consolidado se aplique
  *      siempre a la base correcta.
- *   3. Aplica las migraciones de database/migrations/ en orden.
+ *   3. Verifica el índice único de variable_bioclimatica.nombre contra
+ *      information_schema (no aplica migraciones: el esquema es único).
  *   4. Informa del resultado de cada paso.
  *
  * Es idempotente: se puede ejecutar tantas veces como haga falta.

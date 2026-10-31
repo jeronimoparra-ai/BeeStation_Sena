@@ -1,7 +1,7 @@
 # Informe de Misión 10 — Limpieza real y paquete productivo candidato
 
 - **Fecha:** 2026-10-30
-- **Repositorio:** `/home/andresdev/BeeStation_Sena-official`, rama `main`, HEAD `8cee2c5`
+- **Repositorio:** raíz local del repositorio BeeStation_Sena, rama `main`, HEAD `8cee2c5`
 - **Modo:** limpieza segura autorizada. Sin commits, sin push, sin despliegue, sin migraciones,
   sin acceso a Hostinger, sin cambios de grants ni de datos.
 

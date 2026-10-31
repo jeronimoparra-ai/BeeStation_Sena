@@ -1,7 +1,7 @@
 # Informe de Misión 9.1 — Activación de skills y auditorías consolidadas
 
 - **Fecha:** 2026-10-30
-- **Repositorio:** `/home/andresdev/BeeStation_Sena-official`, rama `main`, HEAD `8cee2c5`
+- **Repositorio:** raíz local del repositorio BeeStation_Sena, rama `main`, HEAD `8cee2c5`
 - **Modo:** solo lectura. Sin cambios al código en esta misión (salvo este informe
   y la actualización del estado de auditoría). Sin commits, sin push, sin migraciones,
   sin acceso a Hostinger, sin cambios de grants ni de datos.
@@ -34,10 +34,10 @@ instalador, script remoto ni `npx skills add` (prohibido sin autorización).
 
 Referencias inspeccionadas para confirmar la ausencia:
 
-- `/home/andresdev/.hermes/hermes-agent/plugin-catalog/hermes-security-audit.yaml` — es un
+- catálogo de plugins de Hermes (fuera del repositorio) — es un
   **plugin de Hermes** (comunidad, `dafka007`), no una skill de OpenCode; provee un
   tool `security_audit` vía Gitleaks/OSV/Semgrep. No se instaló ni se invocó.
-- `/home/andresdev/.nvm/.../gemini-cli/.../subagents.md` — documento de ejemplo con un
+- documentación de ejemplo de Gemini CLI (fuera del repositorio) — documento de ejemplo con un
   `security-auditor`; no es una skill instalada.
 
 ### Equivalencias funcionales usadas (sin instalar nada)

@@ -1,7 +1,7 @@
 # Informe de Misión 10.2 — Consolidación definitiva de la base de datos
 
 - **Fecha:** 2026-10-31
-- **Repositorio:** `/home/andresdev/BeeStation_Sena-official`, rama `main`, HEAD `8cee2c5`
+- **Repositorio:** raíz local del repositorio BeeStation_Sena, rama `main`, HEAD `8cee2c5`
 - **Modo:** consolidación. Sin DDL/DML sobre bases reales, sin commits, sin push,
   sin acceso a Hostinger, sin cambios de grants ni de datos.
 
