@@ -36,15 +36,18 @@
     document.documentElement.classList.remove('bs-motion-ready');
   }
 
+  // ── Detección de prefers-reduced-motion ──────────────────
+  var prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
   // ── Guard: GSAP no disponible ──────────────────────────────
   if (typeof gsap === 'undefined') {
     console.warn('[BeeStation Motion] GSAP no disponible. Revelando contenido estático.');
     revealAll();
+    // La navegación y el menú móvil son funcionales sin motor de animación.
+    initNav();
+    initMobileMenu();
     return;
   }
-
-  // ── Detección de prefers-reduced-motion ──────────────────
-  var prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
   // ── Guard: sin ScrollTrigger (o con movimiento reducido) no se oculta nada ─
   if (prefersReducedMotion || typeof ScrollTrigger === 'undefined') {
@@ -153,13 +156,23 @@
   }
 
   // ──────────────────────────────────────────────────────────
-  // 2. NAVEGACIÓN al scroll
+  // 2. NAVEGACIÓN al scroll + sección activa
   // ──────────────────────────────────────────────────────────
   function initNav() {
     var nav = document.getElementById('bs-nav');
     if (!nav) return;
 
-    if (typeof ScrollTrigger !== 'undefined') {
+    // Indicador de sección activa (funciona con o sin GSAP).
+    initNavScrollSpy();
+
+    // Entrada discreta del logotipo, solo si hay motor de animación.
+    if (typeof gsap !== 'undefined' && !prefersReducedMotion) {
+      gsap.from('.bs-nav__logo-mark', { opacity: 0, scale: .72, rotate: -14, duration: .9, ease: 'back.out(1.7)', delay: .05, clearProps: 'all' });
+      gsap.from('.bs-nav__brand > *', { opacity: 0, y: 8, duration: .55, stagger: .09, ease: 'power2.out', delay: .18, clearProps: 'all' });
+    }
+
+    // ScrollTrigger sin GSAP queda indefinido a efectos prácticos: se exigen ambos.
+    if (typeof ScrollTrigger !== 'undefined' && typeof gsap !== 'undefined') {
       ScrollTrigger.create({
         start: 'top -50px',
         onEnter: function () { nav.classList.add('bs-nav--scrolled'); },
@@ -175,6 +188,57 @@
     };
     window.addEventListener('scroll', actualizarNav, { passive: true });
     actualizarNav();
+  }
+
+  // ── Sección activa: marca el enlace correspondiente según el scroll ──
+  function initNavScrollSpy() {
+    var enlaces = Array.prototype.slice.call(
+      document.querySelectorAll('.bs-nav__links a[data-section], .bs-nav__mobile a[data-section]')
+    );
+    if (!enlaces.length) return;
+
+    // Secciones únicas en orden de documento (evita duplicados escritorio/móvil).
+    var secciones = [];
+    enlaces.forEach(function (enlace) {
+      var id = enlace.getAttribute('data-section');
+      var el = id ? document.getElementById(id) : null;
+      if (el && secciones.indexOf(el) === -1) secciones.push(el);
+    });
+    if (!secciones.length) return;
+
+    var activa = null;
+    var pendiente = false;
+
+    function marcar(id) {
+      if (id === activa) return;
+      activa = id;
+      enlaces.forEach(function (enlace) {
+        var on = enlace.getAttribute('data-section') === id;
+        enlace.classList.toggle('is-active', on);
+        if (on) enlace.setAttribute('aria-current', 'true');
+        else enlace.removeAttribute('aria-current');
+      });
+    }
+
+    function calcular() {
+      pendiente = false;
+      var referencia = window.innerHeight * 0.35;
+      var actual = null;
+      secciones.forEach(function (seccion) {
+        if (seccion.getBoundingClientRect().top <= referencia) actual = seccion.id;
+      });
+      marcar(actual);
+    }
+
+    function alDesplazar() {
+      if (pendiente) return;
+      pendiente = true;
+      window.requestAnimationFrame(calcular);
+    }
+
+    window.addEventListener('scroll', alDesplazar, { passive: true });
+    window.addEventListener('resize', alDesplazar, { passive: true });
+    calcular();
   }
 
   // ──────────────────────────────────────────────────────────

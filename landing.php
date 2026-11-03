@@ -53,6 +53,9 @@ $anio = (new DateTimeImmutable('now', new DateTimeZone('America/Bogota')))->form
   <!-- Preload imagen LCP -->
   <link rel="preload" as="image" href="assets/landing/apicultor-hero.webp" fetchpriority="high">
 
+  <!-- Preload del icono de marca (visible en la barra superior al instante) -->
+  <link rel="preload" as="image" href="assets/landing/logo-beestation-mark.png">
+
   <!-- Preload de fuentes críticas (locales, sin peticiones externas) -->
   <link rel="preload" href="assets/fonts/bricolage-grotesque-latin.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="preload" href="assets/fonts/manrope-latin.woff2" as="font" type="font/woff2" crossorigin>
@@ -76,26 +79,30 @@ $anio = (new DateTimeImmutable('now', new DateTimeZone('America/Bogota')))->form
 <header id="bs-nav" role="banner">
   <div class="bs-nav__inner">
 
-    <!-- Logo -->
-    <a href="landing.php" class="bs-nav__logo" aria-label="BeeStation inicio">
-      <svg class="bs-nav__logo-hex" viewBox="0 0 38 38" fill="none" aria-hidden="true">
-        <path d="M19 2 L35 11 L35 27 L19 36 L3 27 L3 11 Z" fill="none" stroke="#F59E0B" stroke-width="1.5"/>
-        <path d="M19 8 L30 14 L30 24 L19 30 L8 24 L8 14 Z" fill="rgba(245,158,11,0.08)" stroke="#F59E0B" stroke-width="1"/>
-        <circle cx="19" cy="19" r="4" fill="#F59E0B" opacity=".9"/>
-      </svg>
-      <div>
+    <!-- Logo oficial: icono BeeStation + nombre -->
+    <a href="landing.php" class="bs-nav__logo" aria-label="BeeStation — inicio">
+      <img
+        class="bs-nav__logo-mark"
+        src="assets/landing/logo-beestation-mark.png"
+        alt=""
+        width="44"
+        height="44"
+        decoding="async"
+        fetchpriority="high"
+      >
+      <span class="bs-nav__brand">
         <span class="bs-nav__brand-name">BeeStation</span>
         <span class="bs-nav__brand-sub">Observa · Cuida · Conecta</span>
-      </div>
+      </span>
     </a>
 
     <!-- Links escritorio -->
-    <nav aria-label="Navegación principal">
+    <nav class="bs-nav__nav" aria-label="Navegación principal">
       <ul class="bs-nav__links">
-        <li><a href="#bs-proposito">Explorar</a></li>
-        <li><a href="#bs-como-funciona">Tecnología</a></li>
-        <li><a href="#bs-tecnologia">Sensores</a></li>
-        <li><a href="#bs-territorio">Nuestro propósito</a></li>
+        <li><a href="#bs-proposito" data-section="bs-proposito">Propósito</a></li>
+        <li><a href="#bs-como-funciona" data-section="bs-como-funciona">Cómo funciona</a></li>
+        <li><a href="#bs-tecnologia" data-section="bs-tecnologia">Tecnología</a></li>
+        <li><a href="#bs-territorio" data-section="bs-territorio">Territorio</a></li>
       </ul>
     </nav>
 
@@ -115,10 +122,10 @@ $anio = (new DateTimeImmutable('now', new DateTimeZone('America/Bogota')))->form
 <!-- Menú móvil -->
 <div id="bs-mobile-menu" class="bs-nav__mobile" role="dialog" aria-label="Menú de navegación móvil">
   <ul>
-    <li><a href="#bs-proposito">Explorar</a></li>
-    <li><a href="#bs-como-funciona">Tecnología</a></li>
-    <li><a href="#bs-tecnologia">Sensores</a></li>
-    <li><a href="#bs-territorio">Nuestro propósito</a></li>
+    <li><a href="#bs-proposito" data-section="bs-proposito">Propósito</a></li>
+    <li><a href="#bs-como-funciona" data-section="bs-como-funciona">Cómo funciona</a></li>
+    <li><a href="#bs-tecnologia" data-section="bs-tecnologia">Tecnología</a></li>
+    <li><a href="#bs-territorio" data-section="bs-territorio">Territorio</a></li>
   </ul>
   <div class="bs-nav__mobile-actions">
     <a href="registro.php" class="bs-btn-ghost-full">Crear cuenta</a>
@@ -698,10 +705,15 @@ $anio = (new DateTimeImmutable('now', new DateTimeZone('America/Bogota')))->form
       <!-- Marca -->
       <div class="bs-footer__brand">
         <div class="bs-footer__logo">
-          <svg class="bs-footer__logo-hex" viewBox="0 0 32 32" fill="none" aria-hidden="true">
-            <path d="M16 2 L29 9 L29 23 L16 30 L3 23 L3 9 Z" stroke="#F59E0B" stroke-width="1.5" fill="none"/>
-            <circle cx="16" cy="16" r="3.5" fill="#F59E0B" opacity=".9"/>
-          </svg>
+          <img
+            class="bs-footer__logo-mark"
+            src="assets/landing/logo-beestation-mark.png"
+            alt=""
+            width="40"
+            height="40"
+            loading="lazy"
+            decoding="async"
+          >
           <div>
             <span class="bs-footer__brand-name">BeeStation</span>
             <span class="bs-footer__tagline">Observa · Cuida · Conecta</span>
