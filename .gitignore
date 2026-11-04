@@ -1,5 +1,7 @@
 # ── Credenciales locales: NUNCA versionar ──
 config/db.local.php
+# ── URL canónica local (APP_URL): configuración de despliegue ──
+config/app.local.php
 
 # ── Artefactos generados ──
 repomix-output.xml

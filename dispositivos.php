@@ -16,6 +16,10 @@ require_once __DIR__ . '/includes/auth.php';
 // Módulo de identidad de dispositivos (ECDSA P-256 por nodo, sin token).
 require_once __DIR__ . '/includes/dispositivo.php';
 
+// URL canónica: el endpoint de ingesta se construye con la configuración
+// explícita (APP_URL), nunca con HTTP_HOST ni X-Forwarded-* del cliente.
+require_once __DIR__ . '/includes/url.php';
+
 // Definimos la página activa para el sidebar
 $current_page = 'dispositivos.php';
 
@@ -427,15 +431,23 @@ require_once __DIR__ . '/includes/header.php';
                             </li>
                         </ol>
                         <?php
-                        $proto    = strtolower($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '');
-                        $esquema  = ($proto === 'https' || (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')) ? 'https' : 'http';
-                        $host     = $_SERVER['HTTP_X_FORWARDED_HOST'] ?? $_SERVER['HTTP_HOST'];
-                        $basePath = rtrim(str_replace('\\', '/', dirname($_SERVER['SCRIPT_NAME'])), '/');
-                        $endpoint = $esquema . '://' . $host . $basePath . '/api/ingest.php';
+                        // Endpoint de ingesta. La URL absoluta la resuelve
+                        // includes/url.php con la URL canónica configurada;
+                        // no se leen HTTP_HOST ni X-Forwarded-Host del cliente.
+                        $endpoint     = bee_url_absoluta('api/ingest.php');
+                        $endpointInfo = bee_origen_canonico();
                         ?>
                         <div class="endpoint-box u-mt-2" style="font-size: 0.78rem;">
                             <strong>Endpoint del Hosting:</strong><br>
-                            <code><?= htmlspecialchars($endpoint) ?></code>
+                            <?php if ($endpoint !== null): ?>
+                                <code><?= htmlspecialchars($endpoint) ?></code>
+                            <?php else: ?>
+                                <code>No disponible para este despliegue</code><br>
+                                <span style="opacity: .75;">
+                                    Define <code>APP_URL</code> en <code>config/app.local.php</code>
+                                    (motivo: <?= htmlspecialchars($endpointInfo['motivo']) ?>).
+                                </span>
+                            <?php endif; ?>
                         </div>
                     </div>
                 </div>
